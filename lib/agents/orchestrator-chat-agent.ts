@@ -21,14 +21,12 @@ export async function analyzeUserMessage(
   const decisionTool = {
     description: 'Make a decision about how to respond to the user message',
     inputSchema: z.object({
-      decision: z.enum(['chat_response', 'propose_plan']).describe(
-        'chat_response: Reply directly in chat (for clarifications, simple questions, greetings, or approvals). ' +
-        'propose_plan: Create and show a research plan for user approval (when user asks for research)'
+      decision: z.enum(['chat_response', 'start_research']).describe(
+        'chat_response: Reply directly in chat (for clarifications, simple questions, greetings). ' +
+        'start_research: Start research immediately (when user clearly requests research)'
       ),
       message: z.string().optional().describe('Your chat response message (if decision is chat_response)'),
-      researchObjective: z.string().optional().describe('The research objective (if decision is propose_plan)'),
-      strategy: z.string().optional().describe('Research strategy (if decision is propose_plan)'),
-      questions: z.array(z.string()).optional().describe('3-5 specific research questions (if decision is propose_plan)'),
+      researchObjective: z.string().optional().describe('The research objective (if decision is start_research)'),
       reasoning: z.string().describe('Why you made this decision')
     }),
     execute: async (params: any) => params
@@ -46,40 +44,30 @@ DECISION RULES:
 1. **chat_response** - Use when:
    - User is greeting you ("hi", "hello")
    - User asks a simple question you can answer directly
-   - User's request is vague and you need clarification
-   - User approves a plan ("yes", "go ahead", "looks good")
+   - User's request is vague and you need clarification - ASK questions to understand better
    - User just wants to chat
 
-2. **propose_plan** - Use when:
+2. **start_research** - Use when:
    - User clearly requests research, analysis, or information gathering
    - User asks "research X", "find information about Y", "analyze Z"
-   - The request requires web research to answer properly
-   - Create a strategy and 3-5 specific research questions
+   - The request is specific enough to start researching immediately
+   - NO PLAN APPROVAL NEEDED - just start!
 
 EXAMPLES:
 
 User: "hi"
-→ decision: chat_response, message: "Hello! I'm your research assistant. What would you like me to help you research today?"
+→ decision: chat_response, message: "Hello! I'm your research assistant. What would you like me to research today?"
 
-User: "test"
-→ decision: chat_response, message: "I'd be happy to help! Could you clarify what you'd like me to research or test?"
+User: "I need customers for my platform"
+→ decision: chat_response, message: "I'd be happy to research potential customers! What type of platform is it and what industry or market are you targeting?"
 
-User: "Find the top 3 React state libraries in 2026"
-→ decision: propose_plan,
-   researchObjective: "Research and compare the top 3 React state management libraries in 2026",
-   strategy: "I'll research current popularity metrics, performance benchmarks, and developer experience",
-   questions: ["What are the most popular React state libraries in 2026?", "How do they compare in performance?", "What's the developer experience for each?"]
+User: "Find customers for my audio fact-checking platform"
+→ decision: start_research, researchObjective: "Research target customers for audio fact-checking platform"
 
-User: "I need customers for my audio fact-checking platform"
-→ decision: propose_plan,
-   researchObjective: "Research target customers for audio fact-checking platform",
-   strategy: "I'll identify media companies, podcast producers, and news organizations that need fact-checking",
-   questions: ["Who are the major podcast companies?", "What are their current fact-checking processes?", "What pain points do they have?"]
+User: "Research the top 3 React state libraries in 2026"
+→ decision: start_research, researchObjective: "Research and compare the top 3 React state management libraries in 2026"
 
-User: "yes, go ahead"
-→ decision: chat_response, message: "Great! Starting research now..."
-
-Be conversational and helpful!`;
+Be conversational! If unclear, ask questions. If clear, start research immediately!`;
 
   const result = await generateText({
     model: anthropic('claude-sonnet-4-20250514'),
@@ -98,10 +86,6 @@ Analyze this message and decide how to respond.`,
       type: args.decision,
       message: args.message,
       researchObjective: args.researchObjective,
-      plan: args.strategy && args.questions ? {
-        strategy: args.strategy,
-        questions: args.questions
-      } : undefined,
       reasoning: args.reasoning
     };
   }

@@ -98,11 +98,194 @@ export async function POST(
 
           // Handle decision
           if (decision.type === 'chat_response') {
-            // Check if user is approving a pending plan
-            const pendingPlan = session.currentResearch as any;
+            // Regular chat response
+            const assistantMessage = decision.message || 'I need more information to help you.';
 
-            if (pendingPlan && pendingPlan.pendingApproval && (userMessage.toLowerCase().includes('yes') || userMessage.toLowerCase().includes('go') || userMessage.toLowerCase().includes('proceed'))) {
-              // User approved the plan - start research
+            conversationHistory.push({
+              role: 'assistant',
+              content: assistantMessage,
+              timestamp: new Date().toISOString()
+            });
+
+            await db
+              .update(chatSessions)
+              .set({
+                messages: conversationHistory,
+                updatedAt: new Date()
+              })
+              .where(eq(chatSessions.id, chatSessionId));
+
+            sendEvent({
+              type: 'message',
+              message: assistantMessage,
+              role: 'assistant'
+            });
+
+            sendEvent({
+              type: 'complete'
+            });
+
+          } else if (decision.type === 'start_research') {
+            // Start research immediately - no plan approval needed
+            const researchObjective = decision.researchObjective || userMessage;
+
+            // Clear old brain
+            await db
+              .update(chatSessions)
+              .set({
+                brain: '',
+                updatedAt: new Date()
+              })
+              .where(eq(chatSessions.id, chatSessionId));
+
+            // Tell user we're starting
+            sendEvent({
+              type: 'message',
+              message: "Starting research now...",
+              role: 'assistant'
+            });
+
+            conversationHistory.push({
+              role: 'assistant',
+              content: "Starting research now...",
+              timestamp: new Date().toISOString()
+            });
+
+            await db
+              .update(chatSessions)
+              .set({
+                messages: conversationHistory,
+                updatedAt: new Date()
+              })
+              .where(eq(chatSessions.id, chatSessionId));
+
+            // Start research
+            sendEvent({
+              type: 'research_started',
+              objective: researchObjective
+            });
+
+            // Emit brain clear at start of research
+            sendEvent({
+              type: 'brain_update',
+              brain: ''
+            });
+
+            const result = await executeResearch({
+              chatSessionId,
+              userId: user.id,
+              researchObjective,
+              onProgress: (update) => {
+                // Convert progress to chat messages - full transparency
+                if (update.type === 'brain_update') {
+                  // Pass through brain updates to frontend
+                  sendEvent({
+                    type: 'brain_update',
+                    brain: update.brain
+                  });
+                } else if (update.type === 'research_query') {
+                  sendEvent({
+                    type: 'message',
+                    message: `🔍 **Searching:** "${update.query}"`,
+                    role: 'assistant'
+                  });
+                } else if (update.type === 'search_result') {
+                  // Show the full search result with sources
+                  let resultMessage = `📄 **Search Result:**\n\n---\n\n${update.answer}`;
+
+                  // Add sources if available
+                  if (update.sources && update.sources.length > 0) {
+                    resultMessage += `\n\n---\n\n**📚 Sources:**\n`;
+                    update.sources.forEach((source: any, idx: number) => {
+                      if (typeof source === 'string') {
+                        resultMessage += `${idx + 1}. ${source}\n`;
+                      } else if (source.url) {
+                        resultMessage += `${idx + 1}. [${source.title || source.url}](${source.url})\n`;
+                      }
+                    });
+                  }
+
+                  sendEvent({
+                    type: 'message',
+                    message: resultMessage,
+                    role: 'assistant'
+                  });
+                } else if (update.type === 'agent_thinking') {
+                  sendEvent({
+                    type: 'message',
+                    message: `💭 **Agent Reasoning:** ${update.thinking}`,
+                    role: 'assistant'
+                  });
+                }
+              }
+            });
+
+            // Get final brain
+            const [updatedSession] = await db
+              .select({ brain: chatSessions.brain, messages: chatSessions.messages })
+              .from(chatSessions)
+              .where(eq(chatSessions.id, chatSessionId));
+
+            const finalMessage = `✅ **Research Complete**\n\nHere's what I found:\n\n${updatedSession?.brain?.substring(updatedSession.brain.length - 2000) || 'Research completed.'}`;
+
+            const updatedMessages = updatedSession?.messages as any[] || conversationHistory;
+            updatedMessages.push({
+              role: 'assistant',
+              content: finalMessage,
+              timestamp: new Date().toISOString()
+            });
+
+            await db
+              .update(chatSessions)
+              .set({
+                messages: updatedMessages,
+                updatedAt: new Date()
+              })
+              .where(eq(chatSessions.id, chatSessionId));
+
+            sendEvent({
+              type: 'message',
+              message: finalMessage,
+              role: 'assistant'
+            });
+
+            sendEvent({
+              type: 'complete'
+            });
+          }
+
+        } catch (error: any) {
+          console.error('Error processing message:', error);
+          sendEvent({
+            type: 'error',
+            message: error.message || 'An error occurred'
+          });
+        } finally {
+          controller.close();
+        }
+      }
+    });
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive'
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Error in message route:', error);
+    return new Response(
+      JSON.stringify({ error: 'Failed to process message', details: error.message }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+}
+
+/* DEAD CODE REMOVED - OLD PLAN APPROVAL LOGIC
+            if (pendingPlan && pendingPlan.pendingApproval) {
+              // This is now deleted - no more plan approval
               sendEvent({
                 type: 'message',
                 message: "Great! Starting research now...",
