@@ -1,8 +1,7 @@
-import { generateText } from 'ai';
+import { ToolLoopAgent, tool } from 'ai';
 import { anthropic } from '@ai-sdk/anthropic';
 import { perplexityResearch } from '@/lib/tools/perplexity-research';
 import { completionTool } from '@/lib/tools/completion-tool';
-import { createResearchPlan, summarizeFindings } from '@/lib/tools/planning-tool';
 import { db } from '@/lib/db';
 import { chatSessions } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -17,7 +16,7 @@ interface ResearchExecutorConfig {
 }
 
 /**
- * Research Executor Agent - Spawned by orchestrator to conduct autonomous research
+ * Research Executor Agent - Uses ToolLoopAgent for multi-step autonomous research
  * Updates the shared brain in chat_sessions table
  */
 export async function executeResearch(config: ResearchExecutorConfig) {
@@ -28,33 +27,27 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     onProgress
   } = config;
 
-  let currentIteration = 0;
-  let shouldStop = false;
   let totalCreditsUsed = 0;
-  const MAX_SAFETY_ITERATIONS = 50; // Safety limit to prevent runaway
+  const MAX_STEPS = 30;
 
   // Create brain update tool specific to this chat session
-  const updateBrainTool = {
-    description: 'Add research findings to the shared conversation brain. Use this after each research query to accumulate knowledge.',
+  const updateBrainTool = tool({
+    description: 'Save research findings to the knowledge base. Call this after each search to accumulate knowledge.',
     inputSchema: z.object({
-      findings: z.string().describe('The new findings to add to the brain'),
-      category: z.string().optional().describe('Category or topic for organizing findings')
+      findings: z.string().describe('The findings to save'),
+      category: z.string().optional().describe('Category for organizing')
     }),
-    execute: async ({ findings, category }: { findings: string; category?: string }) => {
-      // Get current brain
+    execute: async ({ findings, category }) => {
       const [session] = await db
         .select({ brain: chatSessions.brain })
         .from(chatSessions)
         .where(eq(chatSessions.id, chatSessionId));
 
       const currentBrain = session?.brain || '';
-
-      // Append new findings
       const timestamp = new Date().toLocaleString();
       const newEntry = `\n\n## ${category || 'Research Finding'} (${timestamp})\n\n${findings}\n`;
       const updatedBrain = currentBrain + newEntry;
 
-      // Save to chat session
       await db
         .update(chatSessions)
         .set({
@@ -63,483 +56,169 @@ export async function executeResearch(config: ResearchExecutorConfig) {
         })
         .where(eq(chatSessions.id, chatSessionId));
 
+      // Emit brain update
+      onProgress?.({
+        type: 'brain_update',
+        brain: updatedBrain
+      });
+
       return {
         success: true,
         brainSize: updatedBrain.length,
-        message: 'Brain updated with new findings',
         brain: updatedBrain
       };
     }
-  };
-
-  // Clarification tool for asking user questions
-  const askClarificationTool = {
-    description: 'Ask the user a clarifying question when you need more information or direction to continue research effectively.',
-    inputSchema: z.object({
-      question: z.string().describe('The question to ask the user'),
-      context: z.string().describe('Why you need this clarification and what you have found so far')
-    }),
-    execute: async ({ question, context }: { question: string; context: string }) => {
-      return {
-        needsClarification: true,
-        question,
-        context
-      };
-    }
-  };
+  });
 
   const tools = {
-    createResearchPlan,
-    perplexityResearch,
-    updateBrain: updateBrainTool,
-    summarizeFindings,
-    askClarification: askClarificationTool,
+    search: perplexityResearch,
+    saveToBrain: updateBrainTool,
     complete: completionTool
   };
 
-  const systemPrompt = `You are a research executor agent. You MUST use tools to do research.
+  const instructions = `You are a strategic research agent. Your objective: "${researchObjective}"
 
-YOUR RESEARCH OBJECTIVE:
-"${researchObjective}"
+FIRST: Understand the deliverable
+- What exactly does the user need as the end result?
+- If objective is "find companies that need X" → deliverable is a LIST of companies with: name, why they need it, scale, contact approach
+- If objective is "research how X works" → deliverable is a comprehensive EXPLANATION with examples
+- If objective is "compare X vs Y" → deliverable is a detailed COMPARISON with pros/cons
 
-CRITICAL: You MUST call tools on every turn. Thinking alone doesn't count - CALL THE TOOLS!
+STRATEGIC APPROACH:
+Think about your research strategy to get that deliverable:
+- "Okay, so to get [deliverable], I'd probably first search for [broad category]..."
+- "Then once I have those, I'll drill down into each one to find [specific details needed]..."
+- "I'll know I'm done when I have [specific success criteria]..."
 
-THE SIMPLE LOOP:
+EXECUTION:
+1. State what deliverable you're aiming for (1 sentence)
+2. Explain your research strategy (1-2 sentences)
+3. Call search() to execute the first step
+4. React to findings: "Cool! I found X. Now let me dig into the first one..."
+5. Call saveToBrain() after each search with findings
+6. Drill down systematically through each item
+7. Call complete() ONLY when you have the complete deliverable ready
 
-**ITERATION 1:**
-→ CALL createResearchPlan tool with strategy + 3-5 questions
+COMPLETION CRITERIA:
+- For "find companies": Have 5-10 specific companies with detailed profiles
+- For "research topic": Have comprehensive explanation with examples and sources
+- For "compare options": Have detailed comparison with clear recommendations
+- Don't finish early - make sure you have ACTIONABLE, COMPLETE information
 
-**ITERATIONS 2+:**
-→ CALL perplexityResearch to search
-→ Think: "Cool! Found X. This means Y. Now let's search Z..."
-→ CALL updateBrain to save findings
-→ REPEAT
+VIBE:
+- Strategic: "To get you a list of companies, first I'll search for X, then drill into each..."
+- Excited: "Awesome! Found 5 companies. Let me check the first one's details..."
+- Methodical: Work through items one by one until complete
+- Goal-oriented: Always know what the end deliverable looks like
 
-**STOP:**
-→ CALL complete when you have comprehensive answers
+IMPORTANT: You MUST call tools - explaining your plan is good, but you still need to execute searches!
 
-COMMUNICATION STYLE:
-- Be excited: "Awesome!", "Great!", "Interesting!"
-- Connect findings: "I found X, so now let's search for Y..."
-- Think out loud between tool calls
-
-YOU MUST ALWAYS CALL A TOOL - never just think without calling tools!
-
-Current iteration: ${currentIteration + 1}`;
-
-  // Update chat session status
-  await db
-    .update(chatSessions)
-    .set({
-      status: 'researching',
-      currentResearch: {
-        objective: researchObjective,
-        startedAt: new Date().toISOString(),
-        progress: 0
-      },
-      updatedAt: new Date()
-    })
-    .where(eq(chatSessions.id, chatSessionId));
-
-  let conversationContext = `START NEW RESEARCH SESSION
-
-Your objective: "${researchObjective}"
-
-This is a FRESH research session. You have no prior knowledge or context.
-
-MANDATORY FIRST ACTION: Call the createResearchPlan tool NOW with:
-- strategy: Your research approach
-- questions: 3-5 specific research questions
-- reasoning: Why this plan makes sense
-
-DO NOT just think about it - ACTUALLY CALL THE TOOL!`;
-
-  let hasCreatedPlan = false;
-  let fullConversationHistory: string[] = [];
+START: State the deliverable you're aiming for, explain your strategy, then call search() with your first query.`;
 
   try {
-    // Research loop - agent decides when to stop
-    while (!shouldStop && currentIteration < MAX_SAFETY_ITERATIONS) {
-      currentIteration++;
-
-      // Fetch current brain content so agent can see what it's already learned
-      const [currentSession] = await db
-        .select({ brain: chatSessions.brain })
-        .from(chatSessions)
-        .where(eq(chatSessions.id, chatSessionId));
-
-      const currentBrain = currentSession?.brain || '';
-
-      // Update context for subsequent iterations
-      if (currentIteration > 1) {
-        conversationContext = `ITERATION ${currentIteration} - Continue your research
-
-Objective: "${researchObjective}"
-
-**WHAT YOU'VE DONE SO FAR (your own work):**
-${fullConversationHistory.slice(-15).join('\n')}
-
----
-
-${currentBrain ? `**YOUR KNOWLEDGE BASE:**
-${currentBrain}
-
----
-
-` : ''}**NEXT STEP:** Look at what you just found above. Think out loud about what it means, then decide what to search for next to build on these findings.`;
-      }
-
-      // Emit progress
-      onProgress?.({
-        type: 'research_iteration',
-        iteration: currentIteration
-      });
-
-      // Generate and execute tools manually (AI SDK v6 generateText is single-step)
-      let stepCount = 0;
-      let currentPrompt = conversationContext;
-      let finalText = '';
-      let hitStopCondition = false;
-      let stopToolCall: any = null;
-
-      // Multi-step tool loop (up to 5 steps per iteration)
-      while (stepCount < 5 && !hitStopCondition) {
-        const result = await generateText({
-          model: anthropic('claude-sonnet-4-20250514'),
-          system: systemPrompt,
-          prompt: currentPrompt,
-          tools,
-          temperature: 0.3
-        });
-
-        console.log('GenerateText result:', {
-          hasToolCalls: !!result.toolCalls,
-          toolCallCount: result.toolCalls?.length || 0,
-          toolCalls: result.toolCalls?.map(tc => ({
-            name: tc.toolName,
-            fullToolCall: JSON.stringify(tc).substring(0, 200),
-            hasArgs: !!(tc as any).args,
-            hasInput: !!(tc as any).input,
-            argsKeys: Object.keys((tc as any).args || {}),
-            inputKeys: Object.keys((tc as any).input || {})
-          }))
-        });
-
-        // Calculate credits
-        const stepCredits = Math.ceil((result.usage?.totalTokens || 0) / 1000);
+    // Create the ToolLoopAgent - it handles the entire loop automatically
+    const agent = new ToolLoopAgent({
+      model: anthropic('claude-sonnet-4-20250514'),
+      instructions,
+      tools,
+      maxSteps: MAX_STEPS,
+      onStepFinish: async ({ text, toolCalls, toolResults, usage }) => {
+        // Calculate and deduct credits
+        const stepCredits = Math.ceil((usage?.totalTokens || 0) / 1000);
         totalCreditsUsed += stepCredits;
         await deductCredits(userId, stepCredits);
 
-        // Emit thinking and append to brain for context
-        if (result.text) {
-          finalText = result.text;
-
-          // Add to conversation history
-          fullConversationHistory.push(`[YOUR PREVIOUS THOUGHT]: ${result.text}`);
-
+        // Emit agent thinking
+        if (text) {
           onProgress?.({
             type: 'agent_thinking',
-            iteration: currentIteration,
-            thinking: result.text,
-            creditsUsed: stepCredits
+            thinking: text
           });
 
-          // Append agent reasoning to brain
+          // Save reasoning to brain
           const [session] = await db
             .select({ brain: chatSessions.brain })
             .from(chatSessions)
             .where(eq(chatSessions.id, chatSessionId));
 
           const existingBrain = session?.brain || '';
-          const updatedBrain = existingBrain + `\n\n**Agent Reasoning (Iteration ${currentIteration}):** ${result.text}\n`;
+          const updatedBrain = existingBrain + `\n\n**Agent Reasoning:** ${text}\n`;
 
           await db
             .update(chatSessions)
             .set({ brain: updatedBrain, updatedAt: new Date() })
             .where(eq(chatSessions.id, chatSessionId));
 
-          // Emit brain update
           onProgress?.({
             type: 'brain_update',
             brain: updatedBrain
           });
         }
 
-        // Check if there are tool calls
-        if (!result.toolCalls || result.toolCalls.length === 0) {
-          // No more tools to execute
-          console.log('No tool calls, breaking loop');
-          break;
-        }
+        // Process tool calls for progress updates
+        if (toolCalls) {
+          for (const toolCall of toolCalls) {
+            const toolName = toolCall.toolName;
+            const args = toolCall.args;
 
-        // Execute tools and collect results
-        const toolResults: Array<{ toolName: string; result: any }> = [];
+            console.log(`Tool called: ${toolName}`, args);
 
-        for (const toolCall of result.toolCalls) {
-          const args = (toolCall as any).args || (toolCall as any).input;
-          const toolName = toolCall.toolName;
-
-          console.log(`Executing tool: ${toolName}`, { args });
-
-          // Add tool call to conversation history
-          if (toolName === 'perplexityResearch') {
-            fullConversationHistory.push(`[YOU searched for]: "${args?.query}"`);
-          } else if (toolName === 'createResearchPlan') {
-            fullConversationHistory.push(`[YOU created research plan with ${args?.questions?.length} questions]`);
-          } else if (toolName === 'updateBrain') {
-            fullConversationHistory.push(`[YOU saved to brain]: ${args?.category}`);
-          }
-
-          // Emit progress BEFORE execution
-          if (toolName === 'perplexityResearch') {
-            onProgress?.({
-              type: 'research_query',
-              iteration: currentIteration,
-              query: args?.query || 'Searching...',
-              toolName: 'perplexityResearch'
-            });
-          } else if (toolName === 'createResearchPlan') {
-            hasCreatedPlan = true;
-            onProgress?.({
-              type: 'plan_created',
-              iteration: currentIteration,
-              plan: {
-                strategy: args?.strategy,
-                questions: args?.questions,
-                reasoning: args?.reasoning
-              }
-            });
-          } else if (toolName === 'updateBrain') {
-            onProgress?.({
-              type: 'brain_updated',
-              iteration: currentIteration,
-              category: args?.category || 'Research Finding',
-              findings: args?.findings?.substring(0, 200) + '...'
-            });
-          } else if (toolName === 'summarizeFindings') {
-            onProgress?.({
-              type: 'summary_created',
-              iteration: currentIteration,
-              keyInsights: args?.keyInsights
-            });
-          }
-
-          // Execute tool
-          try {
-            const tool = tools[toolName as keyof typeof tools];
-            if (tool && typeof tool.execute === 'function') {
-              if (!args) {
-                console.error(`No args for tool ${toolName}, full toolCall:`, JSON.stringify(toolCall));
-                toolResults.push({ toolName, result: { error: 'No arguments provided' } });
-                fullConversationHistory.push(`[Tool Result]: ERROR - No arguments`);
-                continue;
-              }
-              const toolResult = await tool.execute(args);
-              console.log(`Tool ${toolName} executed successfully:`, toolResult);
-              toolResults.push({ toolName, result: toolResult });
-
-              // Add result to conversation history
-              if (toolName === 'perplexityResearch' && toolResult.answer) {
-                fullConversationHistory.push(`[YOU just got this search result]:\n${toolResult.answer}\n(${toolResult.sources?.length || 0} sources found)`);
-              } else if (toolName === 'updateBrain') {
-                fullConversationHistory.push(`[YOU saved findings to brain]`);
-              }
-
-              // Emit results AFTER execution
-              if (toolName === 'perplexityResearch' && toolResult.answer) {
-                onProgress?.({
-                  type: 'search_result',
-                  iteration: currentIteration,
-                  query: args?.query || 'Search',
-                  answer: toolResult.answer,
-                  sources: toolResult.sources || []
-                });
-              } else if (toolName === 'updateBrain' && toolResult.brain) {
-                // Emit brain update when brain is updated
-                onProgress?.({
-                  type: 'brain_update',
-                  brain: toolResult.brain
-                });
-              }
-            } else {
-              console.error(`Tool ${toolName} not found or no execute function`);
-              toolResults.push({ toolName, result: { error: 'Tool not found' } });
+            // Emit search query
+            if (toolName === 'search') {
+              onProgress?.({
+                type: 'research_query',
+                query: args?.query || 'Searching...'
+              });
             }
-          } catch (error) {
-            console.error(`Error executing tool ${toolName}:`, error);
-            toolResults.push({ toolName, result: { error: String(error) } });
-          }
-
-          // Check for stop conditions
-          if (toolName === 'complete' || toolName === 'askClarification') {
-            // These tools signal we should stop the loop
-            hitStopCondition = true;
-            stopToolCall = { toolName, args, result: toolResults[toolResults.length - 1]?.result };
-            break;
           }
         }
 
-        // If we hit a stop condition, break
-        if (hitStopCondition) break;
+        // Process tool results for search results display
+        if (toolResults) {
+          for (const result of toolResults) {
+            const toolName = result.toolName;
+            const toolResult = result.result;
 
-        // Prepare next prompt - force tool usage
-        currentPrompt = `Your tools executed successfully.
+            // Emit search results
+            if (toolName === 'search' && toolResult?.answer) {
+              let resultMessage = `📄 **Search Result:**\n\n---\n\n${toolResult.answer}`;
 
-Now you MUST:
-1. Think out loud about what you learned
-2. CALL perplexityResearch with your next query
+              if (toolResult.sources && toolResult.sources.length > 0) {
+                resultMessage += `\n\n---\n\n**📚 Sources:**\n`;
+                toolResult.sources.forEach((source: any, idx: number) => {
+                  if (typeof source === 'string') {
+                    resultMessage += `${idx + 1}. ${source}\n`;
+                  } else if (source.url) {
+                    resultMessage += `${idx + 1}. [${source.title || source.url}](${source.url})\n`;
+                  }
+                });
+              }
 
-DO NOT just say you will search - ACTUALLY CALL THE TOOL NOW!`;
-
-        stepCount++;
+              onProgress?.({
+                type: 'search_result',
+                query: result.args?.query,
+                answer: toolResult.answer,
+                sources: toolResult.sources || []
+              });
+            }
+          }
+        }
       }
+    });
 
-      // Check if agent asked for clarification
-      if (stopToolCall && stopToolCall.toolName === 'askClarification') {
-        shouldStop = true;
-        const args = stopToolCall.args;
-
-        // Update chat session to waiting state
-        await db
-          .update(chatSessions)
-          .set({
-            status: 'waiting_for_user',
-            currentResearch: {
-              objective: researchObjective,
-              pendingQuestion: {
-                question: args?.question,
-                context: args?.context
-              },
-              iteration: currentIteration
-            },
-            updatedAt: new Date()
-          })
-          .where(eq(chatSessions.id, chatSessionId));
-
-        onProgress?.({
-          type: 'needs_clarification',
-          question: args?.question,
-          context: args?.context,
-          totalIterations: currentIteration,
-          creditsUsed: totalCreditsUsed
-        });
-
-        return {
-          success: true,
-          needsClarification: true,
-          question: args?.question,
-          context: args?.context,
-          iterations: currentIteration,
-          creditsUsed: totalCreditsUsed,
-          stopReason: 'needs_clarification'
-        };
-      }
-
-      // Check if agent signaled completion
-      if (stopToolCall && stopToolCall.toolName === 'complete') {
-        shouldStop = true;
-
-        // Get final brain state
-        const [finalSession] = await db
-          .select({ brain: chatSessions.brain })
-          .from(chatSessions)
-          .where(eq(chatSessions.id, chatSessionId));
-
-        // Update chat session
-        await db
-          .update(chatSessions)
-          .set({
-            status: 'active',
-            currentResearch: null,
-            creditsUsed: totalCreditsUsed,
-            updatedAt: new Date()
-          })
-          .where(eq(chatSessions.id, chatSessionId));
-
-        onProgress?.({
-          type: 'research_complete',
-          reasoning: stopToolCall.args?.reasoning,
-          totalIterations: currentIteration,
-          creditsUsed: totalCreditsUsed,
-          brainContent: finalSession?.brain || ''
-        });
-
-        return {
-          success: true,
-          iterations: currentIteration,
-          creditsUsed: totalCreditsUsed,
-          brain: finalSession?.brain || '',
-          stopReason: 'goal_achieved'
-        };
-      }
-
-      // Update conversation context for next iteration
-      conversationContext = `Previous iteration completed. ${finalText.substring(0, 200) || 'Continue researching.'}
-
-What's your next step? Continue researching systematically.`;
-
-      // Update progress in database
-      await db
-        .update(chatSessions)
-        .set({
-          currentResearch: {
-            objective: researchObjective,
-            startedAt: new Date().toISOString(),
-            iteration: currentIteration
-          },
-          updatedAt: new Date()
-        })
-        .where(eq(chatSessions.id, chatSessionId));
-    }
-
-    // Safety limit reached (should rarely happen - agent should call complete)
-    const [finalSession] = await db
-      .select({ brain: chatSessions.brain })
-      .from(chatSessions)
-      .where(eq(chatSessions.id, chatSessionId));
-
-    await db
-      .update(chatSessions)
-      .set({
-        status: 'active',
-        currentResearch: null,
-        creditsUsed: totalCreditsUsed,
-        updatedAt: new Date()
-      })
-      .where(eq(chatSessions.id, chatSessionId));
-
-    onProgress?.({
-      type: 'research_complete',
-      totalIterations: currentIteration,
-      creditsUsed: totalCreditsUsed,
-      stopReason: 'safety_limit',
-      brainContent: finalSession?.brain || ''
+    // Execute the agent
+    const result = await agent.generate({
+      prompt: `Research this: "${researchObjective}"\n\nStart by calling the search tool with your first query.`
     });
 
     return {
-      success: true,
-      iterations: currentIteration,
-      creditsUsed: totalCreditsUsed,
-      brain: finalSession?.brain || '',
-      stopReason: 'safety_limit'
+      completed: result.finishReason === 'tool-calls' || result.finishReason === 'stop',
+      iterations: result.steps?.length || 0,
+      creditsUsed: totalCreditsUsed
     };
 
-  } catch (error: any) {
-    // Update chat session on error
-    await db
-      .update(chatSessions)
-      .set({
-        status: 'active',
-        currentResearch: null,
-        updatedAt: new Date()
-      })
-      .where(eq(chatSessions.id, chatSessionId));
-
-    onProgress?.({
-      type: 'error',
-      message: error.message
-    });
-
+  } catch (error) {
+    console.error('Research execution error:', error);
     throw error;
   }
 }

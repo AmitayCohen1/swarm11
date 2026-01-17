@@ -25,7 +25,8 @@
     "react-dom": "19.2.3",
     "react-markdown": "^10.1.0",
     "stripe": "^20.1.0",
-    "zod": "^4.3.5"
+    "zod": "^4.3.5",
+    "zod-to-json-schema": "^3.25.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

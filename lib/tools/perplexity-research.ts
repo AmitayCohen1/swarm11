@@ -1,6 +1,6 @@
-import { z } from 'zod';
 import { perplexity } from '@ai-sdk/perplexity';
-import { generateText } from 'ai';
+import { generateText, tool } from 'ai';
+import { z } from 'zod';
 
 // Retry helper with exponential backoff
 async function executeWithRetry<T>(
@@ -19,14 +19,12 @@ async function executeWithRetry<T>(
   throw new Error('Retry failed');
 }
 
-export const perplexityResearch = {
+export const perplexityResearch = tool({
   description: 'Search the web using Perplexity AI for current information, news, and research. Returns comprehensive answers with cited sources. Use this for gathering factual, up-to-date information.',
-
   inputSchema: z.object({
     query: z.string().describe('The specific research query to investigate. Be precise and focused.')
   }),
-
-  execute: async ({ query }: { query: string }) => {
+  execute: async ({ query }) => {
     // Use Perplexity via AI SDK with retry logic
     const result = await executeWithRetry(async () => {
       const response = await generateText({
@@ -65,4 +63,4 @@ Please provide a concise but comprehensive answer (aim for 300-500 words maximum
       timestamp: new Date().toISOString()
     };
   }
-};
+});

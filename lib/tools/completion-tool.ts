@@ -1,6 +1,7 @@
+import { tool } from 'ai';
 import { z } from 'zod';
 
-export const completionTool = {
+export const completionTool = tool({
   description: 'Signal that the research objective is COMPLETE and you have gathered sufficient information. Call this ONLY when you actively decide the goal is achieved, NOT when running out of credits or iterations. This tool represents an active decision that the research is done.',
 
   inputSchema: z.object({
@@ -9,11 +10,7 @@ export const completionTool = {
     keyFindings: z.array(z.string()).optional().describe('3-5 key findings or insights discovered during research')
   }),
 
-  execute: async ({ reasoning, confidenceLevel, keyFindings }: {
-    reasoning: string;
-    confidenceLevel: 'low' | 'medium' | 'high';
-    keyFindings?: string[]
-  }) => {
+  execute: async ({ reasoning, confidenceLevel, keyFindings }) => {
     // This tool is ONLY for goal achievement, NOT for resource limits
     // Credits/iterations are handled automatically by the agent loop
     return {
@@ -24,4 +21,4 @@ export const completionTool = {
       timestamp: new Date().toISOString()
     };
   }
-};
+});
