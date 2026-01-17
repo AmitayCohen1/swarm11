@@ -7,7 +7,7 @@ export default async function Home() {
 
   // If logged in, go straight to orchestrator
   if (userId) {
-    redirect('/orchestrator');
+    redirect('/autonomous');
   }
 
   // Show landing page for non-logged-in users

@@ -46,7 +46,7 @@ export function useOrchestrator(): UseOrchestratorReturn {
       };
       setMessages([userMsg]);
 
-      const response = await fetch('/api/orchestrator/start', {
+      const response = await fetch('/api/autonomous/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: initialMessage }),
@@ -102,7 +102,7 @@ export function useOrchestrator(): UseOrchestratorReturn {
         };
         setMessages((prev) => [...prev, userMsg]);
 
-        const response = await fetch(`/api/orchestrator/${sessionId}/message`, {
+        const response = await fetch(`/api/autonomous/${sessionId}/message`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message }),
@@ -149,7 +149,7 @@ export function useOrchestrator(): UseOrchestratorReturn {
     setError(null);
 
     try {
-      const response = await fetch(`/api/orchestrator/${sessionId}/stop`, {
+        const response = await fetch(`/api/autonomous/${sessionId}/stop`, {
         method: 'POST',
       });
 

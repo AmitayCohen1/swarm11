@@ -17,7 +17,7 @@
     "@anthropic-ai/sdk": "^0.71.2",
     "@clerk/nextjs": "^6.36.5",
     "@neondatabase/serverless": "^1.0.2",
-    "ai": "^6.0.6",
+    "ai": "^6.0.39",
     "date-fns": "^4.1.0",
     "drizzle-orm": "^0.45.1",
     "next": "16.1.1",

@@ -3,6 +3,7 @@ import { anthropic } from '@ai-sdk/anthropic';
 import { perplexityResearch } from '@/lib/tools/perplexity-research';
 import { createBrainTool } from '@/lib/tools/brain-tool';
 import { completionTool } from '@/lib/tools/completion-tool';
+import { createResearchPlan, summarizeFindings } from '@/lib/tools/planning-tool';
 import { z } from 'zod';
 import { db } from '@/lib/db';
 import { autonomousSessions } from '@/lib/db/schema';
@@ -22,55 +23,108 @@ export async function createAndRunAutonomousAgent(config: AgentConfig) {
 
   // Define askClarification tool
   const askClarification = {
-    description: 'Ask the user a clarifying question if the objective is ambiguous or you need to make a decision. Use this VERY sparingly - only when truly necessary for the research direction.',
+    description: 'Ask the user a clarifying question if the objective is unclear, ambiguous, or missing critical information needed to conduct meaningful research. Use this when you genuinely cannot proceed without user input.',
     inputSchema: z.object({
-      question: z.string().describe('The question to ask the user'),
-      context: z.string().describe('Why you need this clarification and how it affects the research')
+      question: z.string().describe('The specific clarifying question to ask the user'),
+      context: z.string().describe('Explain why this clarification is needed and how it will help the research'),
+      suggestedAnswers: z.array(z.string()).optional().describe('Provide 2-3 example answers to guide the user')
     }),
-    execute: async ({ question, context }: { question: string; context: string }) => {
-      // Return the question for user to answer
+    execute: async ({ question, context, suggestedAnswers }: { question: string; context: string; suggestedAnswers?: string[] }) => {
       return {
         needsUserInput: true,
         question,
-        context
+        context,
+        suggestedAnswers: suggestedAnswers || []
       };
     }
   };
 
   const tools = {
+    askClarification,
+    createResearchPlan,
     perplexityResearch,
+    summarizeFindings,
     updateBrain: createBrainTool(sessionId),
-    complete: completionTool,
-    askClarification
+    complete: completionTool
   };
 
   const systemPrompt = `You are an autonomous research agent. Your objective is:
 
 "${objective}"
 
-Your approach:
-1. Break down the objective into specific, strategic research questions
-2. Use perplexityResearch to gather current information with citations
-3. After EACH research query, use updateBrain to accumulate findings in the knowledge document
-4. You can ask the user for clarification if the objective is ambiguous (use sparingly)
-5. When you have sufficient comprehensive information, call complete to finish
+═══════════════════════════════════════════════════════════════
+STRUCTURED WORKFLOW - Follow these phases in order:
+═══════════════════════════════════════════════════════════════
 
-The "brain" is a markdown document that accumulates all your findings. Think of it as your research notebook - update it frequently to track progress and organize information.
+📋 PHASE 1: ANALYSIS & PLANNING (First iteration only)
+─────────────────────────────────────────────────────────────
+Analyze the objective and decide:
 
-Research Strategy:
-- Be strategic: plan queries to cover different aspects of the objective
-- Each query should build on previous findings
-- Look for gaps in your knowledge and fill them systematically
-- Organize findings by theme/topic in the brain
-- When you have enough high-quality information to fully address the objective, call complete
+Option A - Objective is VAGUE/UNCLEAR (e.g., "test", "research something"):
+→ Call askClarification
+   - Explain what's unclear
+   - Ask specific question
+   - Provide 2-3 example answers
 
-Guidelines:
-- Keep research focused and relevant to the objective
-- Update brain after every research query
-- Quality over quantity - better to do fewer high-value queries
-- Signal completion when the objective is thoroughly addressed, don't waste iterations
+Option B - Objective is CLEAR and SPECIFIC:
+→ Call createResearchPlan
+   - Define your strategy
+   - Generate 3-5 specific research questions
+   - Explain your reasoning
 
-IMPORTANT: Call the 'complete' tool ONLY when you actively decide the research objective is fully achieved. Do NOT call it when running out of credits or iterations - those are handled automatically.`;
+🔍 PHASE 2: RESEARCH EXECUTION
+─────────────────────────────────────────────────────────────
+For each question in your plan:
+
+1. Call perplexityResearch(query="specific question")
+2. IMMEDIATELY call updateBrain(findings="...", category="...")
+3. Repeat for all questions
+
+MANDATORY: Never call perplexityResearch without updateBrain right after!
+
+📊 PHASE 3: CONSOLIDATION (Optional, after several queries)
+─────────────────────────────────────────────────────────────
+Call summarizeFindings to:
+- Synthesize what you've learned
+- Identify key insights
+- Spot knowledge gaps
+- Plan next steps if needed
+
+✅ PHASE 4: COMPLETION
+─────────────────────────────────────────────────────────────
+When you have comprehensive information:
+→ Call complete(reasoning="...", confidenceLevel="high/medium/low", keyFindings=[...])
+
+═══════════════════════════════════════════════════════════════
+EXAMPLES:
+═══════════════════════════════════════════════════════════════
+
+Example 1: Vague objective "test"
+Iteration 1: askClarification("What would you like me to research?...")
+
+Example 2: Clear objective "Top 3 React state libraries in 2026"
+Iteration 1: createResearchPlan(
+  strategy="Research current state management landscape",
+  questions=[
+    "What are the most popular React state management libraries in 2026?",
+    "What are the key features and use cases for each?",
+    "What do developers say about pros/cons?"
+  ]
+)
+Iteration 2: perplexityResearch("most popular React state...") → updateBrain
+Iteration 3: perplexityResearch("Redux vs Zustand features...") → updateBrain
+Iteration 4: perplexityResearch("developer opinions...") → updateBrain
+Iteration 5: summarizeFindings (optional)
+Iteration 6: complete
+
+═══════════════════════════════════════════════════════════════
+CRITICAL RULES:
+═══════════════════════════════════════════════════════════════
+✓ ALWAYS start with askClarification OR createResearchPlan
+✓ NEVER jump straight into perplexityResearch
+✓ ALWAYS call updateBrain immediately after perplexityResearch
+✓ Organize brain with clear categories
+✓ Think before acting - be strategic, not reactive`;
 
   let currentIteration = 0;
   let totalCreditsUsed = 0;
@@ -78,13 +132,41 @@ IMPORTANT: Call the 'complete' tool ONLY when you actively decide the research o
   let stopReason: string | null = null;
   let completionData: any = null;
 
-  // Start with initial prompt
-  let conversationMessages: any[] = [
-    {
-      role: 'user',
-      content: `Begin researching the objective: ${objective}`
-    }
-  ];
+  // Check if there's a pending response from user (resuming after clarification)
+  const [sessionState] = await db
+    .select({ pendingResponse: autonomousSessions.pendingResponse, pendingQuestion: autonomousSessions.pendingQuestion })
+    .from(autonomousSessions)
+    .where(eq(autonomousSessions.id, sessionId));
+
+  // Conversation prompt
+  let currentPrompt = sessionState?.pendingResponse
+    ? `The user has answered your clarification question.
+
+QUESTION YOU ASKED: ${(sessionState.pendingQuestion as any)?.question || 'N/A'}
+
+USER'S ANSWER: ${sessionState.pendingResponse}
+
+Now proceed with creating a research plan based on this clarification, then execute your research.`
+    : `FIRST ITERATION: Analyze the objective and decide your approach.
+
+Is the objective clear and specific?
+- If NO (vague/unclear): Call askClarification
+- If YES (clear and specific): Call createResearchPlan
+
+Objective: "${objective}"
+
+What's your decision?`;
+
+  // Clear pending response if it exists (we've used it)
+  if (sessionState?.pendingResponse) {
+    await db
+      .update(autonomousSessions)
+      .set({
+        pendingResponse: null,
+        pendingQuestion: null
+      })
+      .where(eq(autonomousSessions.id, sessionId));
+  }
 
   try {
     // Multi-step autonomous loop
@@ -111,11 +193,11 @@ IMPORTANT: Call the 'complete' tool ONLY when you actively decide the research o
         break;
       }
 
-      // Run agent step
+      // Run agent step with maxSteps to allow tool execution
       const result = await generateText({
         model: anthropic('claude-sonnet-4-20250514'),
         system: systemPrompt,
-        messages: conversationMessages,
+        prompt: currentPrompt,
         tools,
         temperature: 0.3
       });
@@ -157,7 +239,7 @@ IMPORTANT: Call the 'complete' tool ONLY when you actively decide the research o
         tokensUsed: result.usage.totalTokens
       });
 
-      // Check if agent called complete tool
+      // Check if agent called complete tool or asked for clarification
       if (result.toolCalls) {
         for (const toolCall of result.toolCalls as any[]) {
           if (toolCall.toolName === 'complete') {
@@ -166,42 +248,50 @@ IMPORTANT: Call the 'complete' tool ONLY when you actively decide the research o
             completionData = toolCall.args || toolCall.input;
             break;
           }
+
+          if (toolCall.toolName === 'askClarification') {
+            shouldStop = true;
+            stopReason = 'needs_clarification';
+
+            const clarificationData = toolCall.args || toolCall.input;
+
+            // Save the pending question to database
+            await db
+              .update(autonomousSessions)
+              .set({
+                status: 'waiting_for_user',
+                pendingQuestion: clarificationData,
+                updatedAt: new Date()
+              })
+              .where(eq(autonomousSessions.id, sessionId));
+
+            break;
+          }
         }
       }
 
-      // Add assistant response to conversation
-      conversationMessages.push({
-        role: 'assistant',
-        content: result.text || '',
-        toolCalls: result.toolCalls
-      });
-
-      // Add tool results to conversation
-      if (result.toolResults) {
-        conversationMessages.push({
-          role: 'tool',
-          content: result.toolResults.map((tr: any) => ({
-            type: 'tool-result',
-            toolCallId: tr.toolCallId,
-            toolName: tr.toolName,
-            result: tr.result || tr.output
-          }))
-        });
-      }
-
-      // If no more tool calls and no completion, continue
-      if (!result.toolCalls || result.toolCalls.length === 0) {
-        // Agent didn't make any tool calls, prompt it to continue
-        conversationMessages.push({
-          role: 'user',
-          content: 'Continue your research. What is the next step?'
-        });
+      // Update prompt for next iteration based on progress
+      if (currentIteration === 1) {
+        currentPrompt = 'Execute your research plan. Start with the first research query, then immediately save findings to the brain.';
+      } else {
+        currentPrompt = 'Continue executing your research plan. Remember: perplexityResearch → updateBrain for each question.';
       }
     }
 
     // Determine final stop reason
     if (!stopReason) {
       stopReason = currentIteration >= maxIterations ? 'max_queries' : 'unknown';
+    }
+
+    // If agent needs clarification, return early without generating report
+    if (stopReason === 'needs_clarification') {
+      return {
+        success: true,
+        needsClarification: true,
+        stopReason,
+        totalSteps: currentIteration,
+        creditsUsed: totalCreditsUsed
+      };
     }
 
     // Get final brain state

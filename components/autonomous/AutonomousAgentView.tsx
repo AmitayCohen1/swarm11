@@ -13,12 +13,15 @@ export default function AutonomousAgentView() {
     finalReport,
     error,
     stopReason,
+    pendingQuestion,
     startSession,
-    stopSession
+    stopSession,
+    submitAnswer
   } = useAutonomousAgent();
 
   const [objective, setObjective] = useState('');
   const [maxQueries, setMaxQueries] = useState(20);
+  const [userAnswer, setUserAnswer] = useState('');
 
   const handleStart = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,6 +98,7 @@ export default function AutonomousAgentView() {
             <div className="font-semibold text-lg">
               {status === 'starting' && '⏳ Initializing...'}
               {status === 'running' && '🔄 Research in Progress'}
+              {status === 'needs_clarification' && '❓ Needs Clarification'}
               {status === 'completed' && '✅ Research Complete'}
               {status === 'error' && '❌ Error'}
             </div>
@@ -112,6 +116,51 @@ export default function AutonomousAgentView() {
               Stop Research
             </button>
           )}
+        </div>
+      )}
+
+      {/* Clarification Question */}
+      {status === 'needs_clarification' && pendingQuestion && (
+        <div className="border rounded-lg p-6 bg-blue-50 border-blue-200 shadow-sm">
+          <div className="flex items-start gap-3 mb-4">
+            <div className="text-2xl">❓</div>
+            <div>
+              <h3 className="font-bold text-lg mb-2">The agent needs clarification</h3>
+              <div className="text-sm text-gray-600 mb-3">
+                <strong>Context:</strong> {pendingQuestion.context}
+              </div>
+              <div className="font-semibold mb-3">{pendingQuestion.question}</div>
+            </div>
+          </div>
+
+          <textarea
+            value={userAnswer}
+            onChange={(e) => setUserAnswer(e.target.value)}
+            placeholder="Type your answer here..."
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-3"
+            rows={3}
+          />
+
+          <div className="flex gap-3">
+            <button
+              onClick={async () => {
+                if (userAnswer.trim()) {
+                  await submitAnswer(userAnswer);
+                  setUserAnswer(''); // Clear the input
+                }
+              }}
+              disabled={!userAnswer.trim()}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Submit Answer & Continue Research
+            </button>
+            <button
+              onClick={handleReset}
+              className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
+            >
+              Cancel & Start Over
+            </button>
+          </div>
         </div>
       )}
 

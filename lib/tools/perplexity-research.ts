@@ -29,22 +29,37 @@ export const perplexityResearch = {
   execute: async ({ query }: { query: string }) => {
     // Use Perplexity via AI SDK with retry logic
     const result = await executeWithRetry(async () => {
-      const { text, usage } = await generateText({
+      const response = await generateText({
         model: perplexity('sonar-pro'),
-        prompt: query,
+        prompt: `${query}
+
+Please provide a concise but comprehensive answer (aim for 300-500 words maximum).`,
         temperature: 0.2
       });
 
       return {
-        text,
-        usage
+        text: response.text,
+        usage: response.usage,
+        // Extract sources if available from response metadata
+        sources: (response as any).sources || (response as any).response?.sources || []
+      };
+    });
+
+    // Format sources for display
+    const sources = result.sources.map((source: any) => {
+      if (typeof source === 'string') {
+        return source;
+      }
+      return {
+        title: source.title || source.name || 'Source',
+        url: source.url || source.link || source
       };
     });
 
     return {
       query,
       answer: result.text,
-      sources: [], // Perplexity sources handling
+      sources,
       creditsUsed: 50, // Fixed cost per research query
       tokensUsed: result.usage.totalTokens,
       timestamp: new Date().toISOString()

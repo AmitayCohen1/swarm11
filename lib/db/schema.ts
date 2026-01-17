@@ -35,19 +35,6 @@ export const toolCalls = pgTable("tool_calls", {
   timestamp: timestamp("timestamp").defaultNow().notNull(),
 });
 
-// Orchestrator sessions table - tracks orchestrator agent conversations
-export const orchestratorSessions = pgTable("orchestrator_sessions", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  userId: uuid("user_id").notNull().references(() => users.id),
-  status: text("status").notNull().default("active"), // "active" | "completed" | "stopped"
-  creditsUsed: integer("credits_used").notNull().default(0),
-  conversationHistory: jsonb("conversation_history").default([]), // Orchestrator conversation
-  currentDocument: text("current_document"), // Optional accumulated knowledge
-  lastResearchResult: jsonb("last_research_result"), // Last research tool output
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
-
 // Type exports for TypeScript
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -57,9 +44,6 @@ export type NewResearchSession = typeof researchSessions.$inferInsert;
 
 export type ToolCall = typeof toolCalls.$inferSelect;
 export type NewToolCall = typeof toolCalls.$inferInsert;
-
-export type OrchestratorSession = typeof orchestratorSessions.$inferSelect;
-export type NewOrchestratorSession = typeof orchestratorSessions.$inferInsert;
 
 // Autonomous sessions table - AI SDK v6 ToolLoopAgent pattern
 export const autonomousSessions = pgTable("autonomous_sessions", {
@@ -92,3 +76,33 @@ export const autonomousSessions = pgTable("autonomous_sessions", {
 
 export type AutonomousSession = typeof autonomousSessions.$inferSelect;
 export type NewAutonomousSession = typeof autonomousSessions.$inferInsert;
+
+// Chat sessions table - orchestrator pattern with shared brain
+export const chatSessions = pgTable("chat_sessions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id),
+
+  // Conversation history (all messages: user, assistant, research)
+  messages: jsonb("messages").default([]).notNull(),
+
+  // Shared brain - accumulated research knowledge
+  brain: text("brain").default(""),
+
+  // Status
+  status: text("status").notNull().default("active"),
+  // Values: 'active' | 'researching' | 'completed'
+
+  // Credits tracking
+  creditsUsed: integer("credits_used").notNull().default(0),
+
+  // Research state (when research agent is running)
+  currentResearch: jsonb("current_research"),
+  // { objective: string, questionsPlanned: string[], progress: number }
+
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull()
+});
+
+export type ChatSession = typeof chatSessions.$inferSelect;
+export type NewChatSession = typeof chatSessions.$inferInsert;

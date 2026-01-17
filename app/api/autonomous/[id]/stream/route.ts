@@ -51,14 +51,31 @@ export async function GET(
           }
         });
 
-        // Send completion event
-        sendEvent({
-          type: 'completed',
-          finalReport: result.finalReport,
-          stopReason: result.stopReason,
-          totalSteps: result.totalSteps,
-          creditsUsed: result.creditsUsed
-        });
+        // Check if agent needs clarification
+        if (result.needsClarification) {
+          // Get the pending question from database
+          const [sessionWithQuestion] = await db
+            .select({ pendingQuestion: autonomousSessions.pendingQuestion })
+            .from(autonomousSessions)
+            .where(eq(autonomousSessions.id, sessionId));
+
+          sendEvent({
+            type: 'needs_clarification',
+            question: sessionWithQuestion?.pendingQuestion,
+            stopReason: result.stopReason,
+            totalSteps: result.totalSteps,
+            creditsUsed: result.creditsUsed
+          });
+        } else {
+          // Send completion event
+          sendEvent({
+            type: 'completed',
+            finalReport: result.finalReport,
+            stopReason: result.stopReason,
+            totalSteps: result.totalSteps,
+            creditsUsed: result.creditsUsed
+          });
+        }
 
       } catch (error: any) {
         console.error('Agent execution error:', error);
