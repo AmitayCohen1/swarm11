@@ -156,8 +156,7 @@ export function useChatAgent() {
             metadata: update.metadata
           };
           setMessages(prev => [...prev, assistantMessage]);
-          setIsResearching(false);
-          setStatus('ready');
+          // Don't set isResearching to false here - wait for 'complete' event
         } else if (update.type === 'complete') {
           setStatus('ready');
           setIsResearching(false);

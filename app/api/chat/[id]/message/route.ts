@@ -26,10 +26,25 @@ export async function POST(
   const chatSessionId = params.id;
 
   try {
-    const { message: userMessage } = await req.json();
+    // Parse JSON with error handling
+    let body;
+    try {
+      body = await req.json();
+    } catch (jsonError) {
+      console.error('Failed to parse request body:', jsonError);
+      return new Response(
+        JSON.stringify({ error: 'Invalid JSON body' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const { message: userMessage } = body;
 
     if (!userMessage?.trim()) {
-      return new Response('Message is required', { status: 400 });
+      return new Response(
+        JSON.stringify({ error: 'Message is required' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
     }
 
     // Get chat session
@@ -129,25 +144,28 @@ export async function POST(
             // Start research immediately - no plan approval needed
             const researchObjective = decision.researchObjective || userMessage;
 
-            // Clear old brain
+            // Clear old brain and set status to researching
             await db
               .update(chatSessions)
               .set({
                 brain: '',
+                status: 'researching',
                 updatedAt: new Date()
               })
               .where(eq(chatSessions.id, chatSessionId));
 
-            // Tell user we're starting
+            // Send confirmation message if provided, otherwise default message
+            const startMessage = decision.confirmationMessage || "Starting research now...";
+
             sendEvent({
               type: 'message',
-              message: "Starting research now...",
+              message: startMessage,
               role: 'assistant'
             });
 
             conversationHistory.push({
               role: 'assistant',
-              content: "Starting research now...",
+              content: startMessage,
               timestamp: new Date().toISOString()
             });
 
@@ -171,54 +189,71 @@ export async function POST(
               brain: ''
             });
 
-            const result = await executeResearch({
-              chatSessionId,
-              userId: user.id,
-              researchObjective,
-              onProgress: (update) => {
-                // Convert progress to chat messages - full transparency
-                if (update.type === 'brain_update') {
-                  // Pass through brain updates to frontend
-                  sendEvent({
-                    type: 'brain_update',
-                    brain: update.brain
-                  });
-                } else if (update.type === 'research_query') {
-                  sendEvent({
-                    type: 'message',
-                    message: `🔍 **Searching:** "${update.query}"`,
-                    role: 'assistant'
-                  });
-                } else if (update.type === 'search_result') {
-                  // Show the full search result with sources
-                  let resultMessage = `📄 **Search Result:**\n\n---\n\n${update.answer}`;
+            try {
+              const result = await executeResearch({
+                chatSessionId,
+                userId: user.id,
+                researchObjective,
+                onProgress: (update) => {
+                  // Convert progress to chat messages - full transparency
+                  if (update.type === 'brain_update') {
+                    // Pass through brain updates to frontend
+                    sendEvent({
+                      type: 'brain_update',
+                      brain: update.brain
+                    });
+                  } else if (update.type === 'research_query') {
+                    sendEvent({
+                      type: 'message',
+                      message: `🔍 **Searching:** "${update.query}"`,
+                      role: 'assistant'
+                    });
+                  } else if (update.type === 'search_result') {
+                    // Show the full search result with sources
+                    let resultMessage = `📄 **Search Result:**\n\n---\n\n${update.answer}`;
 
-                  // Add sources if available
-                  if (update.sources && update.sources.length > 0) {
-                    resultMessage += `\n\n---\n\n**📚 Sources:**\n`;
-                    update.sources.forEach((source: any, idx: number) => {
-                      if (typeof source === 'string') {
-                        resultMessage += `${idx + 1}. ${source}\n`;
-                      } else if (source.url) {
-                        resultMessage += `${idx + 1}. [${source.title || source.url}](${source.url})\n`;
-                      }
+                    // Add sources if available
+                    if (update.sources && update.sources.length > 0) {
+                      resultMessage += `\n\n---\n\n**📚 Sources:**\n`;
+                      update.sources.forEach((source: any, idx: number) => {
+                        if (typeof source === 'string') {
+                          resultMessage += `${idx + 1}. ${source}\n`;
+                        } else if (source.url) {
+                          resultMessage += `${idx + 1}. [${source.title || source.url}](${source.url})\n`;
+                        }
+                      });
+                    }
+
+                    sendEvent({
+                      type: 'message',
+                      message: resultMessage,
+                      role: 'assistant'
+                    });
+                  } else if (update.type === 'agent_thinking') {
+                    sendEvent({
+                      type: 'message',
+                      message: `💭 **Agent Reasoning:** ${update.thinking}`,
+                      role: 'assistant'
                     });
                   }
-
-                  sendEvent({
-                    type: 'message',
-                    message: resultMessage,
-                    role: 'assistant'
-                  });
-                } else if (update.type === 'agent_thinking') {
-                  sendEvent({
-                    type: 'message',
-                    message: `💭 **Agent Reasoning:** ${update.thinking}`,
-                    role: 'assistant'
-                  });
                 }
+              });
+            } catch (researchError: any) {
+              // Check if research was stopped by user
+              if (researchError.message === 'Research stopped by user') {
+                sendEvent({
+                  type: 'message',
+                  message: '⏸️ **Research stopped**',
+                  role: 'assistant'
+                });
+                sendEvent({
+                  type: 'complete'
+                });
+                return; // Exit early
               }
-            });
+              // Re-throw other errors to be caught by outer catch
+              throw researchError;
+            }
 
             // Get final brain
             const [updatedSession] = await db
@@ -239,6 +274,7 @@ export async function POST(
               .update(chatSessions)
               .set({
                 messages: updatedMessages,
+                status: 'active', // Research complete, back to active
                 updatedAt: new Date()
               })
               .where(eq(chatSessions.id, chatSessionId));

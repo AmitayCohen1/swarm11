@@ -64,13 +64,13 @@ npm run db:push
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-### 5. Set Up Perplexity AI
+### 5. Set Up Tavily AI
 
-1. Go to [perplexity.ai/settings/api](https://www.perplexity.ai/settings/api)
-2. Create an API key
+1. Go to [tavily.com](https://tavily.com) and create an account
+2. Get your API key from the dashboard
 3. Add to `.env.local`:
 ```bash
-PERPLEXITY_API_KEY=pplx-...
+TAVILY_API_KEY=tvly-...
 ```
 
 ### 6. Set Up Stripe
@@ -115,35 +115,39 @@ Visit `http://localhost:3000`
 
 ## How It Works
 
-### Orchestrator Agent Flow
+### Chat Orchestrator Flow
 
 1. **User sends message**: Any question or request
-2. **Orchestrator decides**:
-   - `respond`: Answer directly (casual conversation, simple questions)
-   - `research`: Use research tool (complex questions, need citations)
-   - `clarify`: Ask for more information (ambiguous requests)
+2. **Orchestrator analyzes** the message and decides:
+   - `chat_response`: Answer directly (casual conversation, simple questions, clarifications)
+   - `start_research`: Launch autonomous research (complex questions requiring web research)
 3. **If research needed**:
-   - Research tool generates 3-5 focused questions
-   - Executes them in parallel via Perplexity AI
-   - Synthesizes comprehensive findings with citations
-4. **Present results**: Structured output with key findings, sources, confidence level
-
-See [ORCHESTRATOR.md](./ORCHESTRATOR.md) for detailed documentation.
+   - Research executor agent runs autonomously for up to 30 steps
+   - Searches web using Perplexity AI
+   - Accumulates findings in a shared "brain"
+   - Updates chat in real-time with progress
+4. **Present results**: Comprehensive research with sources streamed to chat
 
 ### Architecture
 
-- **Orchestrator Agent**: Decision-making agent that routes requests
-- **Research Tool**: Specialized tool for deep research with Perplexity
-- **Modular Design**: Clean separation between orchestration and research
-- **Conversation history**: Maintains full context across messages
-- **Real-time updates**: Modern chat interface with immediate feedback
+- **Chat Interface** (`/chat`): Conversational UI with message history and brain panel
+- **Orchestrator Agent**: Analyzes messages and routes to appropriate handler
+- **Adaptive Research Executor**: Autonomous agent that learns and pivots during research
+  - Evaluates results after each search
+  - Pivots strategy based on findings
+  - Progressively narrows from 100 → 10 → 3 → 1
+  - Cross-references across multiple sources
+- **Shared Brain**: Structured knowledge base with resources, insights, and reflections
+- **SSE Streaming**: Real-time updates for research progress
+- **Tavily Search**: Deep web search with relevance scoring
 
 ### Credit System
 
 - 1 credit = $0.01 USD
-- Decision making: ~20 credits
-- Research execution: ~160 credits (question generation + Perplexity searches + synthesis)
-- Total per research message: ~200 credits
+- Orchestrator decision: ~20 credits per message
+- Research execution: Varies by complexity (~50-500 credits)
+  - Each Perplexity search: ~10-20 credits
+  - Claude reasoning: ~50-100 credits per step
 - Users get 5000 free credits on signup
 - Can purchase more via Stripe Checkout
 
@@ -162,41 +166,27 @@ See [ORCHESTRATOR.md](./ORCHESTRATOR.md) for detailed documentation.
 }
 ```
 
-### research_sessions
+### chat_sessions
 ```typescript
 {
   id: uuid
   userId: uuid (FK)
-  objective: text
-  document: text
-  status: "active" | "completed" | "stopped" | "insufficient_credits"
+  messages: jsonb (conversation history)
+  brain: text (accumulated research knowledge)
+  status: "active" | "researching" | "completed"
   creditsUsed: integer
-  conversationHistory: jsonb
+  currentResearch: jsonb (active research state)
   createdAt: timestamp
   updatedAt: timestamp
 }
 ```
 
-### tool_calls
-```typescript
-{
-  id: uuid
-  sessionId: uuid (FK)
-  toolName: "web_search"
-  input: jsonb
-  output: jsonb
-  creditsUsed: integer
-  timestamp: timestamp
-}
-```
-
 ## API Routes
 
-### Orchestrator
-- `POST /api/orchestrator/start` - Start conversation with orchestrator
-- `POST /api/orchestrator/[id]/message` - Send message to orchestrator
-- `GET /api/orchestrator/[id]` - Get session state
-- `POST /api/orchestrator/[id]/stop` - Stop orchestrator session
+### Chat
+- `POST /api/chat/start` - Start new chat session
+- `POST /api/chat/[id]/message` - Send message (SSE stream)
+- `POST /api/chat/[id]/stop` - Stop research in progress
 
 ### Credits & Billing
 - `GET /api/credits` - Get user credit balance

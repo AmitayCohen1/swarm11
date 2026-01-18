@@ -57,7 +57,7 @@ export default function CreditsPage() {
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center space-x-4">
               <button
-                onClick={() => router.push('/autonomous')}
+                onClick={() => router.push('/chat')}
                 className="text-gray-500 hover:text-gray-700"
               >
                 <svg

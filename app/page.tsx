@@ -5,9 +5,9 @@ import LandingPage from './LandingPage';
 export default async function Home() {
   const { userId } = await auth();
 
-  // If logged in, go straight to orchestrator
+  // If logged in, go straight to chat
   if (userId) {
-    redirect('/autonomous');
+    redirect('/chat');
   }
 
   // Show landing page for non-logged-in users

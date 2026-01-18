@@ -1,159 +1,143 @@
-# Orchestrator Agent with Research Tool
+# Chat Orchestrator with Research Executor
 
 ## Overview
 
-The Orchestrator Agent is an intelligent agent that decides when to use a dedicated research tool versus responding directly. This creates a clean separation of concerns where:
+The Chat Orchestrator is an intelligent conversational agent that decides when to use autonomous research versus responding directly. This creates a clean separation of concerns:
 
-- **Orchestrator Agent**: Main decision-making agent that routes requests
-- **Research Tool**: Specialized tool that generates research questions and executes them via Perplexity AI
+- **Orchestrator Chat Agent**: Analyzes messages and makes routing decisions
+- **Research Executor Agent**: Autonomous multi-step research using ToolLoopAgent
+- **Shared Brain**: Accumulated research knowledge visible in real-time
 
 ## Architecture
 
 ```
 User Message
     ↓
-Orchestrator Agent (Decision Maker)
-    ├─→ Respond directly (casual conversation, simple questions)
-    ├─→ Ask clarifying questions (ambiguous requests)
-    └─→ Use Research Tool (complex research needs)
-            ├─ Generate focused research questions
-            ├─ Execute via Perplexity AI
-            └─ Synthesize structured results
+Orchestrator Chat Agent (Decision Maker)
+    ├─→ Chat Response (casual conversation, simple questions, clarifications)
+    └─→ Start Research (complex questions requiring web research)
+            ↓
+        Research Executor Agent (ToolLoopAgent)
+            ├─ Perplexity search
+            ├─ Save to brain
+            ├─ Think & plan next query
+            └─ Loop up to 30 steps
+            ↓
+        Stream updates to chat (SSE)
 ```
 
 ## Key Components
 
-### 1. Research Tool (`lib/tools/research-tool.ts`)
+### 1. Orchestrator Chat Agent (`lib/agents/orchestrator-chat-agent.ts`)
 
-A dedicated agent that:
-- **Generates research questions** using Claude to break down complex objectives
-- **Executes questions** using Perplexity AI (sonar-pro model)
-- **Synthesizes findings** into structured, cited outputs
-
-**Key Features:**
-- Parallel execution of multiple research questions
-- Structured output with confidence levels
-- Automatic source citation and deduplication
-- Follow-up suggestion generation
-
-### 2. Orchestrator Agent (`lib/agents/orchestrator-agent.ts`)
-
-Main agent that decides how to handle each user message:
+Main agent that analyzes each user message and decides:
 
 **Decision Types:**
-- `respond` - Answer directly without research
-- `research` - Invoke the research tool
-- `clarify` - Ask user for more information
+- `chat_response` - Answer directly without research
+- `start_research` - Launch autonomous research executor
 
-**State Management:**
-- Maintains conversation history
-- Tracks last research results
-- Builds context for research tool
+**Features:**
+- Uses Claude Sonnet 4.5 for decision making
+- Considers conversation history and accumulated brain
+- Makes binary routing decisions (no "clarify" - just asks in chat)
+
+### 2. Research Executor Agent (`lib/agents/research-executor-agent.ts`)
+
+Autonomous research agent using AI SDK's ToolLoopAgent:
+
+**Features:**
+- Runs for up to 30 steps automatically
+- Uses Perplexity AI for web searches
+- Accumulates findings in shared brain
+- Streams real-time progress via SSE
+- Auto-saves research after each query
 
 ### 3. API Routes
 
-#### Start New Session
+#### Start New Chat Session
 ```
-POST /api/orchestrator/start
-Body: { message: string }
+POST /api/chat/start
 Response: {
   sessionId: string
-  action: 'respond' | 'research' | 'clarify'
+  status: 'created'
   message: string
-  researchResult?: ResearchToolOutput
-  creditsUsed: number
-  userCredits: number
 }
 ```
 
-#### Send Message
+#### Send Message (SSE Stream)
 ```
-POST /api/orchestrator/[id]/message
+POST /api/chat/[id]/message
 Body: { message: string }
-Response: {
-  sessionId: string
-  action: string
-  message: string
-  researchResult?: ResearchToolOutput
-  creditsUsed: number
-  totalCreditsUsed: number
-  userCredits: number
-}
+Response: Server-Sent Events stream with:
+  - type: 'analyzing' | 'decision' | 'research_started' | 'message' | 'brain_update' | 'complete' | 'error'
+  - Progressive updates during research
+  - Real-time brain updates
+  - Final completion message
 ```
 
-#### Get Session
+#### Stop Research
 ```
-GET /api/orchestrator/[id]
+POST /api/chat/[id]/stop
 Response: {
-  session: OrchestratorSession
-  userCredits: number
-}
-```
-
-#### Stop Session
-```
-POST /api/orchestrator/[id]/stop
-Response: {
-  sessionId: string
-  status: 'stopped'
+  success: boolean
 }
 ```
 
 ## Usage Example
 
-### Frontend Integration
+### Frontend Integration (React Hook)
 
 ```typescript
-// Start a conversation
-const response = await fetch('/api/orchestrator/start', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    message: 'What are the latest developments in quantum computing?'
-  })
-});
+import { useChatAgent } from '@/hooks/useChatAgent';
 
-const data = await response.json();
+function ChatComponent() {
+  const {
+    messages,
+    brain,
+    isResearching,
+    sendMessage,
+    stopResearch
+  } = useChatAgent();
 
-// If action is 'research', data.researchResult contains:
-// - questions: Array of research questions that were investigated
-// - results: Array of question-answer pairs with sources
-// - structuredResult: {
-//     summary: string (comprehensive markdown summary)
-//     keyFindings: string[]
-//     sources: Array<{ title, url, relevance }>
-//     confidenceLevel: 'high' | 'medium' | 'low'
-//     suggestedFollowUps?: string[]
-//   }
+  // Send a message
+  await sendMessage("What are the latest developments in quantum computing?");
 
-// Continue the conversation
-const followUp = await fetch(`/api/orchestrator/${data.sessionId}/message`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    message: 'Can you tell me more about quantum error correction?'
-  })
-});
+  // The hook handles:
+  // - SSE streaming
+  // - Real-time brain updates
+  // - Message history
+  // - Research progress
+}
 ```
 
 ### Backend Integration
 
 ```typescript
-import { createOrchestratorAgent, createInitialState } from '@/lib/agents/orchestrator-agent';
+import { analyzeUserMessage } from '@/lib/agents/orchestrator-chat-agent';
+import { executeResearch } from '@/lib/agents/research-executor-agent';
 
-const orchestrator = createOrchestratorAgent();
-const state = createInitialState();
-
-const result = await orchestrator.process(
-  'What are the latest AI breakthroughs?',
-  state
+// Analyze message
+const decision = await analyzeUserMessage(
+  userMessage,
+  conversationHistory,
+  currentBrain
 );
 
-// result.action: 'respond' | 'research' | 'clarify'
-// result.message: Message to show user
-// result.researchResult: (if action === 'research')
-// result.creditsUsed: Credits consumed
-// result.state: Updated state for next interaction
+// decision.type: 'chat_response' | 'start_research'
+// decision.message: Response text (if chat_response)
+// decision.researchObjective: Research goal (if start_research)
+
+// Execute research if needed
+if (decision.type === 'start_research') {
+  await executeResearch({
+    chatSessionId,
+    userId,
+    researchObjective: decision.researchObjective,
+    onProgress: (update) => {
+      // Stream updates to frontend
+    }
+  });
+}
 ```
 
 ## Environment Variables
@@ -250,16 +234,17 @@ CREATE TABLE orchestrator_sessions (
 }
 ```
 
-## Benefits Over Legacy Research Agent
+## Key Features
 
-| Feature | Legacy Agent | Orchestrator + Research Tool |
-|---------|--------------|------------------------------|
-| **Casual conversation** | Over-engineers simple responses | Responds directly without research |
-| **Clarification** | Limited | Asks for clarification when needed |
-| **Research quality** | Exa neural search | Perplexity AI with citations |
-| **Structured output** | Basic | Rich with confidence levels, follow-ups |
-| **Modularity** | Monolithic | Separated concerns |
-| **Reusability** | Tightly coupled | Research tool can be used by any agent |
+| Feature | Description |
+|---------|-------------|
+| **Smart Routing** | Automatically decides between chat response and research |
+| **Conversational** | Natural back-and-forth conversation with context |
+| **Autonomous Research** | ToolLoopAgent runs multi-step research automatically |
+| **Real-time Updates** | SSE streaming shows progress as it happens |
+| **Shared Brain** | Accumulated knowledge visible and searchable |
+| **Perplexity Integration** | High-quality web research with citations |
+| **Credit Efficient** | Only uses research when truly needed |
 
 ## When Each Action is Chosen
 
