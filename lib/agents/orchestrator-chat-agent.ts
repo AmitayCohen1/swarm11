@@ -1,5 +1,5 @@
 import { generateText } from 'ai';
-import { anthropic } from '@ai-sdk/anthropic';
+import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 
 export interface OrchestratorDecision {
@@ -94,7 +94,7 @@ export async function analyzeUserMessage(
   `;
   
   const result = await generateText({
-    model: anthropic('claude-sonnet-4-20250514'),
+    model: openai('gpt-5.1'),
     system: systemPrompt,
     prompt: `User message: "${userMessage}"
 

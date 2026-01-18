@@ -1,5 +1,5 @@
 import { ToolLoopAgent, stepCountIs, tool } from 'ai';
-import { anthropic } from '@ai-sdk/anthropic';
+import { openai } from '@ai-sdk/openai';
 import { tavilySearch } from '@/lib/tools/tavily-search';
 import { completionTool } from '@/lib/tools/completion-tool';
 import { db } from '@/lib/db';
@@ -159,7 +159,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
 
   try {
     const agent = new ToolLoopAgent({
-      model: anthropic('claude-sonnet-4-20250514'),
+      model: openai('gpt-5.1'),
       instructions,
       tools,
       stopWhen: stepCountIs(MAX_STEPS),
