@@ -66,18 +66,15 @@ Autonomous research agent using AI SDK's ToolLoopAgent. Receives a clear `resear
    - Example: "What are the best DevRel candidates in 2026?" (not "devrel candidates 2026")
    - Returns answer + sources with {title, url}
 
-2. **`reflect(evaluation, nextMove, reasoning)`** - Required after EVERY search
-   - Evaluate what was learned
-   - Decide next move: continue, pivot, narrow, deep-dive, complete
-   - Explain why this moves closer to action
-   - Shows in BOTH chat and Knowledge Vault
+2. **`reflect(keyFindings, evaluation, nextMove, reasoning)`** - Required after EVERY search
+   - keyFindings: Concrete discoveries (names, companies, numbers, tools, resources)
+   - evaluation: What was learned, what's useful, what's missing
+   - nextMove: continue, pivot, narrow, deep-dive, ask_user, complete
+   - reasoning: Why this next move brings us closer to action
+   - Saves findings to Knowledge Vault with timestamp
+   - Shows in chat: "[keyFindings]"
 
-3. **`saveToBrain(finding, reasoning)`** - Save important discoveries
-   - Records with timestamp
-   - Shows in chat: "💾 Saved: [finding]"
-   - Appends to Knowledge Vault
-
-4. **`complete(reasoning, confidenceLevel, keyFindings, recommendedActions, sourcesUsed, finalAnswerMarkdown)`** - Deliver final results
+3. **`complete(reasoning, confidenceLevel, keyFindings, recommendedActions, sourcesUsed, finalAnswerMarkdown)`** - Deliver final results
    - Must include actionable next steps
    - Short, structured markdown
    - Only most relevant sources
@@ -92,7 +89,7 @@ The agent is instructed to produce **action-oriented** research:
 - **Avoid**: Big names or large numbers without clear action path
 
 **Features:**
-- Runs for up to 30 steps automatically
+- Unlimited depth research (up to 500 steps) - keeps going until truly exhaustive
 - Uses Tavily AI for web searches
 - Accumulates findings in Knowledge Vault
 - Streams real-time progress via SSE
@@ -107,16 +104,11 @@ Persistent markdown storage that accumulates research findings:
 # [Research Objective]
 
 ---
-**[14:23] 💾 FINDING**
+**[14:23] RESEARCH UPDATE**
 
-[What was found]
+[Concrete discoveries: names, companies, numbers, tools, resources]
 
-**Why this matters:** [Reasoning]
-
----
-**[14:25] 💭 REFLECTION**
-
-**Evaluation:** [What the search revealed]
+**Evaluation:** [What the search revealed, what's useful, what's missing]
 
 **Next Move:** continue
 
@@ -195,10 +187,16 @@ Orchestrator: start_research
     ↓
 Research Executor:
     Step 1: search("Who are the top DevRel professionals in 2026?")
-    Step 2: reflect(evaluation, nextMove: narrow, reasoning)
+    Step 2: reflect(keyFindings, evaluation, nextMove: narrow, reasoning)
     Step 3: search("DevRel candidates available for hire 2026")
+    Step 4: reflect(keyFindings, evaluation, nextMove: deep-dive, reasoning)
+    Step 5-10: search specific candidates, verify experience, find contact info
+    Step 11-20: cross-reference skills, compare options, explore alternatives
+    Step 21-30: verify through multiple sources, explore tangents, check social presence
+    Step 31-40: deep dive into promising candidates, verify claims, find references
+    Step 41+: explore edge cases, alternative sources, niche communities
     ...
-    Step N: complete(findings, actions, sources)
+    Step N (after exhaustive research - 20, 30, 50+ searches): complete(findings, actions, sources)
 ```
 
 ### Example 3: Greeting → Chat Response

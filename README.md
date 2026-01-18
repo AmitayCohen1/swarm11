@@ -9,7 +9,7 @@ An autonomous research agent platform that uses Claude Sonnet 4.5 with tool call
 - **Smart Decision Making**: Routes between chat responses, clarification questions, and research based on message context
 - **Tavily Integration**: AI-powered web search with quality sources and citations
 - **Knowledge Vault**: Real-time accumulated research findings with timestamps
-- **Clean Chat UX**: Simple interface showing only user messages and final answers; detailed activity in side panel
+- **Clean Chat UX**: Minimal timeline showing research process inline with user-centric results. No more bulky boxes or redundant icons.
 - **Credit System**: Pay-per-use model with Stripe integration (currently disabled for POC - free to use)
 
 ## Tech Stack
@@ -144,11 +144,10 @@ Orchestrator Chat Agent (Decision Maker)
 
 ### Research Executor
 
-- **Autonomous Loop**: Runs up to 30 steps automatically using ToolLoopAgent
+- **Autonomous Loop**: Unlimited depth research (up to 500 steps) using ToolLoopAgent - keeps going until truly exhaustive
 - **Tools Available**:
   - `search(query)`: Natural language web search via Tavily
-  - `reflect(evaluation, nextMove, reasoning)`: Required after every search
-  - `saveToBrain(finding, reasoning)`: Save important discoveries
+  - `reflect(keyFindings, evaluation, nextMove, reasoning)`: Required after every search - captures findings and decides next move
   - `complete(...)`: Deliver final structured results
 - **Action-Oriented**: Focuses on what user can DO (not just information)
 - **Knowledge Vault**: Accumulates findings with timestamps in real-time

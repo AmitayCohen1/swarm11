@@ -6,7 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Brain, Send, StopCircle, Loader2, Sparkles, Moon, Sun, User, Search, FileText, Lightbulb, CheckCircle2, XCircle } from 'lucide-react';
+import { Send, StopCircle, Loader2, Sparkles, Moon, Sun, User, Search, FileText, Lightbulb, ChevronRight, Activity } from 'lucide-react';
 
 export default function ChatAgentView() {
   const {
@@ -101,96 +101,97 @@ export default function ChatAgentView() {
         {/* Main Chat Area */}
         <main className="flex-1 overflow-hidden relative">
           <ScrollArea className="h-full px-4 sm:px-6">
-            <div className="max-w-4xl mx-auto py-4 space-y-3">
+            <div className="max-w-4xl mx-auto py-4 space-y-6">
               {messages.map((msg, idx) => {
-                // Skip rendering for technical events that have no visible content
-                // 'research_iteration' events are purely for progress tracking/credits and shouldn't create a bubble
                 if (msg.metadata?.type === 'research_iteration') return null;
                 
+                const isUser = msg.role === 'user';
+                const isProcessStep = ['research_query', 'agent_thinking', 'search_result', 'search_complete'].includes(msg.metadata?.type);
+                const isFinalAnswer = msg.metadata?.kind === 'final' || (!isUser && !isProcessStep);
+
                 return (
                 <div
                   key={idx}
                   className={`group flex animate-in fade-in slide-in-from-bottom-2 duration-500 ${
-                    msg.role === 'user' ? 'justify-end' : 'justify-start'
+                    isUser ? 'justify-end' : 'justify-start'
                   }`}
                 >
-                  <div className={`flex gap-2.5 max-w-[90%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                    {/* Avatar */}
-                    <div className={`mt-0.5 shrink-0 w-7 h-7 rounded-full flex items-center justify-center shadow-sm ${
-                      msg.role === 'assistant'
-                        ? 'bg-linear-to-tr from-blue-600 to-indigo-600 text-white'
-                        : 'bg-slate-200 dark:bg-white/10 text-slate-600 dark:text-white/70'
-                    }`}>
-                      {msg.role === 'assistant' ? <Sparkles className="w-3.5 h-3.5" /> : <User className="w-3.5 h-3.5" />}
-                    </div>
-
-                    <div className={`space-y-1.5 flex-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                      {/* Research Step Icon (if applicable) */}
-                      {msg.role === 'assistant' && msg.metadata?.researchStep && (
-                        <div className="flex items-center gap-1 mb-0.5 animate-in fade-in duration-300">
-                          {msg.metadata.researchStep === 'searching' && <Search className="w-2.5 h-2.5 text-blue-500" />}
-                          {msg.metadata.researchStep === 'result' && <FileText className="w-2.5 h-2.5 text-emerald-500" />}
-                          {msg.metadata.researchStep === 'reasoning' && <Lightbulb className="w-2.5 h-2.5 text-amber-500" />}
-                          {msg.metadata.researchStep === 'complete' && <CheckCircle2 className="w-2.5 h-2.5 text-blue-600" />}
-                          {msg.metadata.researchStep === 'stopped' && <XCircle className="w-2.5 h-2.5 text-slate-400" />}
-                          <span className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">
-                            {msg.metadata.researchStep}
-                          </span>
-                        </div>
-                      )}
-
-                      {/* Message Content */}
-                      <div className={`px-3 py-2 rounded-xl shadow-sm ${
-                        msg.role === 'user'
-                          ? 'bg-indigo-600 text-white rounded-tr-none'
-                          : msg.metadata?.type === 'agent_thinking' || msg.metadata?.type === 'research_query' || msg.metadata?.type === 'search_result'
-                          ? 'bg-slate-50/50 dark:bg-white/5 border border-slate-100 dark:border-white/5 text-slate-700 dark:text-slate-300'
-                          : 'bg-slate-50 dark:bg-white/5 dark:border dark:border-white/5 text-slate-800 dark:text-slate-200 rounded-tl-none'
+                  <div className={`flex gap-4 max-w-[92%] ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+                    {/* Minimal Avatar Identity */}
+                    {!isProcessStep && (
+                      <div className={`mt-1 shrink-0 w-8 h-8 rounded-xl flex items-center justify-center shadow-sm ${
+                        isUser
+                          ? 'bg-slate-900 text-white'
+                          : 'bg-blue-600 text-white'
                       }`}>
-                        {msg.role === 'user' ? (
-                          <p className="text-[13px] leading-snug whitespace-pre-wrap">{msg.content}</p>
+                        {isUser ? <User className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
+                      </div>
+                    )}
+
+                    {/* Process Step Identity (Minimal Dot) */}
+                    {isProcessStep && (
+                      <div className="mt-2.5 shrink-0 w-8 flex justify-center">
+                        <div className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-white/20" />
+                      </div>
+                    )}
+
+                    <div className={`flex-1 ${isUser ? 'items-end' : 'items-start'}`}>
+                      {/* Message Content */}
+                      <div className={`transition-all duration-300 ${
+                        isUser
+                          ? 'px-4 py-3 rounded-2xl bg-slate-900 text-white shadow-sm rounded-tr-none text-sm'
+                          : isProcessStep
+                          ? 'py-2 text-slate-700 dark:text-slate-300'
+                          : 'px-0 py-2 text-slate-800 dark:text-slate-100 text-[15px] leading-7'
+                      }`}>
+                        {isUser ? (
+                          <p className="whitespace-pre-wrap">{msg.content}</p>
                         ) : msg.metadata?.type === 'research_query' ? (
-                          <div className="flex items-center gap-2 text-sm">
-                            <Search className="w-4 h-4 text-blue-500 shrink-0" />
-                            <span className="font-semibold text-blue-600 dark:text-blue-400">Searching:</span>
-                            <span className="italic">"{msg.metadata.query}"</span>
+                          <div className="flex items-center gap-2 text-sm font-medium text-blue-600 dark:text-blue-400">
+                            <Search className="w-4 h-4" />
+                            <span>Searching: <span className="text-slate-900 dark:text-white">"{msg.metadata.query}"</span></span>
                           </div>
                         ) : msg.metadata?.type === 'agent_thinking' ? (
-                          <div className="flex items-start gap-2 text-sm">
-                            <Lightbulb className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                            <div className="text-slate-600 dark:text-slate-300 italic">{msg.metadata.thinking}</div>
+                          <div className="flex items-start gap-2.5 text-sm bg-slate-50/50 dark:bg-white/[0.03] p-3 rounded-xl border border-slate-100 dark:border-white/5">
+                            <Activity className="w-4 h-4 mt-0.5 shrink-0 text-amber-500" />
+                            <div className="leading-relaxed whitespace-pre-wrap">{msg.metadata.thinking}</div>
                           </div>
-                        ) : msg.metadata?.type === 'search_result' ? (
-                          <div className="space-y-2 text-sm">
-                            <div className="flex items-center gap-2">
-                              <FileText className="w-4 h-4 text-emerald-500 shrink-0" />
-                              <span className="font-semibold text-emerald-600 dark:text-emerald-400">Found Results</span>
+                        ) : (msg.metadata?.type === 'search_result' || msg.metadata?.type === 'search_complete') ? (
+                          <div className="space-y-3 mt-1 ml-4 border-l-2 border-emerald-500/30 pl-5 py-1">
+                            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                              <FileText className="w-3.5 h-3.5" />
+                              Findings
                             </div>
-                            <div className="pl-6 text-slate-600 dark:text-slate-300 line-clamp-3 hover:line-clamp-none transition-all">
+                            <div className="text-[14px] text-slate-700 dark:text-slate-200 leading-relaxed">
                               {msg.metadata.answer}
                             </div>
                             {msg.metadata.sources && msg.metadata.sources.length > 0 && (
-                              <div className="pl-6 pt-1 flex flex-wrap gap-2">
-                                {msg.metadata.sources.slice(0, 3).map((s: any, idx: number) => (
+                              <div className="flex flex-wrap gap-2 pt-1">
+                                {msg.metadata.sources.slice(0, 5).map((s: any, idx: number) => (
                                   <a
                                     key={idx}
                                     href={s.url}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="text-xs bg-slate-100 dark:bg-white/10 px-2 py-0.5 rounded-full text-blue-600 dark:text-blue-400 hover:underline truncate max-w-[150px]"
+                                    className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-2 py-1 rounded-md hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-colors flex items-center gap-1"
                                   >
-                                    {s.title || 'Source'}
+                                    {s.title || 'Source'} <ChevronRight className="w-2.5 h-2.5" />
                                   </a>
                                 ))}
                               </div>
                             )}
                           </div>
                         ) : (
-                          <div className="prose prose-sm dark:prose-invert max-w-none text-[13px] leading-snug prose-headings:font-semibold prose-headings:text-slate-900 dark:prose-headings:text-white prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-strong:text-slate-900 dark:prose-strong:text-white prose-code:text-slate-900 dark:prose-code:text-slate-100 prose-code:bg-slate-100 dark:prose-code:bg-white/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-[12px] prose-code:before:content-[''] prose-code:after:content-[''] prose-pre:bg-slate-900 dark:prose-pre:bg-black/50 prose-pre:text-slate-100">
+                          <div className="prose prose-slate dark:prose-invert max-w-none 
+                            prose-p:leading-7 prose-p:mb-4
+                            prose-headings:font-bold prose-headings:tracking-tight
+                            prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline
+                            prose-strong:text-slate-900 dark:prose-strong:text-white
+                            prose-code:text-blue-600 dark:prose-code:text-blue-400 prose-code:bg-blue-500/5 dark:prose-code:bg-blue-400/10 prose-code:px-1 prose-code:rounded">
                             <ReactMarkdown
                               components={{
                                 a: ({ node, ...props }) => (
-                                  <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline" />
+                                  <a {...props} target="_blank" rel="noopener noreferrer" />
                                 ),
                                 code: (rawProps: any) => {
                                   const { inline, ...props } = rawProps || {};
@@ -206,29 +207,16 @@ export default function ChatAgentView() {
                         )}
                       </div>
 
-                      {/* Footer Info */}
-                      <div className={`flex items-center gap-3 px-1 transition-opacity duration-300 ${
-                        msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'
-                      }`}>
-                        <span className="text-[10px] font-medium text-slate-400 uppercase tracking-tighter opacity-0 group-hover:opacity-100 transition-opacity">
-                          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                        
-                        {msg.metadata && (
-                          <div className="flex gap-2">
-                            {msg.metadata.iterations && (
-                              <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-white/5 text-[10px] text-slate-500 font-medium">
-                                {msg.metadata.iterations} Iterations
-                              </span>
-                            )}
-                            {msg.metadata.creditsUsed && (
-                              <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 text-[10px] font-medium">
-                                {msg.metadata.creditsUsed} Credits
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                      {/* Clean Footer (Only for User & Final Answer) */}
+                      {!isProcessStep && (
+                        <div className={`mt-1 flex items-center gap-3 px-1 opacity-0 group-hover:opacity-100 transition-opacity ${
+                          isUser ? 'flex-row-reverse' : 'flex-row'
+                        }`}>
+                          <span className="text-[10px] font-medium text-slate-400 uppercase tracking-tight">
+                            {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

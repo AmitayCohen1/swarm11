@@ -31,23 +31,47 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   } = config;
 
   let totalCreditsUsed = 0;
-  const MAX_STEPS = 30;
+  const MAX_STEPS = 500; // Allow truly exhaustive research - go as deep as needed
   let completionPayload: any = null;
   let stepCounter = 0;
 
-  const updateBrainTool = tool({
-    description: 'Save key findings to the knowledge vault. Use this to record important discoveries.',
+
+  const askUserTool = tool({
+    description: 'Ask the user a question when you realize you don\'t understand what success looks like.',
     inputSchema: z.object({
-      finding: z.string().describe('What you found (be specific: names, numbers, facts)'),
-      reasoning: z.string().describe('Why this matters and what you plan to do next')
+      question: z.string().describe('Your question to the user')
     }),
-    execute: async ({ finding, reasoning }) => {
-      // Show in chat that we saved something important
+    execute: async ({ question }) => {
       onProgress?.({
         type: 'agent_thinking',
-        thinking: `💾 Saved: ${finding}`
+        thinking: question
       });
 
+      return {
+        acknowledged: true,
+        note: 'Question sent. User will reply and you can continue.'
+      };
+    }
+  });
+
+  const reflectionTool = tool({
+    description: 'REQUIRED after EVERY search() - Evaluate what you learned, save key findings, and decide next move.',
+    inputSchema: z.object({
+      keyFindings: z.string().describe('Concrete discoveries: names, companies, numbers, tools, resources (be specific)'),
+      evaluation: z.string().describe('What did the search reveal? Was it useful? What\'s missing?'),
+      nextMove: z.enum(['continue', 'pivot', 'narrow', 'cross-reference', 'deep-dive', 'complete', 'ask_user']),
+      reasoning: z.string().describe('Why take this next move? What will you search for next?')
+    }),
+    execute: async ({ keyFindings, evaluation, nextMove, reasoning }) => {
+      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      // Show in chat - concise version
+      onProgress?.({
+        type: 'agent_thinking',
+        thinking: `${keyFindings}\n\nNext: ${nextMove} - ${reasoning}`
+      });
+
+      // Save to Knowledge Vault - detailed version with findings highlighted
       const [session] = await db
         .select({ brain: chatSessions.brain })
         .from(chatSessions)
@@ -60,66 +84,9 @@ export async function executeResearch(config: ResearchExecutorConfig) {
         currentBrain = `# ${researchObjective}\n\n`;
       }
 
-      // Add new entry with timestamp - clear formatting for Knowledge Vault
-      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const entry = `---\n**[${timestamp}] 💾 FINDING**\n\n${finding}\n\n**Why this matters:** ${reasoning}\n\n`;
+      const reflection = `---\n**[${timestamp}] RESEARCH UPDATE**\n\n${keyFindings}\n\n**Evaluation:** ${evaluation}\n\n**Next Move:** ${nextMove}\n\n**Reasoning:** ${reasoning}\n\n`;
 
-      const updatedBrain = currentBrain + entry;
-
-      await db
-        .update(chatSessions)
-        .set({ brain: updatedBrain, updatedAt: new Date() })
-        .where(eq(chatSessions.id, chatSessionId));
-
-      onProgress?.({ type: 'brain_update', brain: updatedBrain });
-
-      return { success: true };
-    }
-  });
-
-  const askUserTool = tool({
-    description: 'Ask the user a question when you realize you don\'t understand what success looks like.',
-    inputSchema: z.object({
-      question: z.string().describe('Your question to the user')
-    }),
-    execute: async ({ question }) => {
-      onProgress?.({
-        type: 'agent_thinking',
-        thinking: `❓ ${question}`
-      });
-
-      return {
-        acknowledged: true,
-        note: 'Question sent. User will reply and you can continue.'
-      };
-    }
-  });
-
-  const reflectionTool = tool({
-    description: 'REQUIRED after EVERY search() - Evaluate and decide next move.',
-    inputSchema: z.object({
-      evaluation: z.string().describe('What did the search reveal? Was it useful?'),
-      nextMove: z.enum(['continue', 'pivot', 'narrow', 'cross-reference', 'deep-dive', 'complete', 'ask_user']),
-      reasoning: z.string().describe('Why take this next move? What will you search for next?')
-    }),
-    execute: async ({ evaluation, nextMove, reasoning }) => {
-      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-      // Show in chat - concise version
-      onProgress?.({
-        type: 'agent_thinking',
-        thinking: `💭 ${evaluation} → ${nextMove}: ${reasoning}`
-      });
-
-      // Save to Knowledge Vault - detailed version
-      const reflection = `---\n**[${timestamp}] 💭 REFLECTION**\n\n**Evaluation:** ${evaluation}\n\n**Next Move:** ${nextMove}\n\n**Reasoning:** ${reasoning}\n\n`;
-
-      const [session] = await db
-        .select({ brain: chatSessions.brain })
-        .from(chatSessions)
-        .where(eq(chatSessions.id, chatSessionId));
-
-      const updatedBrain = (session?.brain || '') + reflection;
+      const updatedBrain = currentBrain + reflection;
 
       await db
         .update(chatSessions)
@@ -136,68 +103,88 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     search: tavilySearch,
     reflect: reflectionTool,
     askUser: askUserTool,
-    saveToBrain: updateBrainTool,
     complete: completionTool
   };
 
   const instructions = `
   Your job: Research "${researchObjective}" and produce results the user can ACT on.
-  
+
   You are a research agent. Your goal is not to sound impressive — your goal is to be useful.
-  
+
+  DEPTH REQUIREMENTS:
+  - You have virtually unlimited steps. Use as many as you need. Deep research is valuable research.
+  - Don't rush to complete(). Keep searching as long as you're finding valuable information.
+  - There's no such thing as "too thorough" - go as deep as the topic deserves
+  - Minimum 10-15 searches before even considering completion, but don't hesitate to do 20, 30, 50+ if valuable
+  - Each search should open new questions or verify previous findings
+  - Cross-reference information between multiple sources
+  - Go deeper: if you find something promising, drill down with follow-up searches
+  - Explore tangents that might lead to better options
+  - Follow rabbit holes - they often lead to the best insights
+
   Before you search:
   1. Decide what kind of research this is:
-     - exploratory (understand a topic)
-     - comparative (compare options)
-     - operational (help the user do something)
-     - decision-support (help choose a path)
-     - validation (check if something is true)
-  
+     - exploratory (understand a topic deeply)
+     - comparative (compare multiple options thoroughly)
+     - operational (find actionable resources with verification)
+     - decision-support (gather evidence from multiple angles)
+     - validation (cross-check claims across sources)
+
   2. Decide what the user should be able to do after reading your answer.
   3. Decide what would make the result useless.
-  
-  Use these decisions to guide all your work.
-  
+
+  IMPORTANT:
+  - Choose a starting point that minimizes friction, commitment, and adoption cost.
+  - Do NOT start with the biggest or most famous entities unless explicitly instructed.
+  - Don't accept surface-level information - dig deeper with follow-up searches
+  - When in doubt, do another search rather than completing
+
   What you can do:
-  - search(query): search the web and return results with sources
-  - reflect(evaluation, nextMove, reasoning): think about what you learned and decide what to do next (options: continue, pivot, narrow, deep-dive, ask_user, complete)
-  - askUser(question): ask the user a question when you realize you don't understand what success looks like
-  - saveToBrain(finding, reasoning): save important discoveries
-  - complete(reasoning, confidenceLevel, keyFindings, recommendedActions, sourcesUsed, finalAnswerMarkdown): deliver the final result
-  
+  - search(query)
+  - reflect(keyFindings, evaluation, nextMove, reasoning) — REQUIRED after EVERY search
+  - askUser(question)
+  - complete(reasoning, confidenceLevel, keyFindings, recommendedActions, sourcesUsed, finalAnswerMarkdown)
+
   Core principle:
-  Good research = reduces distance to action.
-  NOT: impressive names, big numbers, or authoritative sources.
+  Good research = reduces distance to action + verified through multiple sources + thoroughly explored.
 
   How to work:
-  - Search with natural language questions, not keywords. Use full sentences like "What are the best DevRel candidates in 2026?" instead of "devrel candidates 2026"
-  - When choosing between options, prefer what is easy to start with over what is famous or powerful.
-  - If two options seem equally relevant, choose the one with less friction.
-  - After each search, ask: "Can the user act on this?"
-  - If the answer is no, change your approach.
-  
-  Reflection rules:
-  - Say what you learned.
-  - Say what is missing.
-  - If your results look impressive but hard to act on, that's the wrong direction. Pivot to more accessible options.
-  - If you realize you don't understand what would make this useful to the user, use askUser.
-  - Decide whether to continue, pivot, narrow, deep-dive, ask_user, or complete.
-  - Explain why your next step moves closer to action.
-  
-  Completion rules:
-  - If the research is operational, include:
-    - specific people, companies, tools, or resources
-    - a clear next step the user could take
-  - Do NOT include information that looks impressive but cannot be acted on.
-  - The finalAnswerMarkdown should be short, structured, and readable:
-    - a short "what to do next" section
-    - bullets, not walls of text
-    - include a small Sources section (only the most relevant URLs)
-  
-  Stop when the user has enough to take a concrete next step.
-  
-  Start by calling search() with a smart first query.
+  - Search with natural language questions
+  - After each search, ask: "Can the user act on this? Is this verified? What else should I check?"
+  - Prefer smaller, reachable, testable options over prestigious ones
+  - If results look impressive but hard to act on, pivot immediately
+  - If you find something promising, search again to verify or find alternatives
+  - Cross-reference: if search 1 mentions X, search 2 should verify or explore X deeper
+  - Follow interesting threads even if they seem tangential
+  - If you don't understand what would make this useful, ask the user
+
+  Research pattern examples:
+  - Search 1: Broad overview
+  - Search 2-4: Specific options discovered
+  - Search 5-8: Verify each option, find alternatives
+  - Search 9-12: Dig deeper into promising options
+  - Search 13+: Cross-reference, verify edge cases, explore related topics
+  - Keep going until you've truly exhausted useful angles
+
+  Completion rules (only after substantial research):
+  - You've done 10-15+ searches exploring different angles
+  - You've verified findings across multiple sources
+  - You've explored alternatives and compared options
+  - You have actionable results with clear next steps
+  - You genuinely can't think of another search that would improve the answer
+  - Do NOT include information that cannot be acted on
+  - Final answer should be short, structured, and readable
+
+  When to complete():
+  - You've exhausted useful search angles (not after a few searches!)
+  - You have deeply verified, actionable results
+  - You've cross-referenced key information multiple times
+  - You've explored tangents and alternative approaches
+  - The research is truly comprehensive, not just "good enough"
+
+  Start by calling search() with a smart first query. Expect to do MANY more searches after that.
   `;
+  
 
   try {
     const agent = new ToolLoopAgent({

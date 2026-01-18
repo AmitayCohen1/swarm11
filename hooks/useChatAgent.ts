@@ -145,9 +145,48 @@ export function useChatAgent() {
             objective: update.objective,
             iteration: 0
           });
+        } else if (update.type === 'research_query') {
+          // Add search query message
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: '',
+            timestamp: new Date().toISOString(),
+            metadata: {
+              type: update.type,
+              query: update.query
+            }
+          }]);
+        } else if (update.type === 'search_result') {
+          // Update the previous research_query message with results
+          setMessages(prev => {
+            const lastMessage = prev[prev.length - 1];
+            if (lastMessage?.metadata?.type === 'research_query') {
+              // Merge result into the query message
+              return [
+                ...prev.slice(0, -1),
+                {
+                  ...lastMessage,
+                  metadata: {
+                    type: 'search_complete',
+                    query: lastMessage.metadata.query,
+                    answer: update.answer,
+                    sources: update.sources
+                  }
+                }
+              ];
+            }
+            // Fallback: add as separate message if no query found
+            return [...prev, {
+              role: 'assistant',
+              content: '',
+              timestamp: new Date().toISOString(),
+              metadata: {
+                type: 'search_result',
+                ...update
+              }
+            }];
+          });
         } else if (
-          update.type === 'research_query' ||
-          update.type === 'search_result' ||
           update.type === 'agent_thinking' ||
           update.type === 'research_iteration'
         ) {
