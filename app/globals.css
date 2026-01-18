@@ -60,7 +60,7 @@ body {
 }
 
 .prose p {
-  @apply text-foreground/90 leading-relaxed;
+  @apply text-foreground/90 leading-normal;
 }
 
 .prose a {
@@ -140,11 +140,29 @@ body {
   --sidebar-ring: oklch(0.556 0 0);
 }
 
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
+/* Custom Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  @apply bg-slate-200 dark:bg-white/10 rounded-full;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  @apply bg-slate-300 dark:bg-white/20;
+}
+
+@keyframes loading-progress {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
+}
+
+.animate-loading-progress {
+  animation: loading-progress 2s ease-in-out infinite;
 }

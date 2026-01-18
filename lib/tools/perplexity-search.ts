@@ -30,37 +30,47 @@ export const perplexitySearch = tool({
           messages: [
             {
               role: 'system',
-              content: 'You are a research assistant. Provide comprehensive, factual answers with specific details like names, companies, contacts, and URLs. Be precise and cite your sources.'
+              content: 'Be concise. Focus on SPECIFIC names, companies, contacts, URLs, and actionable information. Skip background info. Give direct answers with key details only.'
             },
             {
               role: 'user',
               content: query
             }
           ],
-          temperature: 0.2,
+          temperature: 0.1,
           return_citations: true,
           return_images: false
         })
       });
 
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Perplexity API error:', errorText);
         throw new Error(`Perplexity API error: ${response.statusText}`);
       }
 
       const data = await response.json();
+      console.log('Perplexity response:', JSON.stringify(data, null, 2));
 
       // Extract answer and citations
       const answer = data.choices[0]?.message?.content || 'No answer returned';
+
+      // Perplexity returns citations in the response object, not in choices
       const citations = data.citations || [];
+
+      // Build sources array with actual URLs
+      const sources = citations.length > 0
+        ? citations.map((url: string, idx: number) => ({
+            title: url.includes('://') ? new URL(url).hostname : `Source ${idx + 1}`,
+            url
+          }))
+        : [];
 
       return {
         query,
         answer,
         citations,
-        sources: citations.map((url: string, idx: number) => ({
-          title: `Source ${idx + 1}`,
-          url
-        })),
+        sources,
         timestamp: new Date().toISOString()
       };
 

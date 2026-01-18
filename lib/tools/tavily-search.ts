@@ -1,3 +1,4 @@
+// Tavily Search Tool
 import { tavily } from '@tavily/core';
 import { tool } from 'ai';
 import { z } from 'zod';
@@ -20,7 +21,7 @@ export const tavilySearch = tool({
     return {
       query,
       answer: response.answer || null,
-      results: response.results.map(r => ({
+      results: (response.results as any[]).map((r: any) => ({
         title: r.title,
         url: r.url,
         content: r.content,

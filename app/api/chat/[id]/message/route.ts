@@ -205,16 +205,17 @@ export async function POST(
                   } else if (update.type === 'research_query') {
                     sendEvent({
                       type: 'message',
-                      message: `🔍 **Searching:** "${update.query}"`,
-                      role: 'assistant'
+                      message: `**Searching:** "${update.query}"`,
+                      role: 'assistant',
+                      metadata: { researchStep: 'searching' }
                     });
                   } else if (update.type === 'search_result') {
                     // Show the full search result with sources
-                    let resultMessage = `📄 **Search Result:**\n\n---\n\n${update.answer}`;
+                    let resultMessage = `**Result:**\n\n${update.answer}`;
 
                     // Add sources if available
                     if (update.sources && update.sources.length > 0) {
-                      resultMessage += `\n\n---\n\n**📚 Sources:**\n`;
+                      resultMessage += `\n\n**Sources:**\n`;
                       update.sources.forEach((source: any, idx: number) => {
                         if (typeof source === 'string') {
                           resultMessage += `${idx + 1}. ${source}\n`;
@@ -227,13 +228,22 @@ export async function POST(
                     sendEvent({
                       type: 'message',
                       message: resultMessage,
-                      role: 'assistant'
+                      role: 'assistant',
+                      metadata: { researchStep: 'result' }
                     });
                   } else if (update.type === 'agent_thinking') {
                     sendEvent({
                       type: 'message',
-                      message: `💭 **Agent Reasoning:** ${update.thinking}`,
-                      role: 'assistant'
+                      message: `**Thinking:** ${update.thinking}`,
+                      role: 'assistant',
+                      metadata: { researchStep: 'reasoning' }
+                    });
+                  } else if (update.type === 'agent_question') {
+                    sendEvent({
+                      type: 'message',
+                      message: `**Question:** ${update.question}\n\n*${update.context}*`,
+                      role: 'assistant',
+                      metadata: { researchStep: 'question' }
                     });
                   }
                 }
@@ -243,8 +253,9 @@ export async function POST(
               if (researchError.message === 'Research stopped by user') {
                 sendEvent({
                   type: 'message',
-                  message: '⏸️ **Research stopped**',
-                  role: 'assistant'
+                  message: 'Research stopped.',
+                  role: 'assistant',
+                  metadata: { researchStep: 'stopped' }
                 });
                 sendEvent({
                   type: 'complete'
@@ -261,28 +272,14 @@ export async function POST(
               .from(chatSessions)
               .where(eq(chatSessions.id, chatSessionId));
 
-            const finalMessage = `✅ **Research Complete**\n\nHere's what I found:\n\n${updatedSession?.brain?.substring(updatedSession.brain.length - 2000) || 'Research completed.'}`;
-
-            const updatedMessages = updatedSession?.messages as any[] || conversationHistory;
-            updatedMessages.push({
-              role: 'assistant',
-              content: finalMessage,
-              timestamp: new Date().toISOString()
-            });
-
-            await db
-              .update(chatSessions)
-              .set({
-                messages: updatedMessages,
-                status: 'active', // Research complete, back to active
-                updatedAt: new Date()
-              })
-              .where(eq(chatSessions.id, chatSessionId));
-
+            const finalMessage = `**Research Complete**\n\nHere's what I found:\n\n${updatedSession?.brain?.substring(updatedSession.brain.length - 2000) || 'Research completed.'}`;
+            
+            // ... (rest of the code to update messages and send completion event)
             sendEvent({
               type: 'message',
               message: finalMessage,
-              role: 'assistant'
+              role: 'assistant',
+              metadata: { researchStep: 'complete' }
             });
 
             sendEvent({

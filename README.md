@@ -5,12 +5,12 @@ An autonomous research agent platform that uses Claude Sonnet 4.5 with tool call
 ## Features
 
 - **Orchestrator Agent**: Intelligent agent that decides when to use research vs direct response
-- **Research Tool**: Dedicated tool that generates questions and executes them via Perplexity AI
-- **Smart Decision Making**: Automatically chooses between direct response, research, or clarification
+- **Autonomous Research**: Multi-step research execution with adaptive strategy
+- **Smart Decision Making**: Automatically starts research for any information request
 - **Perplexity Integration**: Deep research with AI-powered search and citations
-- **Structured Output**: Rich results with key findings, sources, and confidence levels
+- **Structured Brain**: Organized knowledge base with resources, insights, and findings
 - **Credit-Based System**: Pay-per-use model with Stripe integration
-- **Modern Chat UI**: Clean, responsive interface with research result expansion
+- **Modern Chat UI**: Beautiful, responsive interface with dark mode and real-time updates
 
 ## Tech Stack
 
@@ -64,13 +64,13 @@ npm run db:push
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-### 5. Set Up Tavily AI
+### 5. Set Up Perplexity AI
 
-1. Go to [tavily.com](https://tavily.com) and create an account
-2. Get your API key from the dashboard
+1. Go to [perplexity.ai](https://www.perplexity.ai) and sign in
+2. Navigate to API settings and create an API key
 3. Add to `.env.local`:
 ```bash
-TAVILY_API_KEY=tvly-...
+PERPLEXITY_API_KEY=pplx-...
 ```
 
 ### 6. Set Up Stripe
@@ -139,7 +139,7 @@ Visit `http://localhost:3000`
   - Cross-references across multiple sources
 - **Shared Brain**: Structured knowledge base with resources, insights, and reflections
 - **SSE Streaming**: Real-time updates for research progress
-- **Tavily Search**: Deep web search with relevance scoring
+- **Perplexity Search**: AI-powered web search with citations and comprehensive answers
 
 ### Credit System
 
@@ -218,7 +218,7 @@ DATABASE_URL=
 # Anthropic
 ANTHROPIC_API_KEY=
 
-# Perplexity
+# Perplexity AI
 PERPLEXITY_API_KEY=
 
 # Stripe
