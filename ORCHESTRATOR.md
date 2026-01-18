@@ -62,8 +62,9 @@ Autonomous research agent using AI SDK's ToolLoopAgent. Receives a clear `resear
 **Tools Available:**
 
 1. **`search(query)`** - Search the web using Tavily
-   - Uses natural language questions, not keywords
-   - Example: "What are the best DevRel candidates in 2026?" (not "devrel candidates 2026")
+   - **CRITICAL**: ALWAYS use FULL natural language questions, NEVER keyword strings
+   - ✅ Good: "What are the most popular finance podcasts in 2024?"
+   - ❌ Bad: "finance podcasts 2024"
    - Returns answer + sources with {title, url}
 
 2. **`reflect(keyFindings, evaluation, nextMove, reasoning)`** - Required after EVERY search

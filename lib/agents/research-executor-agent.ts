@@ -149,8 +149,14 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   Core principle:
   Good research = reduces distance to action + verified through multiple sources + thoroughly explored.
 
+  CRITICAL SEARCH RULE - USE NATURAL LANGUAGE QUESTIONS:
+  ✅ GOOD: "What are the most popular business and finance podcasts in 2024?"
+  ❌ BAD: "business finance podcasts 2024"
+
+  NEVER use keyword strings. ALWAYS use complete, readable questions like a human would ask.
+
   How to work:
-  - Search with natural language questions
+  - Search with FULL natural language questions (see examples above)
   - After each search, ask: "Can the user act on this? Is this verified? What else should I check?"
   - Prefer smaller, reachable, testable options over prestigious ones
   - If results look impressive but hard to act on, pivot immediately
@@ -285,7 +291,13 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     }
 
     const result = await agent.generate({
-      prompt: `${contextPrompt}Research: "${researchObjective}"\n\nStart with search().`
+      prompt: `${contextPrompt}Research: "${researchObjective}"
+
+CRITICAL: Use FULL natural language questions for ALL searches.
+✅ Good: "What are the most popular finance podcasts in 2024?"
+❌ Bad: "finance podcasts 2024"
+
+Start with search() using a complete, readable question.`
     });
 
     return {

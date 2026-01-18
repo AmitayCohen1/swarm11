@@ -6,9 +6,9 @@ import { z } from 'zod';
 const client = tavily({ apiKey: process.env.TAVILY_API_KEY! });
 
 export const tavilySearch = tool({
-  description: 'Search the web using FULL NATURAL LANGUAGE QUESTIONS. Returns AI-generated answer PLUS full extracted text content from each result. CRITICAL: Use complete questions like "What are the most popular finance podcasts in 2024?" NOT keyword strings like "finance podcasts 2024".',
+  description: 'Search the web using FULL NATURAL LANGUAGE QUESTIONS. Returns AI-generated answer PLUS full extracted text content from each result. CRITICAL: Use complete questions like "What are the most popular podcasts in 2024?" NOT keyword strings like "podcasts 2024".',
   inputSchema: z.object({
-    query: z.string().describe('FULL NATURAL LANGUAGE QUESTION. Example: "What companies are hiring DevRel engineers in 2024?" NOT "devrel hiring 2024". Always use complete, readable questions.'),
+    query: z.string().describe('FULL NATURAL LANGUAGE QUESTION. Always use complete, readable questions like "What are the best options for X?" NOT keyword strings like "best X options".'),
     searchDepth: z.enum(['basic', 'advanced']).optional().describe('basic = 5 results (fast), advanced = 10 results (deeper)')
   }),
   execute: async ({ query, searchDepth = 'basic' }) => {

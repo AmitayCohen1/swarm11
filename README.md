@@ -146,7 +146,7 @@ Orchestrator Chat Agent (Decision Maker)
 
 - **Autonomous Loop**: Unlimited depth research (up to 500 steps) using ToolLoopAgent - keeps going until truly exhaustive
 - **Tools Available**:
-  - `search(query)`: Natural language web search via Tavily
+  - `search(query)`: Natural language web search via Tavily (use full questions like "What are the best X?" NOT keywords like "best X")
   - `reflect(keyFindings, evaluation, nextMove, reasoning)`: Required after every search - captures findings and decides next move (reasoning: what you found, what you want to search next, and why - keep it short!)
   - `complete(...)`: Deliver final structured results
 - **Action-Oriented**: Focuses on what user can DO (not just information)
