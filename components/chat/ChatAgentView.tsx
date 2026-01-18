@@ -108,139 +108,131 @@ export default function ChatAgentView() {
                 return (
                 <div key={idx} className="py-2 hover:bg-slate-50/50 dark:hover:bg-white/[0.02] transition-colors">
                   {isUser ? (
-                    <div className="flex gap-3 items-start">
-                      <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 shrink-0 pt-0.5">
-                        <User className="w-4 h-4" />
-                        <span className="text-xs font-semibold uppercase tracking-wider">[USER]</span>
+                    // User message - clean and prominent
+                    <div className="flex items-start gap-3">
+                      <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-white/10 flex items-center justify-center shrink-0">
+                        <User className="w-4 h-4 text-slate-600 dark:text-slate-400" />
                       </div>
-                      <div className="break-words text-slate-900 dark:text-white">
-                        <ReactMarkdown
-                          components={{
-                            p: ({ node, ...props }) => <p {...props} className="mb-2 leading-relaxed text-base" />,
-                            a: ({ node, ...props }) => (
-                              <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline" />
-                            ),
-                            strong: ({ node, ...props }) => <strong {...props} className="font-bold" />,
-                            code: (rawProps: any) => {
-                              const { inline, ...props } = rawProps || {};
-                              return inline
-                                ? <code {...props} className="px-1.5 py-0.5 bg-slate-100 dark:bg-white/10 rounded text-sm" />
-                                : <code {...props} className="block p-3 bg-slate-900 dark:bg-black/50 rounded text-sm overflow-x-auto my-2" />;
-                            },
-                          }}
-                        >
-                          {msg.content}
-                        </ReactMarkdown>
+                      <div className="flex-1 pt-0.5">
+                        <p className="text-slate-900 dark:text-white text-base leading-relaxed">{msg.content}</p>
                       </div>
                     </div>
                   ) : msg.metadata?.type === 'research_query' ? (
-                    <div className="flex gap-3 items-start">
-                      <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 shrink-0 pt-0.5">
-                        <Search className="w-4 h-4" />
-                        <span className="text-xs font-semibold uppercase tracking-wider">[SEARCH]</span>
+                    // Standalone search query (waiting for results)
+                    <div className="ml-2">
+                      <div className="inline-flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-white/5 rounded-lg border border-slate-200 dark:border-white/10">
+                        <Search className="w-4 h-4 text-slate-400 dark:text-slate-500" />
+                        <span className="text-sm text-slate-700 dark:text-slate-300">{msg.metadata.query}</span>
+                        <Loader2 className="w-3 h-3 text-slate-400 animate-spin ml-1" />
                       </div>
-                      <span className="break-words text-base leading-relaxed text-slate-700 dark:text-slate-200">{msg.metadata.query}</span>
                     </div>
                   ) : msg.metadata?.type === 'agent_thinking' ? (
-                    <div className="flex gap-3 items-start">
-                      <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 shrink-0 pt-0.5">
-                        <Lightbulb className="w-4 h-4" />
-                        <span className="text-xs font-semibold uppercase tracking-wider">[THINK]</span>
+                    // Thinking - subtle and minimal
+                    <div className="ml-2 flex items-start gap-2 text-slate-500 dark:text-slate-400">
+                      <Lightbulb className="w-4 h-4 mt-0.5 shrink-0" />
+                      <p className="text-sm">{msg.metadata.thinking}</p>
+                    </div>
+                  ) : msg.metadata?.type === 'ask_user' ? (
+                    // Question with selectable options
+                    <div className="flex items-start gap-3">
+                      <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center shrink-0">
+                        <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                       </div>
-                      <div className="break-words text-slate-600 dark:text-slate-300 italic">
-                        <ReactMarkdown
-                          components={{
-                            p: ({ node, ...props }) => <p {...props} className="mb-2 leading-relaxed text-base" />,
-                            a: ({ node, ...props }) => (
-                              <a {...props} target="_blank" rel="noopener noreferrer" className="hover:underline" />
-                            ),
-                            strong: ({ node, ...props }) => <strong {...props} className="font-bold" />,
-                            code: (rawProps: any) => {
-                              const { inline, ...props } = rawProps || {};
-                              return inline
-                                ? <code {...props} className="px-1.5 py-0.5 bg-slate-100 dark:bg-white/10 rounded text-sm not-italic" />
-                                : <code {...props} className="block p-3 bg-slate-900 dark:bg-black/50 rounded text-sm overflow-x-auto my-2 not-italic" />;
-                            },
-                          }}
-                        >
-                          {msg.metadata.thinking || `${msg.metadata.evaluation || ''} ${msg.metadata.reasoning || ''}`}
-                        </ReactMarkdown>
+                      <div className="flex-1 space-y-3">
+                        <p className="text-slate-800 dark:text-slate-100 text-base">{msg.metadata.question}</p>
+                        <div className="flex flex-wrap gap-2">
+                          {msg.metadata.options?.map((opt: { label: string; description?: string }, i: number) => (
+                            <button
+                              key={i}
+                              onClick={() => {
+                                if (status === 'ready') {
+                                  sendMessage(opt.label);
+                                }
+                              }}
+                              disabled={status !== 'ready'}
+                              className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/10 hover:border-slate-300 dark:hover:border-white/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   ) : (msg.metadata?.type === 'search_result' || msg.metadata?.type === 'search_complete') ? (
-                    <div className="space-y-2">
+                    // Search + Results card
+                    <div className="ml-2 rounded-lg border border-slate-200 dark:border-white/10 overflow-hidden bg-slate-50/50 dark:bg-white/[0.02]">
+                      {/* Search query header */}
                       {msg.metadata.query && (
-                        <div className="flex gap-3 items-start">
-                          <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 shrink-0 pt-0.5">
-                            <Search className="w-4 h-4" />
-                            <span className="text-xs font-semibold uppercase tracking-wider">[SEARCH]</span>
-                          </div>
-                          <span className="break-words text-base leading-relaxed text-slate-700 dark:text-slate-200">{msg.metadata.query}</span>
+                        <div className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-white/5 border-b border-slate-200 dark:border-white/10">
+                          <Search className="w-4 h-4 text-slate-400 dark:text-slate-500" />
+                          <span className="text-sm text-slate-600 dark:text-slate-300">{msg.metadata.query}</span>
                         </div>
                       )}
-                      <div className="flex gap-3 items-start">
-                        <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 shrink-0 pt-0.5">
-                          <FileText className="w-4 h-4" />
-                          <span className="text-xs font-semibold uppercase tracking-wider">[FOUND]</span>
-                        </div>
-                        <div className="break-words text-slate-800 dark:text-white/90">
+                      {/* Results body */}
+                      <div className="px-4 py-3">
+                        <div className="text-slate-800 dark:text-white/90">
                           <ReactMarkdown
                             components={{
-                              p: ({ node, ...props }) => <p {...props} className="mb-2 leading-relaxed text-base" />,
+                              p: ({ node, ...props }) => <p {...props} className="mb-2 last:mb-0 leading-relaxed text-sm" />,
                               a: ({ node, ...props }) => (
                                 <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline" />
                               ),
-                              strong: ({ node, ...props }) => <strong {...props} className="font-bold" />,
+                              strong: ({ node, ...props }) => <strong {...props} className="font-semibold" />,
                               code: (rawProps: any) => {
                                 const { inline, ...props } = rawProps || {};
                                 return inline
-                                  ? <code {...props} className="px-1.5 py-0.5 bg-slate-100 dark:bg-white/10 rounded text-sm" />
-                                  : <code {...props} className="block p-3 bg-slate-900 dark:bg-black/50 rounded text-sm overflow-x-auto my-2" />;
+                                  ? <code {...props} className="px-1 py-0.5 bg-slate-200 dark:bg-white/10 rounded text-xs" />
+                                  : <code {...props} className="block p-2 bg-slate-900 dark:bg-black/50 rounded text-xs overflow-x-auto my-2" />;
                               },
                             }}
                           >
                             {msg.metadata.answer}
                           </ReactMarkdown>
                         </div>
-                      </div>
-                      {msg.metadata.sources && msg.metadata.sources.length > 0 && (
-                        <div className="flex gap-2 text-slate-500 dark:text-slate-400 text-sm pl-[108px]">
-                          <span className="shrink-0">└─</span>
-                          <span className="break-words">
+                        {/* Sources */}
+                        {msg.metadata.sources && msg.metadata.sources.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-slate-200 dark:border-white/10">
                             {msg.metadata.sources.slice(0, 3).map((s: any, i: number) => (
                               <a
                                 key={i}
                                 href={s.url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="hover:text-slate-700 dark:hover:text-white hover:underline mr-4"
+                                className="inline-flex items-center gap-1.5 px-2 py-1 text-xs bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 rounded hover:bg-slate-200 dark:hover:bg-white/10 hover:text-slate-800 dark:hover:text-white transition-colors"
                               >
-                                [{i + 1}] {s.title}
+                                <FileText className="w-3 h-3" />
+                                <span className="truncate max-w-[200px]">{s.title}</span>
                               </a>
                             ))}
-                          </span>
-                        </div>
-                      )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ) : (
-                    <div className="flex gap-3 items-start">
-                      <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 shrink-0 pt-0.5">
-                        <Sparkles className="w-4 h-4" />
-                        <span className="text-xs font-semibold uppercase tracking-wider">[AGENT]</span>
+                    // Agent response - clean with sparkle icon
+                    <div className="flex items-start gap-3">
+                      <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center shrink-0">
+                        <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                       </div>
-                      <div className="break-words text-slate-900 dark:text-white">
+                      <div className="flex-1 pt-0.5 text-slate-800 dark:text-slate-100">
                         <ReactMarkdown
                           components={{
-                            p: ({ node, ...props }) => <p {...props} className="mb-3 leading-relaxed text-base" />,
+                            p: ({ node, ...props }) => <p {...props} className="mb-3 last:mb-0 leading-relaxed text-base" />,
+                            ul: ({ node, ...props }) => <ul {...props} className="mb-3 space-y-1.5 list-disc list-inside" />,
+                            ol: ({ node, ...props }) => <ol {...props} className="mb-3 space-y-1.5 list-decimal list-inside" />,
+                            li: ({ node, ...props }) => <li {...props} className="text-base leading-relaxed" />,
+                            h1: ({ node, ...props }) => <h1 {...props} className="text-lg font-semibold mb-2 text-slate-900 dark:text-white" />,
+                            h2: ({ node, ...props }) => <h2 {...props} className="text-base font-semibold mb-2 text-slate-900 dark:text-white" />,
+                            h3: ({ node, ...props }) => <h3 {...props} className="text-base font-medium mb-1.5 text-slate-900 dark:text-white" />,
                             a: ({ node, ...props }) => (
                               <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline" />
                             ),
-                            strong: ({ node, ...props }) => <strong {...props} className="font-bold text-slate-900 dark:text-white" />,
+                            strong: ({ node, ...props }) => <strong {...props} className="font-semibold text-slate-900 dark:text-white" />,
                             code: (rawProps: any) => {
                               const { inline, ...props } = rawProps || {};
                               return inline
-                                ? <code {...props} className="px-1.5 py-0.5 bg-slate-100 dark:bg-white/10 rounded text-sm" />
-                                : <code {...props} className="block p-3 bg-slate-900 dark:bg-black/50 rounded text-sm overflow-x-auto my-2" />;
+                                ? <code {...props} className="px-1.5 py-0.5 bg-slate-100 dark:bg-white/10 rounded text-sm font-mono" />
+                                : <code {...props} className="block p-3 bg-slate-100 dark:bg-black/40 rounded-lg text-sm overflow-x-auto my-2 font-mono" />;
                             },
                           }}
                         >
@@ -255,13 +247,10 @@ export default function ChatAgentView() {
 
               {/* Error Display */}
               {error && (
-                <div className="py-2">
-                  <div className="flex gap-3 items-start">
-                    <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 shrink-0 pt-0.5">
-                      <StopCircle className="w-4 h-4" />
-                      <span className="text-xs font-semibold uppercase tracking-wider">[ERROR]</span>
-                    </div>
-                    <span className="break-words text-base leading-relaxed text-slate-900 dark:text-white">{error}</span>
+                <div className="ml-2 p-3 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20">
+                  <div className="flex items-start gap-2">
+                    <StopCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                    <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
                   </div>
                 </div>
               )}

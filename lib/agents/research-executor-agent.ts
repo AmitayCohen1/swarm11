@@ -43,19 +43,24 @@ export async function executeResearch(config: ResearchExecutorConfig) {
 
 
   const askUserTool = tool({
-    description: 'Ask the user a question when you realize you don\'t understand what success looks like.',
+    description: 'Ask the user a question with selectable options. Use this to clarify goals, narrow focus, or get decisions.',
     inputSchema: z.object({
-      question: z.string().describe('Your question to the user')
+      question: z.string().describe('The question to ask'),
+      options: z.array(z.object({
+        label: z.string().describe('Short label for the option (2-5 words)'),
+        description: z.string().optional().describe('Optional longer description')
+      })).min(2).max(5).describe('2-5 options for the user to choose from')
     }),
-    execute: async ({ question }) => {
+    execute: async ({ question, options }) => {
       onProgress?.({
-        type: 'agent_thinking',
-        thinking: question
+        type: 'ask_user',
+        question,
+        options
       });
 
       return {
         acknowledged: true,
-        note: 'Question sent. User will reply and you can continue.'
+        note: 'Question sent with options. Wait for user selection before continuing.'
       };
     }
   });
@@ -136,9 +141,13 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   - Do NOT start with the biggest or most famous entities unless explicitly instructed.
   
   What you can do:
-  - search(query)
+  - search(query) — ONE search at a time, then reflect before searching again
   - reflect(keyFindings, nextMove, userFacingSummary) — REQUIRED after EVERY search
-  - askUser(question)
+  - askUser(question, options) — Ask user with 2-5 clickable options to choose from
+
+  IMPORTANT:
+  - Do NOT batch multiple searches. Do one search, reflect on results, then decide next search.
+  - When asking the user something, ALWAYS provide clear options they can click on.
 
   Core principle:
   Good research = reduces distance to action.

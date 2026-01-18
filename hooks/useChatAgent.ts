@@ -10,7 +10,8 @@ interface Message {
 }
 
 interface ProgressUpdate {
-  type: 'analyzing' | 'decision' | 'research_started' | 'research_iteration' | 'step_complete' | 'research_complete' | 'message' | 'complete' | 'error' | 'agent_thinking' | 'research_query' | 'plan_created' | 'brain_updated' | 'brain_update' | 'summary_created' | 'needs_clarification' | 'search_result';
+  type: 'analyzing' | 'decision' | 'research_started' | 'research_iteration' | 'step_complete' | 'research_complete' | 'message' | 'complete' | 'error' | 'agent_thinking' | 'research_query' | 'plan_created' | 'brain_updated' | 'brain_update' | 'summary_created' | 'needs_clarification' | 'search_result' | 'ask_user';
+  options?: { label: string; description?: string }[];
   message?: string;
   decision?: string;
   reasoning?: string;
@@ -186,6 +187,18 @@ export function useChatAgent() {
               }
             }];
           });
+        } else if (update.type === 'ask_user') {
+          // Question with selectable options
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: '',
+            timestamp: new Date().toISOString(),
+            metadata: {
+              type: 'ask_user',
+              question: update.question,
+              options: update.options
+            }
+          }]);
         } else if (
           update.type === 'agent_thinking' ||
           update.type === 'research_iteration'
