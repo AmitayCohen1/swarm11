@@ -109,7 +109,7 @@ export default function ChatAgentView() {
                 <div key={idx} className="py-2 hover:bg-slate-50/50 dark:hover:bg-white/[0.02] transition-colors">
                   {isUser ? (
                     <div className="flex gap-3 items-start">
-                      <div className="flex items-center gap-2 text-slate-400 dark:text-slate-600 shrink-0 pt-0.5">
+                      <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 shrink-0 pt-0.5">
                         <User className="w-4 h-4" />
                         <span className="text-xs font-semibold uppercase tracking-wider">[USER]</span>
                       </div>
@@ -135,19 +135,19 @@ export default function ChatAgentView() {
                     </div>
                   ) : msg.metadata?.type === 'research_query' ? (
                     <div className="flex gap-3 items-start">
-                      <div className="flex items-center gap-2 text-slate-400 dark:text-slate-600 shrink-0 pt-0.5">
+                      <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 shrink-0 pt-0.5">
                         <Search className="w-4 h-4" />
                         <span className="text-xs font-semibold uppercase tracking-wider">[SEARCH]</span>
                       </div>
-                      <span className="break-words text-base leading-relaxed text-slate-700 dark:text-slate-300">{msg.metadata.query}</span>
+                      <span className="break-words text-base leading-relaxed text-slate-700 dark:text-slate-200">{msg.metadata.query}</span>
                     </div>
                   ) : msg.metadata?.type === 'agent_thinking' ? (
                     <div className="flex gap-3 items-start">
-                      <div className="flex items-center gap-2 text-slate-400 dark:text-slate-600 shrink-0 pt-0.5">
+                      <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 shrink-0 pt-0.5">
                         <Lightbulb className="w-4 h-4" />
                         <span className="text-xs font-semibold uppercase tracking-wider">[THINK]</span>
                       </div>
-                      <div className="break-words text-slate-600 dark:text-slate-400 italic">
+                      <div className="break-words text-slate-600 dark:text-slate-300 italic">
                         <ReactMarkdown
                           components={{
                             p: ({ node, ...props }) => <p {...props} className="mb-2 leading-relaxed text-base" />,
@@ -171,19 +171,19 @@ export default function ChatAgentView() {
                     <div className="space-y-2">
                       {msg.metadata.query && (
                         <div className="flex gap-3 items-start">
-                          <div className="flex items-center gap-2 text-slate-400 dark:text-slate-600 shrink-0 pt-0.5">
+                          <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 shrink-0 pt-0.5">
                             <Search className="w-4 h-4" />
                             <span className="text-xs font-semibold uppercase tracking-wider">[SEARCH]</span>
                           </div>
-                          <span className="break-words text-base leading-relaxed text-slate-700 dark:text-slate-300">{msg.metadata.query}</span>
+                          <span className="break-words text-base leading-relaxed text-slate-700 dark:text-slate-200">{msg.metadata.query}</span>
                         </div>
                       )}
                       <div className="flex gap-3 items-start">
-                        <div className="flex items-center gap-2 text-slate-400 dark:text-slate-600 shrink-0 pt-0.5">
+                        <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 shrink-0 pt-0.5">
                           <FileText className="w-4 h-4" />
                           <span className="text-xs font-semibold uppercase tracking-wider">[FOUND]</span>
                         </div>
-                        <div className="break-words text-slate-800 dark:text-slate-200">
+                        <div className="break-words text-slate-800 dark:text-white/90">
                           <ReactMarkdown
                             components={{
                               p: ({ node, ...props }) => <p {...props} className="mb-2 leading-relaxed text-base" />,
@@ -204,7 +204,7 @@ export default function ChatAgentView() {
                         </div>
                       </div>
                       {msg.metadata.sources && msg.metadata.sources.length > 0 && (
-                        <div className="flex gap-2 text-slate-500 dark:text-slate-500 text-sm pl-[108px]">
+                        <div className="flex gap-2 text-slate-500 dark:text-slate-400 text-sm pl-[108px]">
                           <span className="shrink-0">└─</span>
                           <span className="break-words">
                             {msg.metadata.sources.slice(0, 3).map((s: any, i: number) => (
@@ -213,7 +213,7 @@ export default function ChatAgentView() {
                                 href={s.url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="hover:text-slate-700 dark:hover:text-slate-300 hover:underline mr-4"
+                                className="hover:text-slate-700 dark:hover:text-white hover:underline mr-4"
                               >
                                 [{i + 1}] {s.title}
                               </a>
@@ -224,7 +224,7 @@ export default function ChatAgentView() {
                     </div>
                   ) : (
                     <div className="flex gap-3 items-start">
-                      <div className="flex items-center gap-2 text-slate-400 dark:text-slate-600 shrink-0 pt-0.5">
+                      <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 shrink-0 pt-0.5">
                         <Sparkles className="w-4 h-4" />
                         <span className="text-xs font-semibold uppercase tracking-wider">[AGENT]</span>
                       </div>
@@ -233,7 +233,7 @@ export default function ChatAgentView() {
                           components={{
                             p: ({ node, ...props }) => <p {...props} className="mb-3 leading-relaxed text-base" />,
                             a: ({ node, ...props }) => (
-                              <a {...props} target="_blank" rel="noopener noreferrer" className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:underline" />
+                              <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline" />
                             ),
                             strong: ({ node, ...props }) => <strong {...props} className="font-bold text-slate-900 dark:text-white" />,
                             code: (rawProps: any) => {
@@ -257,7 +257,7 @@ export default function ChatAgentView() {
               {error && (
                 <div className="py-2">
                   <div className="flex gap-3 items-start">
-                    <div className="flex items-center gap-2 text-slate-400 dark:text-slate-600 shrink-0 pt-0.5">
+                    <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 shrink-0 pt-0.5">
                       <StopCircle className="w-4 h-4" />
                       <span className="text-xs font-semibold uppercase tracking-wider">[ERROR]</span>
                     </div>

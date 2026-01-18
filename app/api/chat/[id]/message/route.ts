@@ -249,21 +249,39 @@ export async function POST(
               throw researchError;
             }
 
-            // Get final brain + append a clean final answer to chat history
+            // Get final answer from structured output - typed by ResearchOutputSchema
             const [updatedSession] = await db
-              .select({ brain: chatSessions.brain, messages: chatSessions.messages })
+              .select({ messages: chatSessions.messages })
               .from(chatSessions)
               .where(eq(chatSessions.id, chatSessionId));
 
-            // Prefer structured completion output (if present), otherwise fall back to brain tail.
-            const finalAnswerFromTool = researchResult?.completion?.finalAnswerMarkdown?.trim?.();
-            const fallbackBrainTail = updatedSession?.brain
-              ? updatedSession.brain.substring(Math.max(0, updatedSession.brain.length - 2000))
-              : '';
+            const output = researchResult?.output;
 
-            const finalMessage = finalAnswerFromTool
-              ? finalAnswerFromTool
-              : `**Research Complete**\n\n${fallbackBrainTail || 'Research completed.'}`;
+            // Build final message from structured output
+            let finalMessage = '';
+
+            if (output?.finalAnswer?.trim()) {
+              // Primary: use the finalAnswer markdown
+              finalMessage = output.finalAnswer.trim();
+            } else if (output?.keyFindings?.length || output?.recommendedActions?.length) {
+              // Fallback: build from structured fields
+              const parts: string[] = ['**Research Complete**\n'];
+
+              if (output.keyFindings?.length) {
+                parts.push('**Key Findings:**');
+                output.keyFindings.forEach((f: string) => parts.push(`- ${f}`));
+                parts.push('');
+              }
+
+              if (output.recommendedActions?.length) {
+                parts.push('**Recommended Actions:**');
+                output.recommendedActions.forEach((a: string) => parts.push(`- ${a}`));
+              }
+
+              finalMessage = parts.join('\n');
+            } else {
+              finalMessage = '**Research Complete**\n\nI\'ve finished researching this topic. Check the findings above for details.';
+            }
 
             const updatedConversation = (updatedSession?.messages as any[] || []).concat([{
               role: 'assistant',

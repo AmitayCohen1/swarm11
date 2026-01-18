@@ -1,12 +1,19 @@
-import { ToolLoopAgent, stepCountIs, tool } from 'ai';
+import { ToolLoopAgent, Output, stepCountIs, tool } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { tavilySearch } from '@/lib/tools/tavily-search';
-import { completionTool } from '@/lib/tools/completion-tool';
 import { db } from '@/lib/db';
 import { chatSessions } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 // import { deductCredits } from '@/lib/credits'; // POC: Disabled for free usage
+
+// Schema for structured research output
+const ResearchOutputSchema = z.object({
+  confidenceLevel: z.enum(['low', 'medium', 'high']).describe('Confidence in the completeness of findings'),
+  keyFindings: z.array(z.string()).describe('Key actionable findings (bullet points)'),
+  recommendedActions: z.array(z.string()).describe('Concrete next steps the user should take'),
+  finalAnswer: z.string().describe('Complete answer in markdown, concise and actionable')
+});
 
 interface ResearchExecutorConfig {
   chatSessionId: string;
@@ -31,8 +38,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   } = config;
 
   let totalCreditsUsed = 0;
-  const MAX_STEPS = 100; // Allow truly exhaustive research - go as deep as needed
-  let completionPayload: any = null;
+  const MAX_STEPS = 100;
   let stepCounter = 0;
 
 
@@ -58,23 +64,21 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     description: 'REQUIRED after EVERY search() - Evaluate what you learned, save key findings, and decide next move.',
     inputSchema: z.object({
       keyFindings: z.string().describe('Concrete discoveries: names, companies, numbers, tools, resources (be specific)'),
-      evaluation: z.string().describe('What did the search reveal? Was it useful? What\'s missing?'),
       nextMove: z.enum(['continue', 'pivot', 'narrow', 'cross-reference', 'deep-dive', 'complete', 'ask_user']),
-      reasoning: z.string().describe('Desribe what we found, and what we should do next, keep it short and concise: "We found that... and we should do next... because..."')
+      userFacingSummary: z.string().describe('A short, clean summary for the user (1-2 sentences). No internal jargon.')
     }),
-    execute: async ({ keyFindings, evaluation, nextMove, reasoning }) => {
+    execute: async ({ keyFindings, nextMove, userFacingSummary }) => {
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-      // Show in chat - structured version for UI
-      onProgress?.({
-        type: 'agent_thinking',
-        evaluation,
-        nextMove,
-        reasoning,
-        thinking: `${evaluation}\n\nNext: ${nextMove} - ${reasoning}` // Fallback for simple rendering
-      });
+      // Show ONLY the user-facing summary in chat
+      if (userFacingSummary) {
+        onProgress?.({
+          type: 'agent_thinking',
+          thinking: userFacingSummary
+        });
+      }
 
-      // Save to Knowledge Vault - detailed version with findings highlighted
+      // Save detailed findings to brain (internal only, never shown raw to user)
       const [session] = await db
         .select({ brain: chatSessions.brain })
         .from(chatSessions)
@@ -82,13 +86,12 @@ export async function executeResearch(config: ResearchExecutorConfig) {
 
       let currentBrain = session?.brain || '';
 
-      // Initialize if empty
       if (!currentBrain.trim()) {
         currentBrain = `# ${researchObjective}\n\n`;
       }
 
-      const reflection = `---\n**[${timestamp}] RESEARCH UPDATE**\n\n${keyFindings}\n\n**Evaluation:** ${evaluation}\n\n**Next Move:** ${nextMove}\n\n**Reasoning:** ${reasoning}\n\n`;
-
+      // Brain stores findings only - no internal markers
+      const reflection = `---\n**[${timestamp}]** ${keyFindings}\n\n`;
       const updatedBrain = currentBrain + reflection;
 
       await db
@@ -105,8 +108,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   const tools = {
     search: tavilySearch,
     reflect: reflectionTool,
-    askUser: askUserTool,
-    complete: completionTool
+    askUser: askUserTool
   };
   const instructions = `
   Your job: Research "${researchObjective}" and produce results the user can ACT on.
@@ -135,25 +137,23 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   
   What you can do:
   - search(query)
-  - reflect(keyFindings, evaluation, nextMove, reasoning) — REQUIRED after EVERY search
+  - reflect(keyFindings, nextMove, userFacingSummary) — REQUIRED after EVERY search
   - askUser(question)
-  - complete(reasoning, confidenceLevel, keyFindings, recommendedActions, sourcesUsed, finalAnswerMarkdown)
-  
+
   Core principle:
   Good research = reduces distance to action.
-  
+
   How to work:
   - Search with natural language questions
   - After each search, ask: "Can the user act on this?"
   - Prefer smaller, reachable, testable options over prestigious ones
   - If results look impressive but hard to act on, pivot immediately
-  - If you don’t understand what would make this useful, ask the user
-  
-  You can run this loop as many times as needed, until you reach the goal, or you can't find any more information, or need to ask the user for clarification.
+  - If you don't understand what would make this useful, ask the user
 
+  Run this loop until you have enough information to give actionable results.
   Start by calling search() with a smart first query.
 
-  When you reach the goal, or you can't find any more information, or need to ask the user for clarification, call the complete() tool.
+  When done, your final output will be structured with keyFindings, recommendedActions, and finalAnswer.
   `;
   
 
@@ -162,11 +162,13 @@ export async function executeResearch(config: ResearchExecutorConfig) {
       model: openai('gpt-5.1'),
       instructions,
       tools,
+      output: Output.object({ schema: ResearchOutputSchema }),
       stopWhen: stepCountIs(MAX_STEPS),
       abortSignal,
       onStepFinish: async (step: any) => {
-        const { text, toolCalls, toolResults, usage } = step || {};
+        const { toolCalls, toolResults, usage } = step || {};
         stepCounter += 1;
+
         const [sessionCheck] = await db
           .select({ status: chatSessions.status })
           .from(chatSessions)
@@ -179,21 +181,12 @@ export async function executeResearch(config: ResearchExecutorConfig) {
         const stepCredits = Math.ceil((usage?.totalTokens || 0) / 1000);
         totalCreditsUsed += stepCredits;
 
-        // POC: Credit deduction disabled - free to use
-        // TODO: Re-enable before production launch
-        // await deductCredits(userId, stepCredits);
-
-        // Emit lightweight counters for the UI (useful for user trust + debugging)
         onProgress?.({
           type: 'research_iteration',
           iteration: stepCounter,
           creditsUsed: totalCreditsUsed,
           tokensUsed: usage?.totalTokens || 0
         });
-
-        if (text) {
-          onProgress?.({ type: 'agent_thinking', thinking: text });
-        }
 
         if (toolCalls) {
           for (const toolCall of toolCalls) {
@@ -215,7 +208,6 @@ export async function executeResearch(config: ResearchExecutorConfig) {
             const toolResult = (result as any).output;
 
             if (toolName === 'search') {
-              // Map Tavily results to sources format
               const sources = (toolResult?.results || []).map((r: any) => ({
                 title: r.title,
                 url: r.url
@@ -227,10 +219,6 @@ export async function executeResearch(config: ResearchExecutorConfig) {
                 answer: toolResult?.answer || '',
                 sources
               });
-            }
-
-            if (toolName === 'complete') {
-              completionPayload = toolResult;
             }
           }
         }
@@ -258,11 +246,14 @@ CRITICAL: Use FULL natural language questions for ALL searches.
 Start with search() using a complete, readable question.`
     });
 
+    // Structured output from AI SDK 6 - typed by ResearchOutputSchema
+    const output = result.output;
+
     return {
-      completed: result.finishReason === 'tool-calls' || result.finishReason === 'stop',
+      completed: true,
       iterations: result.steps?.length || 0,
       creditsUsed: totalCreditsUsed,
-      completion: completionPayload
+      output // { confidenceLevel, keyFindings, recommendedActions, finalAnswer }
     };
 
   } catch (error) {
