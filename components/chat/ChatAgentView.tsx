@@ -6,7 +6,144 @@ import ReactMarkdown from 'react-markdown';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Send, StopCircle, Loader2, Sparkles, Moon, Sun, User, Search, FileText, Lightbulb, ChevronRight, Activity } from 'lucide-react';
+import { Send, StopCircle, Loader2, Sparkles, Moon, Sun, User, Search, FileText, Lightbulb, ChevronRight, Activity, PenLine } from 'lucide-react';
+
+// Component for ask_user questions with options + write your own (multi-select)
+function AskUserOptions({
+  question,
+  options,
+  status,
+  onSelect
+}: {
+  question: string;
+  options: { label: string; description?: string }[];
+  status: string;
+  onSelect: (value: string) => void;
+}) {
+  const [showInput, setShowInput] = useState(false);
+  const [customInput, setCustomInput] = useState('');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const handleToggle = (label: string) => {
+    if (status !== 'ready') return;
+    const newSelected = new Set(selected);
+    if (newSelected.has(label)) {
+      newSelected.delete(label);
+    } else {
+      newSelected.add(label);
+    }
+    setSelected(newSelected);
+  };
+
+  const handleSubmit = () => {
+    if (selected.size === 0 || status !== 'ready') return;
+    const answer = Array.from(selected).join(', ');
+    onSelect(answer);
+    setSelected(new Set());
+  };
+
+  const handleSubmitCustom = () => {
+    if (customInput.trim() && status === 'ready') {
+      // Combine selected options with custom input
+      const parts = [...Array.from(selected), customInput.trim()];
+      onSelect(parts.join(', '));
+      setCustomInput('');
+      setShowInput(false);
+      setSelected(new Set());
+    }
+  };
+
+  return (
+    <div className="flex items-start gap-3">
+      <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center shrink-0">
+        <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+      </div>
+      <div className="flex-1 space-y-3">
+        <p className="text-slate-800 dark:text-slate-100 text-base">{question}</p>
+        <div className="flex flex-wrap gap-2">
+          {options.map((opt, i) => {
+            const isSelected = selected.has(opt.label);
+            return (
+              <button
+                key={i}
+                onClick={() => handleToggle(opt.label)}
+                disabled={status !== 'ready'}
+                className={`px-4 py-2 text-sm font-medium rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                  isSelected
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300'
+                    : 'border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/10 hover:border-slate-300 dark:hover:border-white/20'
+                }`}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+          {!showInput && (
+            <button
+              onClick={() => setShowInput(true)}
+              disabled={status !== 'ready'}
+              className="px-4 py-2 text-sm font-medium rounded-lg border border-dashed border-slate-300 dark:border-white/20 bg-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/5 hover:border-slate-400 dark:hover:border-white/30 hover:text-slate-700 dark:hover:text-slate-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+            >
+              <PenLine className="w-3.5 h-3.5" />
+              Write your own
+            </button>
+          )}
+        </div>
+        {showInput && (
+          <div className="flex gap-2">
+            <Input
+              type="text"
+              value={customInput}
+              onChange={(e) => setCustomInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSubmitCustom();
+                if (e.key === 'Escape') {
+                  setShowInput(false);
+                  setCustomInput('');
+                }
+              }}
+              placeholder="Type your answer..."
+              autoFocus
+              disabled={status !== 'ready'}
+              className="flex-1 h-9 text-sm bg-white dark:bg-white/5 border-slate-200 dark:border-white/10"
+            />
+            <Button
+              onClick={handleSubmitCustom}
+              disabled={!customInput.trim() || status !== 'ready'}
+              size="sm"
+              className="h-9 px-3 bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
+            >
+              <Send className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              onClick={() => {
+                setShowInput(false);
+                setCustomInput('');
+              }}
+              variant="ghost"
+              size="sm"
+              className="h-9 px-3 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+            >
+              Cancel
+            </Button>
+          </div>
+        )}
+        {/* Submit button when options are selected */}
+        {selected.size > 0 && !showInput && (
+          <Button
+            onClick={handleSubmit}
+            disabled={status !== 'ready'}
+            size="sm"
+            className="h-9 px-4 bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            <Send className="w-3.5 h-3.5 mr-2" />
+            Submit ({selected.size} selected)
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function ChatAgentView() {
   const {
@@ -134,30 +271,12 @@ export default function ChatAgentView() {
                     </div>
                   ) : msg.metadata?.type === 'ask_user' ? (
                     // Question with selectable options
-                    <div className="flex items-start gap-3">
-                      <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center shrink-0">
-                        <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                      </div>
-                      <div className="flex-1 space-y-3">
-                        <p className="text-slate-800 dark:text-slate-100 text-base">{msg.metadata.question}</p>
-                        <div className="flex flex-wrap gap-2">
-                          {msg.metadata.options?.map((opt: { label: string; description?: string }, i: number) => (
-                            <button
-                              key={i}
-                              onClick={() => {
-                                if (status === 'ready') {
-                                  sendMessage(opt.label);
-                                }
-                              }}
-                              disabled={status !== 'ready'}
-                              className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/10 hover:border-slate-300 dark:hover:border-white/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              {opt.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
+                    <AskUserOptions
+                      question={msg.metadata.question}
+                      options={msg.metadata.options || []}
+                      status={status}
+                      onSelect={(value) => sendMessage(value)}
+                    />
                   ) : (msg.metadata?.type === 'search_result' || msg.metadata?.type === 'search_complete') ? (
                     // Search + Results card
                     <div className="ml-2 rounded-lg border border-slate-200 dark:border-white/10 overflow-hidden bg-slate-50/50 dark:bg-white/[0.02]">

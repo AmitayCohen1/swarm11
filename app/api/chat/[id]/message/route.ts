@@ -112,9 +112,8 @@ export async function POST(
           });
 
           // Handle decision
-          if (decision.type === 'chat_response' || decision.type === 'ask_clarification') {
-            // Regular chat response or clarification question
-            const assistantMessage = decision.message || 'I need more information to help you.';
+          if (decision.type === 'chat_response') {
+            const assistantMessage = decision.message || 'Hello! How can I help?';
 
             conversationHistory.push({
               role: 'assistant',
@@ -124,21 +123,31 @@ export async function POST(
 
             await db
               .update(chatSessions)
-              .set({
-                messages: conversationHistory,
-                updatedAt: new Date()
-              })
+              .set({ messages: conversationHistory, updatedAt: new Date() })
               .where(eq(chatSessions.id, chatSessionId));
 
-            sendEvent({
-              type: 'message',
-              message: assistantMessage,
-              role: 'assistant'
+            sendEvent({ type: 'message', message: assistantMessage, role: 'assistant' });
+            sendEvent({ type: 'complete' });
+
+          } else if (decision.type === 'ask_clarification') {
+            const question = decision.message || 'I need more information.';
+            const options = decision.options || [];
+
+            conversationHistory.push({
+              role: 'assistant',
+              content: question,
+              timestamp: new Date().toISOString(),
+              metadata: { type: 'ask_user', options }
             });
 
-            sendEvent({
-              type: 'complete'
-            });
+            await db
+              .update(chatSessions)
+              .set({ messages: conversationHistory, updatedAt: new Date() })
+              .where(eq(chatSessions.id, chatSessionId));
+
+            // Send as ask_user so UI renders clickable buttons
+            sendEvent({ type: 'ask_user', question, options });
+            sendEvent({ type: 'complete' });
 
           } else if (decision.type === 'start_research') {
             // Start research immediately - no plan approval needed
