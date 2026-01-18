@@ -89,10 +89,10 @@ export default function ChatAgentView() {
                 onClick={stopResearch}
                 variant="destructive"
                 size="sm"
-                className="rounded-full h-10 px-5 bg-red-500 hover:bg-red-600 text-white border-none shadow-lg shadow-red-500/20 font-medium text-sm"
+                className="rounded-full h-8 px-3 bg-red-500/90 hover:bg-red-600 text-white border-none shadow-md font-bold text-[10px] uppercase tracking-wider"
               >
-                <StopCircle className="w-4 h-4 mr-2" />
-                Stop Research
+                <StopCircle className="w-3.5 h-3.5 mr-1.5" />
+                Stop
               </Button>
             )}
           </div>
@@ -147,23 +147,40 @@ export default function ChatAgentView() {
                         {isUser ? (
                           <p className="whitespace-pre-wrap">{msg.content}</p>
                         ) : msg.metadata?.type === 'research_query' ? (
-                          <div className="flex items-center gap-2 text-sm font-medium text-blue-600 dark:text-blue-400">
-                            <Search className="w-4 h-4" />
-                            <span>Searching: <span className="text-slate-900 dark:text-white">"{msg.metadata.query}"</span></span>
+                          <div className="flex items-center gap-3 text-sm font-semibold text-blue-600 dark:text-blue-400 mb-2 mt-4 first:mt-0">
+                            <div className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-50 dark:bg-blue-500/10">
+                              <Search className="w-3.5 h-3.5" />
+                            </div>
+                            <span>Researching: <span className="text-slate-900 dark:text-white">"{msg.metadata.query}"</span></span>
                           </div>
                         ) : msg.metadata?.type === 'agent_thinking' ? (
-                          <div className="flex items-start gap-2.5 text-sm bg-slate-50/50 dark:bg-white/[0.03] p-3 rounded-xl border border-slate-100 dark:border-white/5">
-                            <Activity className="w-4 h-4 mt-0.5 shrink-0 text-amber-500" />
-                            <div className="leading-relaxed whitespace-pre-wrap">{msg.metadata.thinking}</div>
+                          <div className="flex flex-col gap-2 bg-slate-50/80 dark:bg-white/2 p-4 rounded-2xl border border-slate-100 dark:border-white/5 mb-2 ml-9">
+                            <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">
+                              <Activity className="w-3 h-3 text-amber-500" />
+                              Reasoning & Strategy
+                            </div>
+                            <div className="text-[13px] leading-relaxed text-slate-600 dark:text-slate-300 whitespace-pre-wrap">
+                              {msg.metadata.thinking}
+                            </div>
                           </div>
                         ) : (msg.metadata?.type === 'search_result' || msg.metadata?.type === 'search_complete') ? (
-                          <div className="space-y-3 mt-1 ml-4 border-l-2 border-emerald-500/30 pl-5 py-1">
-                            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-                              <FileText className="w-3.5 h-3.5" />
-                              Findings
-                            </div>
-                            <div className="text-[14px] text-slate-700 dark:text-slate-200 leading-relaxed">
-                              {msg.metadata.answer}
+                          <div className="space-y-3 mb-4">
+                            {msg.metadata.query && (
+                              <div className="flex items-center gap-3 text-sm font-semibold text-blue-600 dark:text-blue-400 mb-3">
+                                <div className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-50 dark:bg-blue-500/10">
+                                  <Search className="w-3.5 h-3.5" />
+                                </div>
+                                <span>Searched: <span className="text-slate-900 dark:text-white">"{msg.metadata.query}"</span></span>
+                              </div>
+                            )}
+                            <div className="ml-9 border-l border-emerald-500/20 pl-6 py-1 space-y-3">
+                              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400">
+                                <FileText className="w-3 h-3" />
+                                Key Discoveries
+                              </div>
+                              <div className="text-[14px] text-slate-700 dark:text-slate-200 leading-relaxed">
+                                {msg.metadata.answer}
+                              </div>
                             </div>
                             {msg.metadata.sources && msg.metadata.sources.length > 0 && (
                               <div className="flex flex-wrap gap-2 pt-1">
@@ -173,9 +190,9 @@ export default function ChatAgentView() {
                                     href={s.url}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-2 py-1 rounded-md hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-colors flex items-center gap-1"
+                                    className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-500/10 px-2.5 py-1 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-all flex items-center gap-1.5 border border-blue-100/50 dark:border-blue-500/20"
                                   >
-                                    {s.title || 'Source'} <ChevronRight className="w-2.5 h-2.5" />
+                                    {s.title || 'Source'} <ChevronRight className="w-2.5 h-2.5 opacity-50" />
                                   </a>
                                 ))}
                               </div>

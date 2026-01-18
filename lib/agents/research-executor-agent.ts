@@ -60,7 +60,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
       keyFindings: z.string().describe('Concrete discoveries: names, companies, numbers, tools, resources (be specific)'),
       evaluation: z.string().describe('What did the search reveal? Was it useful? What\'s missing?'),
       nextMove: z.enum(['continue', 'pivot', 'narrow', 'cross-reference', 'deep-dive', 'complete', 'ask_user']),
-      reasoning: z.string().describe('Why take this next move? What will you search for next?')
+      reasoning: z.string().describe('What you found, what you want to search next, and why. Keep it concise - 1-2 sentences max.')
     }),
     execute: async ({ keyFindings, evaluation, nextMove, reasoning }) => {
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -142,6 +142,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   What you can do:
   - search(query)
   - reflect(keyFindings, evaluation, nextMove, reasoning) — REQUIRED after EVERY search
+    → reasoning should be SHORT: what you found, what you want to search next, and why (1-2 sentences max)
   - askUser(question)
   - complete(reasoning, confidenceLevel, keyFindings, recommendedActions, sourcesUsed, finalAnswerMarkdown)
 
@@ -157,6 +158,12 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   - Cross-reference: if search 1 mentions X, search 2 should verify or explore X deeper
   - Follow interesting threads even if they seem tangential
   - If you don't understand what would make this useful, ask the user
+
+  Reflection format (be concise):
+  - keyFindings: Specific names, numbers, resources discovered
+  - evaluation: What was useful, what's missing (1-2 sentences)
+  - nextMove: continue/pivot/narrow/deep-dive/complete/ask_user
+  - reasoning: What you found, what you want to search next, and why (1-2 sentences max)
 
   Research pattern examples:
   - Search 1: Broad overview
