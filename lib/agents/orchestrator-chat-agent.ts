@@ -3,8 +3,8 @@ import { anthropic } from '@ai-sdk/anthropic';
 import { z } from 'zod';
 
 export interface OrchestratorDecision {
-  type: 'chat_response' | 'start_research';
-  message?: string; // For chat_response
+  type: 'chat_response' | 'ask_clarification' | 'start_research';
+  message?: string; // For chat_response or ask_clarification
   researchObjective?: string; // For start_research
   confirmationMessage?: string; // Optional quick confirmation before research
   reasoning: string;
@@ -22,93 +22,73 @@ export async function analyzeUserMessage(
   const decisionTool = {
     description: 'Make a decision about how to respond to the user message',
     inputSchema: z.object({
-      decision: z.enum(['chat_response', 'start_research']).describe(
-        'chat_response: ONLY for greetings like "hi" or "hello". NEVER ask clarifying questions. ' +
-        'start_research: Use this for ANY request that involves finding, researching, or discovering information. This is your DEFAULT.'
+      decision: z.enum(['chat_response', 'ask_clarification', 'start_research']).describe(
+        'chat_response: ONLY for greetings like "hi" or "hello". ' +
+        'ask_clarification: Ask a specific question to clarify the research objective before starting. ' +
+        'start_research: Use this when you have enough information to start research.'
       ),
-      message: z.string().optional().describe('Your chat response message (if decision is chat_response) - ONLY for greetings'),
+      message: z.string().optional().describe('Your message (for chat_response or ask_clarification)'),
       researchObjective: z.string().optional().describe('The research objective (if decision is start_research)'),
-      confirmationMessage: z.string().optional().describe('Optional quick confirmation like "Just to confirm, you want me to find X, right? Starting research..." - ONLY if request is ambiguous. Still start research immediately.'),
+      confirmationMessage: z.string().optional().describe('Optional quick confirmation before starting research'),
       reasoning: z.string().describe('Why you made this decision')
     }),
     execute: async (params: any) => params
   };
 
-  const systemPrompt = `You are an orchestrator agent that decides when to start research. Your ONLY job is to detect greetings vs research requests.
+  const systemPrompt = `You are an orchestrator agent that decides when to start research. Your job is to understand what the user wants and either ask clarification or start research.
 
 CONVERSATION HISTORY:
 ${conversationHistory.map((msg: any) => `${msg.role}: ${msg.content}`).join('\n')}
 
 ${brain ? `\nACCUMULATED RESEARCH BRAIN:\n${brain.substring(0, 1000)}...` : ''}
 
-🚨 CRITICAL RULE 🚨
-NEVER EVER ask clarifying questions. If the user wants to find, research, discover, or identify ANYTHING → start_research IMMEDIATELY.
-
-The research agent is smart and will figure out details during research. Your job is NOT to gather requirements.
-
 DECISION RULES:
 
 ✅ Use **chat_response** ONLY for:
 - Greetings: "hi", "hello", "hey"
-- Nothing else
 
-✅ Use **start_research** for EVERYTHING ELSE including:
-- "I need customers for my X"
-- "Looking for companies that..."
-- "Find me people who..."
-- "Research X"
-- "I want to discover..."
-- ANY request that involves finding information
+✅ Use **ask_clarification** when:
+- You don't understand what success looks like for this task
+- You don't know what would make a result useful vs useless
+- When in doubt, ASK! Better to clarify than research the wrong thing.
 
-⚠️ If request is ambiguous, add a quick confirmationMessage but STILL choose start_research:
-"Just to confirm, you want me to find X? Starting research now..."
+Key question to ask yourself:
+"If I return results, what will the user actually DO with them?"
 
-❌ NEGATIVE EXAMPLES (What NOT to do):
+If you can't answer that, ask the user.
 
-User: "I have an audio fact-checking platform, looking for companies who would want to use it"
-❌ WRONG: decision: chat_response, message: "What type of audio content does your platform check?"
-✅ CORRECT: decision: start_research
-   researchObjective: "Find companies interested in audio fact-checking platforms"
-   confirmationMessage: "I'll research companies that would benefit from audio fact-checking - starting with podcast networks, media companies, and content platforms. Starting now..."
+✅ Use **start_research** when:
+- You understand what a good deliverable looks like for this specific user
+- You know what would make the result actionable vs impressive-but-useless
+- You can picture what success looks like
 
-User: "I need to hire someone for DevRel"
-❌ WRONG: decision: chat_response, message: "What experience level are you looking for?"
-✅ CORRECT: decision: start_research
-   researchObjective: "Find DevRel hiring candidates"
-
-User: "Looking for B2B customers"
-❌ WRONG: decision: chat_response, message: "What industry is your product in?"
-✅ CORRECT: decision: start_research
-   researchObjective: "Find B2B customer prospects (will determine specifics during research)"
-
-✅ POSITIVE EXAMPLES:
+EXAMPLES:
 
 User: "hi"
 → decision: chat_response
    message: "Hello! What would you like me to research?"
 
-User: "I need customers for my platform"
-→ decision: start_research
-   researchObjective: "Find potential customers for a platform (will determine type during research)"
-   confirmationMessage: "I'll research customer segments for your platform. Starting now..."
+User: "I need customers"
+→ decision: ask_clarification
+   message: "I can help! What will you do with the results once I find them?"
+   reasoning: "Can't determine what success looks like without knowing their intent"
 
-User: "Find media companies for audio fact-checking"
-→ decision: start_research
-   researchObjective: "Find media companies interested in audio fact-checking tools"
+User: "I need customers for my audio platform"
+→ decision: ask_clarification
+   message: "Got it. What would a good result look like for you?"
+   reasoning: "Know what they want, but not what makes it useful to them"
 
-User: "I want a DevRel lead"
+User: "Find me 10 podcast studios I can email this week"
 → decision: start_research
-   researchObjective: "Find qualified Developer Relations lead candidates"
+   researchObjective: "Find 10 podcast studios that are contactable via email"
+   reasoning: "Clear success criteria: specific number, contactable, immediate use"
 
 User: "Research React state libraries"
 → decision: start_research
-   researchObjective: "Research and compare React state management libraries in 2026"
+   researchObjective: "Research and compare React state management libraries"
+   reasoning: "Exploratory research - success is understanding the options"
 
-User: "Companies that would use my SaaS product"
-→ decision: start_research
-   researchObjective: "Find companies that would be prospects for a SaaS product (will identify specifics during research)"
-
-REMEMBER: The research agent has tools to search the web and will learn more as it goes. Don't block on missing details - START RESEARCH IMMEDIATELY.`;
+REMEMBER: Ask ONE question that helps you understand what success looks like.`;
 
   const result = await generateText({
     model: anthropic('claude-sonnet-4-20250514'),
@@ -116,7 +96,9 @@ REMEMBER: The research agent has tools to search the web and will learn more as 
     prompt: `User message: "${userMessage}"
 
 Analyze this message and decide how to respond.`,
-    tools: { decisionTool }
+    tools: { decisionTool },
+    toolChoice: 'required',
+    maxToolRoundtrips: 1
   });
 
   // Extract the decision from tool call

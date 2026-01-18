@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Research Platform - AI-Powered Deep Research",
-  description: "Autonomous research agent that conducts comprehensive online research",
+  title: "Swarm10 - AI Research Agent",
+  description: "Autonomous research agent that conducts strategic research with tangible results",
 };
 
 export default function RootLayout({

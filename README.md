@@ -1,16 +1,16 @@
-# Research Orchestration Platform
+# Swarm10
 
-An autonomous research agent platform that uses Claude Sonnet 4.5 with tool calling to conduct comprehensive online research. The agent autonomously searches the web, synthesizes findings, and self-reviews its work.
+An autonomous research agent platform that uses Claude Sonnet 4.5 with tool calling to conduct strategic research with tangible results. The agent autonomously searches the web, synthesizes findings, and delivers actionable intelligence.
 
 ## Features
 
-- **Orchestrator Agent**: Intelligent agent that decides when to use research vs direct response
-- **Autonomous Research**: Multi-step research execution with adaptive strategy
-- **Smart Decision Making**: Automatically starts research for any information request
-- **Perplexity Integration**: Deep research with AI-powered search and citations
-- **Structured Brain**: Organized knowledge base with resources, insights, and findings
-- **Credit-Based System**: Pay-per-use model with Stripe integration
-- **Modern Chat UI**: Beautiful, responsive interface with dark mode and real-time updates
+- **Orchestrator Agent**: Intelligent agent that decides when to ask clarifying questions, respond directly, or launch research
+- **Autonomous Research**: Multi-step research execution using ToolLoopAgent with adaptive strategy
+- **Smart Decision Making**: Routes between chat responses, clarification questions, and research based on message context
+- **Tavily Integration**: AI-powered web search with quality sources and citations
+- **Knowledge Vault**: Real-time accumulated research findings with timestamps
+- **Clean Chat UX**: Simple interface showing only user messages and final answers; detailed activity in side panel
+- **Credit System**: Pay-per-use model with Stripe integration (currently disabled for POC - free to use)
 
 ## Tech Stack
 
@@ -18,8 +18,8 @@ An autonomous research agent platform that uses Claude Sonnet 4.5 with tool call
 - **Authentication**: Clerk
 - **Database**: Neon PostgreSQL + Drizzle ORM
 - **AI**: Anthropic Claude Sonnet 4.5 with tool calling
-- **Research**: Perplexity AI (sonar-pro)
-- **Payments**: Stripe
+- **Research**: Tavily AI (web search with AI-generated answers)
+- **Payments**: Stripe (currently disabled for POC)
 
 ## Setup Instructions
 
@@ -64,13 +64,13 @@ npm run db:push
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-### 5. Set Up Perplexity AI
+### 5. Set Up Tavily AI
 
-1. Go to [perplexity.ai](https://www.perplexity.ai) and sign in
+1. Go to [tavily.com](https://tavily.com) and create an account
 2. Navigate to API settings and create an API key
 3. Add to `.env.local`:
 ```bash
-PERPLEXITY_API_KEY=pplx-...
+TAVILY_API_KEY=tvly-...
 ```
 
 ### 6. Set Up Stripe
@@ -117,39 +117,67 @@ Visit `http://localhost:3000`
 
 ### Chat Orchestrator Flow
 
-1. **User sends message**: Any question or request
-2. **Orchestrator analyzes** the message and decides:
-   - `chat_response`: Answer directly (casual conversation, simple questions, clarifications)
-   - `start_research`: Launch autonomous research (complex questions requiring web research)
-3. **If research needed**:
-   - Research executor agent runs autonomously for up to 30 steps
-   - Searches web using Perplexity AI
-   - Accumulates findings in a shared "brain"
-   - Updates chat in real-time with progress
-4. **Present results**: Comprehensive research with sources streamed to chat
+```
+User Message
+    ↓
+Orchestrator Chat Agent (Decision Maker)
+    ├─→ Chat Response (greetings only)
+    ├─→ Ask Clarification (vague requests - "I need customers")
+    └─→ Start Research (clear objective - "Find DevRel candidates")
+            ↓
+        Research Executor Agent (ToolLoopAgent)
+            ├─ Tavily search (natural language queries)
+            ├─ Reflect on results
+            ├─ Save findings to Knowledge Vault
+            └─ Loop up to 30 steps
+            ↓
+        Stream updates to chat (SSE)
+```
+
+### Orchestrator Decision Types
+
+1. **`chat_response`**: Greetings only ("hi", "hello")
+2. **`ask_clarification`**: Ask ONE specific question when request is too vague
+   - Example: "I need customers" → "What product or service are you selling?"
+3. **`start_research`**: Launch autonomous research with clear objective
+   - Example: "Find DevRel candidates with 5+ years experience" → Immediate research
+
+### Research Executor
+
+- **Autonomous Loop**: Runs up to 30 steps automatically using ToolLoopAgent
+- **Tools Available**:
+  - `search(query)`: Natural language web search via Tavily
+  - `reflect(evaluation, nextMove, reasoning)`: Required after every search
+  - `saveToBrain(finding, reasoning)`: Save important discoveries
+  - `complete(...)`: Deliver final structured results
+- **Action-Oriented**: Focuses on what user can DO (not just information)
+- **Knowledge Vault**: Accumulates findings with timestamps in real-time
 
 ### Architecture
 
-- **Chat Interface** (`/chat`): Conversational UI with message history and brain panel
+- **Chat Interface** (`/chat`): Clean UI showing only user messages and final answers
+- **Details Panel**: Side panel with Activity (queries/results) and Knowledge Vault tabs
 - **Orchestrator Agent**: Analyzes messages and routes to appropriate handler
-- **Adaptive Research Executor**: Autonomous agent that learns and pivots during research
-  - Evaluates results after each search
-  - Pivots strategy based on findings
-  - Progressively narrows from 100 → 10 → 3 → 1
-  - Cross-references across multiple sources
-- **Shared Brain**: Structured knowledge base with resources, insights, and reflections
-- **SSE Streaming**: Real-time updates for research progress
-- **Perplexity Search**: AI-powered web search with citations and comprehensive answers
+- **Research Executor**: Autonomous ToolLoopAgent that adapts strategy during research
+- **SSE Streaming**: Real-time updates for research progress (activity events)
+- **Tavily Search**: AI-powered web search with quality sources and citations
 
-### Credit System
+### Credit System (Currently Disabled for POC)
 
-- 1 credit = $0.01 USD
-- Orchestrator decision: ~20 credits per message
-- Research execution: Varies by complexity (~50-500 credits)
-  - Each Perplexity search: ~10-20 credits
-  - Claude reasoning: ~50-100 credits per step
-- Users get 5000 free credits on signup
-- Can purchase more via Stripe Checkout
+**All functionality is free during POC phase.** Credits are tracked but NOT deducted.
+
+**Planned costs:**
+- Orchestrator decision: ~20 credits (~1000 tokens)
+- Research per step: ~50-100 credits (varies by response length)
+- Tavily search: ~10 credits per search
+- Total per research: ~200-500 credits depending on complexity
+
+**Re-enable for production:**
+1. Uncomment `deductCredits()` in research-executor-agent.ts
+2. Add preflight credit check in message route
+3. Re-enable credit error handling
+
+Users get 5000 free credits on signup. Can purchase more via Stripe Checkout (when enabled).
 
 ## Database Schema
 
@@ -184,14 +212,86 @@ Visit `http://localhost:3000`
 ## API Routes
 
 ### Chat
-- `POST /api/chat/start` - Start new chat session
-- `POST /api/chat/[id]/message` - Send message (SSE stream)
-- `POST /api/chat/[id]/stop` - Stop research in progress
+
+#### Start New Chat Session
+```
+POST /api/chat/start
+Response: {
+  sessionId: string
+  status: 'created'
+  message: string
+}
+```
+
+#### Send Message (SSE Stream)
+```
+POST /api/chat/[id]/message
+Body: { message: string }
+Response: Server-Sent Events stream with:
+  - type: 'analyzing' - Orchestrator analyzing message
+  - type: 'decision' - Decision made (chat_response/ask_clarification/start_research)
+  - type: 'message' - Chat message or clarification question
+  - type: 'research_started' - Research kicked off
+  - type: 'research_query' - Search query being executed
+  - type: 'search_result' - Results from Tavily with sources
+  - type: 'agent_thinking' - Reflections, findings saved
+  - type: 'brain_update' - Knowledge Vault updated
+  - type: 'complete' - Stream finished
+  - type: 'error' - Error occurred
+```
+
+#### Stop Research
+```
+POST /api/chat/[id]/stop
+Response: {
+  success: boolean
+}
+```
 
 ### Credits & Billing
 - `GET /api/credits` - Get user credit balance
 - `POST /api/credits/purchase` - Create Stripe Checkout session
 - `POST /api/webhooks/stripe` - Handle Stripe webhooks
+
+## Message Flow Examples
+
+### Example 1: Vague Request → Clarification
+```
+User: "I need customers"
+    ↓
+Orchestrator: ask_clarification
+    "I can help you find customers! What product or service are you selling?"
+    ↓
+User: "audio fact-checking platform"
+    ↓
+Orchestrator: start_research
+    researchObjective: "Find customers for audio fact-checking platform"
+    ↓
+Research Executor: [autonomous search loop]
+```
+
+### Example 2: Clear Request → Immediate Research
+```
+User: "Find DevRel candidates with 5+ years experience"
+    ↓
+Orchestrator: start_research
+    researchObjective: "Find Developer Relations candidates with 5+ years experience"
+    ↓
+Research Executor:
+    Step 1: search("Who are the top DevRel professionals in 2026?")
+    Step 2: reflect(evaluation, nextMove: narrow, reasoning)
+    Step 3: search("DevRel candidates available for hire 2026")
+    ...
+    Step N: complete(findings, actions, sources)
+```
+
+### Example 3: Greeting → Chat Response
+```
+User: "hi"
+    ↓
+Orchestrator: chat_response
+    "Hello! What would you like me to research?"
+```
 
 ## Development
 
@@ -218,8 +318,8 @@ DATABASE_URL=
 # Anthropic
 ANTHROPIC_API_KEY=
 
-# Perplexity AI
-PERPLEXITY_API_KEY=
+# Tavily AI
+TAVILY_API_KEY=
 
 # Stripe
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
@@ -235,20 +335,20 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 
 ## Key Design Decisions
 
-1. **Single Agent vs Multi-Agent**: Chose single agent with self-review to simplify architecture
-2. **Tool Calling Pattern**: Uses native Anthropic tool calling API for autonomy
-3. **Polling vs WebSockets**: Chose polling for simplicity (every 2 seconds)
-4. **Conversation History in JSONB**: Stored as JSONB for flexibility
-5. **Client-Driven Execution**: User controls when to continue iterations
-6. **Explicit Planning**: Agent uses `<thinking>` blocks before acting (Anthropic best practice)
+1. **Separation of Concerns**: Orchestrator = decision maker (WHAT to do), Research Executor = execution engine (HOW to do it)
+2. **ToolLoopAgent**: Uses AI SDK's ToolLoopAgent for autonomous multi-step research
+3. **Action-Oriented Research**: Focuses on what user can DO, not just impressive-sounding info
+4. **Natural Language Queries**: Searches use full questions, not keywords
+5. **Clean Chat UX**: Only shows user messages and final answers; detailed activity in side panel
+6. **Knowledge Vault**: Accumulates findings with timestamps; supports multiple research sessions per chat
+7. **SSE Streaming**: Real-time progress updates without WebSocket complexity
 
-## Based on Research
+## Design Principles
 
-This implementation follows Anthropic's guidance:
-- "Agents are just workflows with feedback loops"
-- "Planning steps are crucial before action"
-- "Single model does most of the heavy lifting"
-- "Simplicity over complex orchestration"
+1. **User-Centric**: Ask clarifying questions when truly needed, focus on actionable results
+2. **Action-Oriented Research**: Research must lead to concrete next steps
+3. **Natural Interaction**: Use natural language queries, show reasoning and reflections
+4. **Transparency**: Make research process visible in Details panel, keep chat clean
 
 ## License
 

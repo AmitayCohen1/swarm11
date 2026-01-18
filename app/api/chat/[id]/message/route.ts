@@ -112,8 +112,8 @@ export async function POST(
           });
 
           // Handle decision
-          if (decision.type === 'chat_response') {
-            // Regular chat response
+          if (decision.type === 'chat_response' || decision.type === 'ask_clarification') {
+            // Regular chat response or clarification question
             const assistantMessage = decision.message || 'I need more information to help you.';
 
             conversationHistory.push({
@@ -144,11 +144,23 @@ export async function POST(
             // Start research immediately - no plan approval needed
             const researchObjective = decision.researchObjective || userMessage;
 
-            // Clear old brain and set status to researching
+            // POC: Credit checks disabled - free to use
+            // TODO: Enable credit checks before production launch
+
+            // Get current brain and append new research section
+            const [currentSession] = await db
+              .select({ brain: chatSessions.brain })
+              .from(chatSessions)
+              .where(eq(chatSessions.id, chatSessionId));
+
+            const currentBrain = currentSession?.brain || '';
+            const separator = currentBrain ? '\n\n---\n\n' : '';
+            const newBrainSection = `${separator}# ${researchObjective}\n\n`;
+
             await db
               .update(chatSessions)
               .set({
-                brain: '',
+                brain: currentBrain + newBrainSection,
                 status: 'researching',
                 updatedAt: new Date()
               })
@@ -183,19 +195,21 @@ export async function POST(
               objective: researchObjective
             });
 
-            // Emit brain clear at start of research
+            // Emit brain update with new section
             sendEvent({
               type: 'brain_update',
-              brain: ''
+              brain: currentBrain + newBrainSection
             });
 
+            let researchResult: any = null;
             try {
-              const result = await executeResearch({
+              researchResult = await executeResearch({
                 chatSessionId,
                 userId: user.id,
                 researchObjective,
+                conversationHistory,
                 onProgress: (update) => {
-                  // Convert progress to chat messages - full transparency
+                  // Stream progress as structured events (UI can show/hide details)
                   if (update.type === 'brain_update') {
                     // Pass through brain updates to frontend
                     sendEvent({
@@ -203,51 +217,17 @@ export async function POST(
                       brain: update.brain
                     });
                   } else if (update.type === 'research_query') {
-                    sendEvent({
-                      type: 'message',
-                      message: `**Searching:** "${update.query}"`,
-                      role: 'assistant',
-                      metadata: { researchStep: 'searching' }
-                    });
+                    sendEvent(update);
                   } else if (update.type === 'search_result') {
-                    // Show the full search result with sources
-                    let resultMessage = `**Result:**\n\n${update.answer}`;
-
-                    // Add sources if available
-                    if (update.sources && update.sources.length > 0) {
-                      resultMessage += `\n\n**Sources:**\n`;
-                      update.sources.forEach((source: any, idx: number) => {
-                        if (typeof source === 'string') {
-                          resultMessage += `${idx + 1}. ${source}\n`;
-                        } else if (source.url) {
-                          resultMessage += `${idx + 1}. [${source.title || source.url}](${source.url})\n`;
-                        }
-                      });
-                    }
-
-                    sendEvent({
-                      type: 'message',
-                      message: resultMessage,
-                      role: 'assistant',
-                      metadata: { researchStep: 'result' }
-                    });
+                    sendEvent(update);
                   } else if (update.type === 'agent_thinking') {
-                    sendEvent({
-                      type: 'message',
-                      message: `**Thinking:** ${update.thinking}`,
-                      role: 'assistant',
-                      metadata: { researchStep: 'reasoning' }
-                    });
-                  } else if (update.type === 'agent_question') {
-                    sendEvent({
-                      type: 'message',
-                      message: `**Question:** ${update.question}\n\n*${update.context}*`,
-                      role: 'assistant',
-                      metadata: { researchStep: 'question' }
-                    });
+                    sendEvent(update);
+                  } else if (update.type === 'research_iteration') {
+                    sendEvent(update);
                   }
                 }
               });
+              // (researchResult used below for final answer)
             } catch (researchError: any) {
               // Check if research was stopped by user
               if (researchError.message === 'Research stopped by user') {
@@ -262,24 +242,49 @@ export async function POST(
                 });
                 return; // Exit early
               }
+
+              // POC: Credit error handling disabled
+
               // Re-throw other errors to be caught by outer catch
               throw researchError;
             }
 
-            // Get final brain
+            // Get final brain + append a clean final answer to chat history
             const [updatedSession] = await db
               .select({ brain: chatSessions.brain, messages: chatSessions.messages })
               .from(chatSessions)
               .where(eq(chatSessions.id, chatSessionId));
 
-            const finalMessage = `**Research Complete**\n\nHere's what I found:\n\n${updatedSession?.brain?.substring(updatedSession.brain.length - 2000) || 'Research completed.'}`;
-            
-            // ... (rest of the code to update messages and send completion event)
+            // Prefer structured completion output (if present), otherwise fall back to brain tail.
+            const finalAnswerFromTool = researchResult?.completion?.finalAnswerMarkdown?.trim?.();
+            const fallbackBrainTail = updatedSession?.brain
+              ? updatedSession.brain.substring(Math.max(0, updatedSession.brain.length - 2000))
+              : '';
+
+            const finalMessage = finalAnswerFromTool
+              ? finalAnswerFromTool
+              : `**Research Complete**\n\n${fallbackBrainTail || 'Research completed.'}`;
+
+            const updatedConversation = (updatedSession?.messages as any[] || []).concat([{
+              role: 'assistant',
+              content: finalMessage,
+              timestamp: new Date().toISOString()
+            }]);
+
+            await db
+              .update(chatSessions)
+              .set({
+                messages: updatedConversation,
+                status: 'active',
+                updatedAt: new Date()
+              })
+              .where(eq(chatSessions.id, chatSessionId));
+
             sendEvent({
               type: 'message',
               message: finalMessage,
               role: 'assistant',
-              metadata: { researchStep: 'complete' }
+              metadata: { kind: 'final' }
             });
 
             sendEvent({

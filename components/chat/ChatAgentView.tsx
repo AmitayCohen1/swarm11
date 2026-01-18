@@ -6,15 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from '@/components/ui/sheet';
-import { Brain, Send, StopCircle, Loader2, Sparkles, Moon, Sun, User, Search, FileText, Lightbulb, MessageSquare, CheckCircle2, XCircle } from 'lucide-react';
+import { Brain, Send, StopCircle, Loader2, Sparkles, Moon, Sun, User, Search, FileText, Lightbulb, CheckCircle2, XCircle } from 'lucide-react';
 
 export default function ChatAgentView() {
   const {
@@ -22,14 +14,12 @@ export default function ChatAgentView() {
     messages,
     error,
     isResearching,
-    researchProgress,
     brain,
     sendMessage,
     stopResearch
   } = useChatAgent();
 
   const [inputMessage, setInputMessage] = useState('');
-  const [showBrain, setShowBrain] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true); // Default to dark mode
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -59,7 +49,7 @@ export default function ChatAgentView() {
     const config = variants[status as keyof typeof variants] || variants.ready;
 
     return (
-      <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full ${config.bg} ${config.text} text-[10px] font-medium tracking-wide uppercase`}>
+      <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${config.bg} ${config.text} text-[11px] font-semibold tracking-wide uppercase`}>
         {config.icon}
         {config.label}
       </div>
@@ -70,105 +60,28 @@ export default function ChatAgentView() {
     <div className={`${isDarkMode ? 'dark' : ''} h-screen w-full flex overflow-hidden`}>
       <div className="flex-1 flex flex-col bg-white dark:bg-[#0a0a0a] transition-colors duration-300">
         {/* Header */}
-        <header className="h-14 flex items-center justify-between px-6 border-b border-slate-100 dark:border-white/5 bg-white/50 dark:bg-black/20 backdrop-blur-xl z-10">
+        <header className="h-16 flex items-center justify-between px-6 border-b border-slate-100 dark:border-white/5 bg-white/50 dark:bg-black/20 backdrop-blur-xl z-10">
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-linear-to-tr from-blue-600 to-indigo-600">
-                <Sparkles className="w-4 h-4 text-white" />
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-linear-to-tr from-blue-600 to-indigo-600 shadow-sm">
+                <Sparkles className="w-5 h-5 text-white" />
               </div>
-              <h1 className="font-semibold text-slate-800 dark:text-white tracking-tight">
-                Nexus<span className="text-blue-600 font-bold italic">Research</span>
+              <h1 className="text-lg font-bold text-slate-800 dark:text-white tracking-tight">
+                Swarm<span className="text-blue-600 font-extrabold">10</span>
               </h1>
             </div>
-            <div className="h-4 w-px bg-slate-200 dark:bg-white/10 mx-1" />
+            <div className="h-5 w-px bg-slate-200 dark:bg-white/10 mx-1" />
             {getStatusBadge()}
           </div>
 
           <div className="flex items-center gap-3">
-            <Sheet open={showBrain} onOpenChange={setShowBrain}>
-              <SheetTrigger asChild>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  className={`gap-2 h-9 px-4 rounded-full transition-all duration-300 ${
-                    brain ? 'bg-blue-600/10 text-blue-600 hover:bg-blue-600/20' : 'text-slate-500'
-                  }`}
-                >
-                  <Brain className="w-4 h-4" />
-                  <span className="hidden sm:inline">Research Brain</span>
-                  {brain && <span className="flex h-1.5 w-1.5 rounded-full bg-blue-600 animate-pulse ml-0.5" />}
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="w-full sm:w-[500px] bg-white dark:bg-[#0a0a0a] border-l border-slate-100 dark:border-white/5 p-0 flex flex-col shadow-2xl">
-                <div className="flex flex-col h-full overflow-hidden">
-                  <div className="p-5 border-b border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-white/5 backdrop-blur-md">
-                    <SheetHeader>
-                      <div className="flex items-center gap-2.5 mb-1">
-                        <div className="p-2 rounded-xl bg-blue-600/10 shrink-0">
-                          <Brain className="w-5 h-5 text-blue-600" />
-                        </div>
-                        <SheetTitle className="text-lg font-bold tracking-tight text-slate-900 dark:text-white">Knowledge Vault</SheetTitle>
-                      </div>
-                      <SheetDescription className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                        Synthesized intelligence from the active research pipeline.
-                      </SheetDescription>
-                    </SheetHeader>
-                  </div>
-                  
-                  <div className="flex-1 overflow-y-auto custom-scrollbar">
-                    <div className="p-6">
-                      {brain ? (
-                        <div className="prose prose-sm dark:prose-invert max-w-none
-                          prose-headings:font-bold prose-headings:tracking-tight prose-headings:text-slate-900 dark:prose-headings:text-white
-                          prose-p:text-slate-600 dark:prose-p:text-slate-300 prose-p:leading-relaxed
-                          prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline
-                          prose-strong:text-slate-900 dark:prose-strong:text-white prose-strong:font-semibold
-                          prose-code:text-slate-900 dark:prose-code:text-slate-100 prose-code:bg-slate-100 dark:prose-code:bg-white/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-[12px] prose-code:before:content-[''] prose-code:after:content-['']
-                          prose-pre:bg-slate-950 prose-pre:border prose-pre:border-white/5 prose-pre:text-slate-100
-                          prose-li:text-slate-600 dark:prose-li:text-slate-300
-                          prose-table:border-collapse prose-th:border prose-th:border-slate-200 dark:prose-th:border-white/10 prose-th:bg-slate-50 dark:prose-th:bg-white/5 prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:font-semibold
-                          prose-td:border prose-td:border-slate-200 dark:prose-td:border-white/10 prose-td:px-3 prose-td:py-2">
-                          <ReactMarkdown
-                            components={{
-                              a: ({ node, ...props }) => (
-                                <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline" />
-                              ),
-                              code: ({ node, inline, ...props }) => (
-                                inline
-                                  ? <code {...props} className="px-1 py-0.5 rounded bg-slate-100 dark:bg-white/10 text-slate-900 dark:text-slate-100 text-[12px]" />
-                                  : <code {...props} className="block p-3 rounded bg-slate-950 dark:bg-black/50 text-slate-100 text-[12px] overflow-x-auto" />
-                              ),
-                            }}
-                          >
-                            {brain}
-                          </ReactMarkdown>
-                        </div>
-                      ) : (
-                        <div className="h-[60vh] flex flex-col items-center justify-center text-center px-10">
-                          <div className="w-16 h-16 rounded-3xl bg-slate-50 dark:bg-white/5 flex items-center justify-center mb-5 animate-pulse">
-                            <Brain className="w-8 h-8 text-slate-300 dark:text-white/10" />
-                          </div>
-                          <h3 className="text-slate-900 dark:text-white font-semibold mb-2">Vault Initializing</h3>
-                          <p className="text-sm text-slate-500 dark:text-slate-400 max-w-[200px] leading-relaxed">
-                            Insights will appear here as the agent discovers them.
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </SheetContent>
-            </Sheet>
-
-            <div className="h-8 w-px bg-slate-200 dark:bg-white/10 mx-1" />
-
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="rounded-full w-9 h-9 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5"
+            <Button
+              variant="ghost"
+              size="icon"
+              className="rounded-full w-10 h-10 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 transition-all"
               onClick={() => setIsDarkMode(!isDarkMode)}
             >
-              {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </Button>
             
             {isResearching && (
@@ -176,10 +89,10 @@ export default function ChatAgentView() {
                 onClick={stopResearch}
                 variant="destructive"
                 size="sm"
-                className="rounded-full h-8 px-4 bg-red-500 hover:bg-red-600 text-white border-none shadow-lg shadow-red-500/20"
+                className="rounded-full h-10 px-5 bg-red-500 hover:bg-red-600 text-white border-none shadow-lg shadow-red-500/20 font-medium text-sm"
               >
-                <StopCircle className="w-3.5 h-3.5 mr-2" />
-                Stop
+                <StopCircle className="w-4 h-4 mr-2" />
+                Stop Research
               </Button>
             )}
           </div>
@@ -188,7 +101,7 @@ export default function ChatAgentView() {
         {/* Main Chat Area */}
         <main className="flex-1 overflow-hidden relative">
           <ScrollArea className="h-full px-4 sm:px-6">
-            <div className="max-w-3xl mx-auto py-1 space-y-1">
+            <div className="max-w-4xl mx-auto py-4 space-y-3">
               {messages.map((msg, idx) => (
                 <div
                   key={idx}
@@ -196,52 +109,90 @@ export default function ChatAgentView() {
                     msg.role === 'user' ? 'justify-end' : 'justify-start'
                   }`}
                 >
-                  <div className={`flex gap-2.5 max-w-[85%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                  <div className={`flex gap-2.5 max-w-[90%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                     {/* Avatar */}
-                    <div className={`mt-0.5 shrink-0 w-6 h-6 rounded-full flex items-center justify-center shadow-sm ${
-                      msg.role === 'assistant' 
-                        ? 'bg-linear-to-tr from-blue-600 to-indigo-600 text-white' 
+                    <div className={`mt-0.5 shrink-0 w-7 h-7 rounded-full flex items-center justify-center shadow-sm ${
+                      msg.role === 'assistant'
+                        ? 'bg-linear-to-tr from-blue-600 to-indigo-600 text-white'
                         : 'bg-slate-200 dark:bg-white/10 text-slate-600 dark:text-white/70'
                     }`}>
-                      {msg.role === 'assistant' ? <Sparkles className="w-3 h-3" /> : <User className="w-3 h-3" />}
+                      {msg.role === 'assistant' ? <Sparkles className="w-3.5 h-3.5" /> : <User className="w-3.5 h-3.5" />}
                     </div>
 
-                    <div className={`space-y-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                    <div className={`space-y-1.5 flex-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                       {/* Research Step Icon (if applicable) */}
                       {msg.role === 'assistant' && msg.metadata?.researchStep && (
-                        <div className="flex items-center gap-1 mb-0.5 px-1 animate-in fade-in duration-300">
+                        <div className="flex items-center gap-1 mb-0.5 animate-in fade-in duration-300">
                           {msg.metadata.researchStep === 'searching' && <Search className="w-2.5 h-2.5 text-blue-500" />}
                           {msg.metadata.researchStep === 'result' && <FileText className="w-2.5 h-2.5 text-emerald-500" />}
                           {msg.metadata.researchStep === 'reasoning' && <Lightbulb className="w-2.5 h-2.5 text-amber-500" />}
-                          {msg.metadata.researchStep === 'question' && <MessageSquare className="w-2.5 h-2.5 text-indigo-500" />}
                           {msg.metadata.researchStep === 'complete' && <CheckCircle2 className="w-2.5 h-2.5 text-blue-600" />}
                           {msg.metadata.researchStep === 'stopped' && <XCircle className="w-2.5 h-2.5 text-slate-400" />}
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                          <span className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">
                             {msg.metadata.researchStep}
                           </span>
                         </div>
                       )}
 
                       {/* Message Content */}
-                      <div className={`px-3 py-1.5 rounded-2xl shadow-sm ${
+                      <div className={`px-3 py-2 rounded-xl shadow-sm ${
                         msg.role === 'user'
                           ? 'bg-indigo-600 text-white rounded-tr-none'
+                          : msg.metadata?.type === 'agent_thinking' || msg.metadata?.type === 'research_query' || msg.metadata?.type === 'search_result'
+                          ? 'bg-slate-50/50 dark:bg-white/5 border border-slate-100 dark:border-white/5 text-slate-700 dark:text-slate-300'
                           : 'bg-slate-50 dark:bg-white/5 dark:border dark:border-white/5 text-slate-800 dark:text-slate-200 rounded-tl-none'
                       }`}>
                         {msg.role === 'user' ? (
-                          <p className="text-[13px] leading-tight whitespace-pre-wrap">{msg.content}</p>
+                          <p className="text-[13px] leading-snug whitespace-pre-wrap">{msg.content}</p>
+                        ) : msg.metadata?.type === 'research_query' ? (
+                          <div className="flex items-center gap-2 text-sm">
+                            <Search className="w-4 h-4 text-blue-500 shrink-0" />
+                            <span className="font-semibold text-blue-600 dark:text-blue-400">Searching:</span>
+                            <span className="italic">"{msg.metadata.query}"</span>
+                          </div>
+                        ) : msg.metadata?.type === 'agent_thinking' ? (
+                          <div className="flex items-start gap-2 text-sm">
+                            <Lightbulb className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                            <div className="text-slate-600 dark:text-slate-300 italic">{msg.metadata.thinking}</div>
+                          </div>
+                        ) : msg.metadata?.type === 'search_result' ? (
+                          <div className="space-y-2 text-sm">
+                            <div className="flex items-center gap-2">
+                              <FileText className="w-4 h-4 text-emerald-500 shrink-0" />
+                              <span className="font-semibold text-emerald-600 dark:text-emerald-400">Found Results</span>
+                            </div>
+                            <div className="pl-6 text-slate-600 dark:text-slate-300 line-clamp-3 hover:line-clamp-none transition-all">
+                              {msg.metadata.answer}
+                            </div>
+                            {msg.metadata.sources && msg.metadata.sources.length > 0 && (
+                              <div className="pl-6 pt-1 flex flex-wrap gap-2">
+                                {msg.metadata.sources.slice(0, 3).map((s: any, idx: number) => (
+                                  <a
+                                    key={idx}
+                                    href={s.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs bg-slate-100 dark:bg-white/10 px-2 py-0.5 rounded-full text-blue-600 dark:text-blue-400 hover:underline truncate max-w-[150px]"
+                                  >
+                                    {s.title || 'Source'}
+                                  </a>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         ) : (
-                          <div className="prose prose-sm dark:prose-invert max-w-none text-[13px] leading-relaxed prose-headings:font-semibold prose-headings:text-slate-900 dark:prose-headings:text-white prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-strong:text-slate-900 dark:prose-strong:text-white prose-code:text-slate-900 dark:prose-code:text-slate-100 prose-code:bg-slate-100 dark:prose-code:bg-white/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-[''] prose-code:after:content-[''] prose-pre:bg-slate-900 dark:prose-pre:bg-black/50 prose-pre:text-slate-100">
+                          <div className="prose prose-sm dark:prose-invert max-w-none text-[13px] leading-snug prose-headings:font-semibold prose-headings:text-slate-900 dark:prose-headings:text-white prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-strong:text-slate-900 dark:prose-strong:text-white prose-code:text-slate-900 dark:prose-code:text-slate-100 prose-code:bg-slate-100 dark:prose-code:bg-white/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-[12px] prose-code:before:content-[''] prose-code:after:content-[''] prose-pre:bg-slate-900 dark:prose-pre:bg-black/50 prose-pre:text-slate-100">
                             <ReactMarkdown
                               components={{
                                 a: ({ node, ...props }) => (
                                   <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline" />
                                 ),
-                                code: ({ node, inline, ...props }) => (
-                                  inline
-                                    ? <code {...props} className="px-1 py-0.5 rounded bg-slate-100 dark:bg-white/10 text-slate-900 dark:text-slate-100 text-[12px]" />
-                                    : <code {...props} className="block p-2 rounded bg-slate-900 dark:bg-black/50 text-slate-100 text-[12px] overflow-x-auto" />
-                                ),
+                                code: (rawProps: any) => {
+                                  const { inline, ...props } = rawProps || {};
+                                  return inline
+                                    ? <code {...props} className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-white/10 text-slate-900 dark:text-slate-100 text-[13px]" />
+                                    : <code {...props} className="block p-3 rounded bg-slate-900 dark:bg-black/50 text-slate-100 text-[13px] overflow-x-auto" />;
+                                },
                               }}
                             >
                               {msg.content}
@@ -279,36 +230,14 @@ export default function ChatAgentView() {
               ))}
 
               {/* Dynamic Progress States */}
-              {isResearching && (
-                <div className="flex justify-center py-2 animate-in fade-in zoom-in-95 duration-500">
-                  <div className="flex items-center gap-3 px-4 py-2 rounded-full bg-blue-500/5 border border-blue-500/10 backdrop-blur-sm shadow-sm">
-                    <div className="relative flex h-2 w-2">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
-                    </div>
-                    <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest whitespace-nowrap">
-                      Pipeline Active
-                    </span>
-                    <div className="h-3 w-px bg-blue-500/20 shrink-0" />
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-[250px]">
-                      {researchProgress.objective}
-                    </span>
-                    <div className="h-3 w-px bg-blue-500/20 shrink-0" />
-                    <span className="text-[10px] font-mono text-slate-400 font-bold whitespace-nowrap">
-                      STEP {researchProgress.iteration || 1}
-                    </span>
-                  </div>
-                </div>
-              )}
-
               {error && (
-                <div className="flex justify-center p-6 bg-red-500/5 border border-red-500/20 rounded-2xl animate-in shake duration-500">
+                <div className="flex justify-center p-8 bg-red-500/5 border border-red-500/20 rounded-2xl animate-in shake duration-500">
                   <div className="flex flex-col items-center text-center">
-                    <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center mb-3">
-                      <StopCircle className="w-5 h-5 text-red-500" />
+                    <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center mb-4">
+                      <StopCircle className="w-6 h-6 text-red-500" />
                     </div>
-                    <h4 className="text-sm font-bold text-red-500 uppercase tracking-tight mb-1">Research Interrupted</h4>
-                    <p className="text-xs text-red-400 max-w-md leading-relaxed">{error}</p>
+                    <h4 className="text-base font-bold text-red-500 uppercase tracking-tight mb-2">Research Interrupted</h4>
+                    <p className="text-sm text-red-400 max-w-md leading-relaxed">{error}</p>
                   </div>
                 </div>
               )}
@@ -322,40 +251,40 @@ export default function ChatAgentView() {
         </main>
 
         {/* Input Area */}
-        <footer className="p-3 bg-white dark:bg-[#0a0a0a]">
+        <footer className="p-4 bg-white dark:bg-[#0a0a0a]">
           <div className="max-w-3xl mx-auto relative">
-            <form 
+            <form
               onSubmit={handleSend}
               className="relative group transition-all duration-300"
             >
               <div className="absolute -inset-0.5 bg-linear-to-r from-blue-500 to-indigo-600 rounded-2xl opacity-0 group-focus-within:opacity-20 transition-opacity blur-sm" />
-              
-              <div className="relative flex items-center bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl p-1 focus-within:border-blue-500/50 focus-within:bg-white dark:focus-within:bg-black/40 transition-all duration-300">
+
+              <div className="relative flex items-center bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl p-1.5 focus-within:border-blue-500/50 focus-within:bg-white dark:focus-within:bg-black/40 transition-all duration-300">
                 <Input
                   type="text"
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
-                  placeholder={status === 'ready' ? "Ask the Nexus Research Agent..." : "Agent is busy..."}
+                  placeholder={status === 'ready' ? "Ask Swarm10 to research anything..." : "Agent is busy..."}
                   disabled={status !== 'ready'}
-                  className="flex-1 bg-transparent border-none shadow-none focus-visible:ring-0 text-slate-800 dark:text-white h-10 px-4 placeholder:text-slate-400 dark:placeholder:text-white/20 text-sm"
+                  className="flex-1 bg-transparent border-none shadow-none focus-visible:ring-0 text-slate-800 dark:text-white h-11 px-4 placeholder:text-slate-400 dark:placeholder:text-white/30 text-sm"
                 />
                 <Button
                   type="submit"
                   disabled={!inputMessage.trim() || status !== 'ready'}
-                  className={`h-8 w-8 rounded-xl transition-all duration-300 ${
-                    inputMessage.trim() && status === 'ready' 
-                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/40 translate-y-0 scale-100' 
+                  className={`h-9 w-9 rounded-xl transition-all duration-300 ${
+                    inputMessage.trim() && status === 'ready'
+                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/40 translate-y-0 scale-100'
                       : 'bg-slate-200 dark:bg-white/5 text-slate-400 scale-95 opacity-50'
                   }`}
                   size="icon"
                 >
-                  <Send className="w-3.5 h-3.5" />
+                  <Send className="w-4 h-4" />
                 </Button>
               </div>
             </form>
-            
-            <p className="mt-2 text-[9px] text-center text-slate-400 uppercase font-bold tracking-[0.2em]">
-              Autonomous Research Pipeline • v2.0-Alpha
+
+            <p className="mt-2.5 text-[10px] text-center text-slate-400 uppercase font-bold tracking-wider">
+              Strategic Research Agent • Swarm10
             </p>
           </div>
         </footer>

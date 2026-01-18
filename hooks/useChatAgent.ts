@@ -54,8 +54,9 @@ export function useChatAgent() {
     iteration?: number;
   }>({});
   const [brain, setBrain] = useState<string>('');
-
+  
   const eventSourceRef = useRef<EventSource | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Initialize chat session
   const initializeSession = async () => {
@@ -108,11 +109,15 @@ export function useChatAgent() {
     setMessages(prev => [...prev, newUserMessage]);
 
     try {
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = new AbortController();
+
       // Use fetch with streaming instead of EventSource (which doesn't support POST)
       const response = await fetch(`/api/chat/${sessionId}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMessage })
+        body: JSON.stringify({ message: userMessage }),
+        signal: abortControllerRef.current.signal
       });
 
       if (!response.ok) {
@@ -140,7 +145,25 @@ export function useChatAgent() {
             objective: update.objective,
             iteration: 0
           });
-        } else if (update.type === 'research_iteration' || update.type === 'step_complete') {
+        } else if (
+          update.type === 'research_query' ||
+          update.type === 'search_result' ||
+          update.type === 'agent_thinking' ||
+          update.type === 'research_iteration'
+        ) {
+          // Treat activity as messages in the stream
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: '',
+            timestamp: new Date().toISOString(),
+            metadata: {
+              type: update.type,
+              ...update
+            }
+          }]);
+        }
+
+        if (update.type === 'research_iteration' || update.type === 'step_complete') {
           setResearchProgress(prev => ({
             ...prev,
             iteration: update.iteration
@@ -192,6 +215,13 @@ export function useChatAgent() {
       }
 
     } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        // User stopped the run; do not show as an error.
+        setStatus('ready');
+        setIsResearching(false);
+        return;
+      }
+
       setError(err.message);
       setStatus('error');
       setIsResearching(false);
@@ -203,6 +233,7 @@ export function useChatAgent() {
     if (!sessionId) return;
 
     try {
+      abortControllerRef.current?.abort();
       await fetch(`/api/chat/${sessionId}/stop`, {
         method: 'POST'
       });
