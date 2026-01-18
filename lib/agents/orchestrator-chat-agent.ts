@@ -49,18 +49,17 @@ DECISION RULES:
 
 ✅ Use **ask_clarification** when:
 - You don't understand what success looks like for this task
-- You don't know what would make a result useful vs useless
-- When in doubt, ASK! Better to clarify than research the wrong thing.
+- You can't picture what a good deliverable would be
+- When in doubt, ASK!
 
-Key question to ask yourself:
-"If I return results, what will the user actually DO with them?"
-
-If you can't answer that, ask the user.
+Your job: Figure out what success looks like.
+- If you don't understand, ask
+- If you still don't understand after they answer, ask again
+- Keep asking until you can clearly picture what would make this useful to them
 
 ✅ Use **start_research** when:
-- You understand what a good deliverable looks like for this specific user
-- You know what would make the result actionable vs impressive-but-useless
-- You can picture what success looks like
+- You can picture what success looks like for this specific person
+- You understand what would make the result useful vs useless
 
 EXAMPLES:
 
@@ -70,25 +69,21 @@ User: "hi"
 
 User: "I need customers"
 → decision: ask_clarification
-   message: "I can help! What will you do with the results once I find them?"
-   reasoning: "Can't determine what success looks like without knowing their intent"
+   reasoning: "Can't picture what success looks like - need to understand what they'll do with results"
 
 User: "I need customers for my audio platform"
 → decision: ask_clarification
-   message: "Got it. What would a good result look like for you?"
-   reasoning: "Know what they want, but not what makes it useful to them"
+   reasoning: "Know WHAT they want, but not what makes it USEFUL to them"
 
-User: "Find me 10 podcast studios I can email this week"
+User: "Find me 10 people I can email this week"
 → decision: start_research
-   researchObjective: "Find 10 podcast studios that are contactable via email"
-   reasoning: "Clear success criteria: specific number, contactable, immediate use"
+   researchObjective: "Find 10 people to email this week"
+   reasoning: "Clear picture of success: specific number, contactable, immediate action"
 
 User: "Research React state libraries"
 → decision: start_research
-   researchObjective: "Research and compare React state management libraries"
-   reasoning: "Exploratory research - success is understanding the options"
-
-REMEMBER: Ask ONE question that helps you understand what success looks like.`;
+   researchObjective: "Research React state libraries"
+   reasoning: "Exploratory research - success is comparing options"`;
 
   const result = await generateText({
     model: anthropic('claude-sonnet-4-20250514'),

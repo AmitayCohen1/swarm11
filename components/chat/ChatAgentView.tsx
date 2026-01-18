@@ -102,7 +102,12 @@ export default function ChatAgentView() {
         <main className="flex-1 overflow-hidden relative">
           <ScrollArea className="h-full px-4 sm:px-6">
             <div className="max-w-4xl mx-auto py-4 space-y-3">
-              {messages.map((msg, idx) => (
+              {messages.map((msg, idx) => {
+                // Skip rendering for technical events that have no visible content
+                // 'research_iteration' events are purely for progress tracking/credits and shouldn't create a bubble
+                if (msg.metadata?.type === 'research_iteration') return null;
+                
+                return (
                 <div
                   key={idx}
                   className={`group flex animate-in fade-in slide-in-from-bottom-2 duration-500 ${
@@ -227,7 +232,8 @@ export default function ChatAgentView() {
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
 
               {/* Dynamic Progress States */}
               {error && (
