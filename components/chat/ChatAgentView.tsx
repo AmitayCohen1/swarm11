@@ -113,7 +113,25 @@ export default function ChatAgentView() {
                         <User className="w-4 h-4" />
                         <span className="text-xs font-semibold uppercase tracking-wider">[USER]</span>
                       </div>
-                      <span className="break-words text-base leading-relaxed text-slate-900 dark:text-white">{msg.content}</span>
+                      <div className="break-words text-slate-900 dark:text-white">
+                        <ReactMarkdown
+                          components={{
+                            p: ({ node, ...props }) => <p {...props} className="mb-2 leading-relaxed text-base" />,
+                            a: ({ node, ...props }) => (
+                              <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline" />
+                            ),
+                            strong: ({ node, ...props }) => <strong {...props} className="font-bold" />,
+                            code: (rawProps: any) => {
+                              const { inline, ...props } = rawProps || {};
+                              return inline
+                                ? <code {...props} className="px-1.5 py-0.5 bg-slate-100 dark:bg-white/10 rounded text-sm" />
+                                : <code {...props} className="block p-3 bg-slate-900 dark:bg-black/50 rounded text-sm overflow-x-auto my-2" />;
+                            },
+                          }}
+                        >
+                          {msg.content}
+                        </ReactMarkdown>
+                      </div>
                     </div>
                   ) : msg.metadata?.type === 'research_query' ? (
                     <div className="flex gap-3 items-start">
@@ -129,9 +147,25 @@ export default function ChatAgentView() {
                         <Lightbulb className="w-4 h-4" />
                         <span className="text-xs font-semibold uppercase tracking-wider">[THINK]</span>
                       </div>
-                      <span className="break-words text-base leading-relaxed text-slate-600 dark:text-slate-400 italic">
-                        {msg.metadata.thinking || `${msg.metadata.evaluation || ''} ${msg.metadata.reasoning || ''}`}
-                      </span>
+                      <div className="break-words text-slate-600 dark:text-slate-400 italic">
+                        <ReactMarkdown
+                          components={{
+                            p: ({ node, ...props }) => <p {...props} className="mb-2 leading-relaxed text-base" />,
+                            a: ({ node, ...props }) => (
+                              <a {...props} target="_blank" rel="noopener noreferrer" className="hover:underline" />
+                            ),
+                            strong: ({ node, ...props }) => <strong {...props} className="font-bold" />,
+                            code: (rawProps: any) => {
+                              const { inline, ...props } = rawProps || {};
+                              return inline
+                                ? <code {...props} className="px-1.5 py-0.5 bg-slate-100 dark:bg-white/10 rounded text-sm not-italic" />
+                                : <code {...props} className="block p-3 bg-slate-900 dark:bg-black/50 rounded text-sm overflow-x-auto my-2 not-italic" />;
+                            },
+                          }}
+                        >
+                          {msg.metadata.thinking || `${msg.metadata.evaluation || ''} ${msg.metadata.reasoning || ''}`}
+                        </ReactMarkdown>
+                      </div>
                     </div>
                   ) : (msg.metadata?.type === 'search_result' || msg.metadata?.type === 'search_complete') ? (
                     <div className="space-y-2">
@@ -149,7 +183,25 @@ export default function ChatAgentView() {
                           <FileText className="w-4 h-4" />
                           <span className="text-xs font-semibold uppercase tracking-wider">[FOUND]</span>
                         </div>
-                        <span className="break-words text-base leading-relaxed text-slate-800 dark:text-slate-200">{msg.metadata.answer}</span>
+                        <div className="break-words text-slate-800 dark:text-slate-200">
+                          <ReactMarkdown
+                            components={{
+                              p: ({ node, ...props }) => <p {...props} className="mb-2 leading-relaxed text-base" />,
+                              a: ({ node, ...props }) => (
+                                <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline" />
+                              ),
+                              strong: ({ node, ...props }) => <strong {...props} className="font-bold" />,
+                              code: (rawProps: any) => {
+                                const { inline, ...props } = rawProps || {};
+                                return inline
+                                  ? <code {...props} className="px-1.5 py-0.5 bg-slate-100 dark:bg-white/10 rounded text-sm" />
+                                  : <code {...props} className="block p-3 bg-slate-900 dark:bg-black/50 rounded text-sm overflow-x-auto my-2" />;
+                              },
+                            }}
+                          >
+                            {msg.metadata.answer}
+                          </ReactMarkdown>
+                        </div>
                       </div>
                       {msg.metadata.sources && msg.metadata.sources.length > 0 && (
                         <div className="flex gap-2 text-slate-500 dark:text-slate-500 text-sm pl-[108px]">
