@@ -112,7 +112,6 @@ Analyze this message and decide how to respond.`,
       type: args.decision,
       message: args.message,
       researchObjective: args.researchObjective,
-      confirmationMessage: args.confirmationMessage,
       reasoning: args.reasoning
     };
   }

@@ -154,14 +154,35 @@ export default function ChatAgentView() {
                             <span>Researching: <span className="text-slate-900 dark:text-white">"{msg.metadata.query}"</span></span>
                           </div>
                         ) : msg.metadata?.type === 'agent_thinking' ? (
-                          <div className="flex flex-col gap-2 bg-slate-50/80 dark:bg-white/2 p-4 rounded-2xl border border-slate-100 dark:border-white/5 mb-2 ml-9">
-                            <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">
-                              <Activity className="w-3 h-3 text-amber-500" />
-                              Reasoning & Strategy
-                            </div>
-                            <div className="text-[13px] leading-relaxed text-slate-600 dark:text-slate-300 whitespace-pre-wrap">
-                              {msg.metadata.thinking}
-                            </div>
+                          <div className="flex flex-col gap-3 bg-slate-50/80 dark:bg-white/2 p-4 rounded-2xl border border-slate-100 dark:border-white/5 mb-2 ml-9">
+                            {msg.metadata.evaluation && (
+                              <div className="space-y-1">
+                                <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">Evaluation</div>
+                                <div className="text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">{msg.metadata.evaluation}</div>
+                              </div>
+                            )}
+                            
+                            {msg.metadata.reasoning && (
+                              <div className="space-y-1">
+                                <div className="text-[10px] font-bold uppercase tracking-widest text-amber-600 dark:text-amber-500/80">Strategy & Reasoning</div>
+                                <div className="text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">{msg.metadata.reasoning}</div>
+                              </div>
+                            )}
+
+                            {msg.metadata.nextMove && (
+                              <div className="flex items-center gap-2 pt-1 border-t border-slate-100 dark:border-white/5 mt-1">
+                                <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">Next Step:</div>
+                                <div className="text-[11px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wide px-2 py-0.5 bg-blue-50 dark:bg-blue-500/10 rounded-md">
+                                  {msg.metadata.nextMove}
+                                </div>
+                              </div>
+                            )}
+
+                            {!msg.metadata.evaluation && !msg.metadata.reasoning && (
+                              <div className="text-[13px] leading-relaxed text-slate-600 dark:text-slate-300 whitespace-pre-wrap">
+                                {msg.metadata.thinking}
+                              </div>
+                            )}
                           </div>
                         ) : (msg.metadata?.type === 'search_result' || msg.metadata?.type === 'search_complete') ? (
                           <div className="space-y-3 mb-4">

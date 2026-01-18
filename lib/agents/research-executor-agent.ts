@@ -65,10 +65,13 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     execute: async ({ keyFindings, evaluation, nextMove, reasoning }) => {
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-      // Show in chat - concise version
+      // Show in chat - structured version for UI
       onProgress?.({
         type: 'agent_thinking',
-        thinking: `${keyFindings}\n\nNext: ${nextMove} - ${reasoning}`
+        evaluation,
+        nextMove,
+        reasoning,
+        thinking: `${evaluation}\n\nNext: ${nextMove} - ${reasoning}` // Fallback for simple rendering
       });
 
       // Save to Knowledge Vault - detailed version with findings highlighted
