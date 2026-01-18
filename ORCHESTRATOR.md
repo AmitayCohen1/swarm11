@@ -68,10 +68,10 @@ Autonomous research agent using AI SDK's ToolLoopAgent. Receives a clear `resear
    - Returns answer + sources with {title, url}
 
 2. **`reflect(keyFindings, evaluation, nextMove, reasoning)`** - Required after EVERY search
-   - keyFindings: Concrete discoveries (names, companies, numbers, tools, resources)
-   - evaluation: What was learned, what's useful, what's missing (1-2 sentences)
+   - keyFindings: Concrete discoveries (names, companies, numbers, tools, resources) - put ALL findings here
+   - evaluation: What was learned, what's useful, what's missing (brief)
    - nextMove: continue, pivot, narrow, deep-dive, ask_user, complete
-   - reasoning: What you found, what you want to search next, and why (1-2 sentences max)
+   - reasoning: ONE short sentence about next search (no labels, no repeating findings)
    - Saves findings to Knowledge Vault with timestamp
    - Shows in chat: "[keyFindings]"
 
@@ -109,11 +109,11 @@ Persistent markdown storage that accumulates research findings:
 
 [Concrete discoveries: names, companies, numbers, tools, resources]
 
-**Evaluation:** [What the search revealed, what's useful, what's missing - 1-2 sentences]
+**Evaluation:** [What the search revealed, what's useful, what's missing - brief]
 
 **Next Move:** continue
 
-**Reasoning:** [What you found, what you want to search next, and why - 1-2 sentences]
+**Reasoning:** [One short sentence about next search]
 
 ---
 ```
