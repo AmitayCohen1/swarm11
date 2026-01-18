@@ -167,7 +167,7 @@ export async function POST(
               .where(eq(chatSessions.id, chatSessionId));
 
             // Send confirmation message if provided, otherwise default message
-            const startMessage = decision.confirmationMessage || "Starting research now...";
+            const startMessage = decision.message || "Starting research now...";
 
             sendEvent({
               type: 'message',

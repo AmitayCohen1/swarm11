@@ -4,9 +4,8 @@ import { z } from 'zod';
 
 export interface OrchestratorDecision {
   type: 'chat_response' | 'ask_clarification' | 'start_research';
-  message?: string; // For chat_response or ask_clarification
+  message?: string; // For chat_response, ask_clarification, and start_research (confirmation)
   researchObjective?: string; // For start_research
-  confirmationMessage?: string; // Optional quick confirmation before research
   reasoning: string;
 }
 
@@ -27,9 +26,8 @@ export async function analyzeUserMessage(
         'ask_clarification: Ask a specific question to clarify the research objective before starting. ' +
         'start_research: Use this when you have enough information to start research.'
       ),
-      message: z.string().optional().describe('Your message (for chat_response or ask_clarification)'),
+      message: z.string().describe('Your message. For start_research: brief confirmation of what you will research and what you are looking for. Example: "I\'ll research podcasts with misinformation issues. Looking for specific shows, hosts, and documented false claims."'),
       researchObjective: z.string().optional().describe('The research objective (if decision is start_research)'),
-      confirmationMessage: z.string().optional().describe('Optional quick confirmation before starting research'),
       reasoning: z.string().describe('Why you made this decision')
     }),
     execute: async (params: any) => params
@@ -62,26 +60,33 @@ export async function analyzeUserMessage(
   - You can clearly picture what success looks like
   - You know what would be useful vs useless
   - The strategic direction is clear
-  
+
+  IMPORTANT: When starting research, ALWAYS include a message field confirming:
+  1. What you will research
+  2. What specific things you are looking for
+  This lets the user know you understood correctly before diving into research.
+
   Your job:
   Figure out what success looks like *before* research starts.
-  
+
   EXAMPLES:
-  
+
   User: "hi"
   → decision: chat_response
-  
+
   User: "I need customers"
   → decision: ask_clarification
      message: "Should I prioritize customers that are easy to start with, or the biggest players in the space?"
-  
-  User: "Find me 10 people I can email this week"
+
+  User: "Find me 10 people I can email this week about my audio fact-checking tool"
   → decision: start_research
-     researchObjective: "Find 10 people I can email this week"
-  
-  User: "Research React state libraries"
+     researchObjective: "Find 10 people to email about audio fact-checking tool"
+     message: "I'll research potential customers for audio fact-checking. Looking for podcast hosts, journalists, and media companies who would benefit from this tool."
+
+  User: "Which podcasts spread misinformation?"
   → decision: start_research
-     researchObjective: "Research React state libraries"
+     researchObjective: "Find podcasts that spread misinformation"
+     message: "I'll research podcasts with documented misinformation issues. Looking for specific shows, hosts, examples of false claims, and evidence."
   
   WRONG:
   ❌ Starting research when multiple strategic paths exist

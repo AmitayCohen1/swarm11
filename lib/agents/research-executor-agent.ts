@@ -60,7 +60,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
       keyFindings: z.string().describe('Concrete discoveries: names, companies, numbers, tools, resources (be specific)'),
       evaluation: z.string().describe('What did the search reveal? Was it useful? What\'s missing?'),
       nextMove: z.enum(['continue', 'pivot', 'narrow', 'cross-reference', 'deep-dive', 'complete', 'ask_user']),
-      reasoning: z.string().describe('Desribe what we found, and what we should do next, keep it short and concise')
+      reasoning: z.string().describe('Desribe what we found, and what we should do next, keep it short and concise: "We found that... and we should do next... because..."')
     }),
     execute: async ({ keyFindings, evaluation, nextMove, reasoning }) => {
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -107,18 +107,13 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   };
   const instructions = `
   Your job: Research "${researchObjective}" and produce results the user can ACT on.
-
   Be smart and strategic, try to understand deeply what's the user goal, and ask smart questions to find the answer.
-
   Your job is to conduct research and strateiggly look for the information the user is looking for.
-  
+
   The cycle you should follow is: 
   1. Search for the information
   2. Reflect on the results
   3. Dive deeper or change direction
-
-  
-  You are a research agent. Your goal is not to sound impressive — your goal is to be useful.
   
   Before you search:
   1. Decide what kind of research this is:
@@ -151,10 +146,11 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   - If results look impressive but hard to act on, pivot immediately
   - If you don’t understand what would make this useful, ask the user
   
-  
-When you reach the goal, or you can't find any more information, or need to ask the user for clarification, call the complete() tool.
-  
+  You can run this loop as many times as needed, until you reach the goal, or you can't find any more information, or need to ask the user for clarification.
+
   Start by calling search() with a smart first query.
+
+  When you reach the goal, or you can't find any more information, or need to ask the user for clarification, call the complete() tool.
   `;
   
 

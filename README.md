@@ -139,8 +139,10 @@ Orchestrator Chat Agent (Decision Maker)
 1. **`chat_response`**: Greetings only ("hi", "hello")
 2. **`ask_clarification`**: Ask ONE specific question when request is too vague
    - Example: "I need customers" → "What product or service are you selling?"
-3. **`start_research`**: Launch autonomous research with clear objective
-   - Example: "Find DevRel candidates with 5+ years experience" → Immediate research
+3. **`start_research`**: Confirm understanding and launch autonomous research
+   - Sends confirmation: "I'll research X. Looking for Y, Z, and W."
+   - Then starts research immediately
+   - Example: "Find DevRel candidates" → Confirmation → Research begins
 
 ### Research Executor
 

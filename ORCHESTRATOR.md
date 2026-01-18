@@ -36,7 +36,7 @@ Main agent that analyzes each user message and decides:
 **Decision Types:**
 - `chat_response` - Greetings only ("hi", "hello")
 - `ask_clarification` - Ask questions when request is too vague
-- `start_research` - Launch autonomous research with clear objective
+- `start_research` - Launch autonomous research with clear objective (sends confirmation first)
 
 **How It Decides:**
 - **Ask clarification** when missing critical info:
@@ -179,12 +179,15 @@ Orchestrator: start_research
 Research Executor: [autonomous search loop]
 ```
 
-### Example 2: Clear Request → Immediate Research
+### Example 2: Clear Request → Confirmed Research
 ```
 User: "Find DevRel candidates with 5+ years experience"
     ↓
 Orchestrator: start_research
     researchObjective: "Find Developer Relations candidates with 5+ years experience"
+    message: "I'll research DevRel candidates with 5+ years experience. Looking for specific professionals, their current companies, contact information, and recent work."
+    ↓
+System sends confirmation message to user
     ↓
 Research Executor:
     Step 1: search("Who are the top DevRel professionals in 2026?")
@@ -224,7 +227,7 @@ const decision = await analyzeUserMessage(
 );
 
 // decision.type: 'chat_response' | 'ask_clarification' | 'start_research'
-// decision.message: Response text (if chat_response or ask_clarification)
+// decision.message: Response text (for all types - confirmation for start_research)
 // decision.researchObjective: Research goal (if start_research)
 
 // Handle decision
@@ -290,9 +293,8 @@ CREATE TABLE chat_sessions (
 ```typescript
 interface OrchestratorDecision {
   type: 'chat_response' | 'ask_clarification' | 'start_research';
-  message?: string; // For chat_response or ask_clarification
+  message?: string; // For chat_response, ask_clarification, and start_research (confirmation)
   researchObjective?: string; // For start_research
-  confirmationMessage?: string; // Optional confirmation before research
   reasoning: string;
 }
 ```
