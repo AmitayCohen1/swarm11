@@ -237,7 +237,7 @@ export async function POST(
                     });
                   } else if (update.type === 'research_query' || update.type === 'search_started') {
                     sendEvent(update);
-                  } else if (update.type === 'search_result') {
+                  } else if (update.type === 'search_completed') {
                     sendEvent(update);
                   } else if (update.type === 'agent_thinking') {
                     sendEvent(update);

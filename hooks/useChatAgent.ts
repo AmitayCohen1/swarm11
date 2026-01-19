@@ -163,24 +163,38 @@ export function useChatAgent() {
           }));
           pendingBatchRef.current = queries;
 
-          // Create batch message with all queries
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: '',
-            timestamp: new Date().toISOString(),
-            metadata: {
-              type: 'search_batch',
-              queries
+          // Create batch message with all queries (only if not already completed)
+          setMessages(prev => {
+            // Check if search_completed already added a batch with results
+            const lastBatch = prev.findLast(m => m.metadata?.type === 'search_batch');
+            if (lastBatch?.metadata?.queries?.[0]?.status === 'complete') {
+              // Results already in, don't add searching state
+              return prev;
             }
-          }]);
+            return [...prev, {
+              role: 'assistant' as const,
+              content: '',
+              timestamp: new Date().toISOString(),
+              metadata: {
+                type: 'search_batch',
+                queries
+              }
+            }];
+          });
         } else if (update.type === 'search_completed') {
           // All results came back - update or create the batch with complete data
           const completedQueries = (update as any).queries || [];
+          pendingBatchRef.current = null;
+
           setMessages(prev => {
-            const batchIdx = prev.findLastIndex(m => m.metadata?.type === 'search_batch');
+            // Find the last batch that's still searching (not already completed)
+            const batchIdx = prev.findLastIndex(m =>
+              m.metadata?.type === 'search_batch' &&
+              m.metadata?.queries?.[0]?.status === 'searching'
+            );
 
             if (batchIdx !== -1) {
-              // Update existing batch with all completed results
+              // Update existing searching batch with results
               const newMessages = [...prev];
               newMessages[batchIdx] = {
                 ...newMessages[batchIdx],
@@ -192,7 +206,7 @@ export function useChatAgent() {
               return newMessages;
             }
 
-            // Batch doesn't exist yet (race condition) - create it
+            // No searching batch found - create completed one
             return [...prev, {
               role: 'assistant' as const,
               content: '',
@@ -203,7 +217,6 @@ export function useChatAgent() {
               }
             }];
           });
-          pendingBatchRef.current = null;
         } else if (update.type === 'ask_user') {
           // Question with selectable options
           setMessages(prev => [...prev, {
