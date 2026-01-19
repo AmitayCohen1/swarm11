@@ -52,6 +52,8 @@ export function useChatAgent() {
   const [isResearching, setIsResearching] = useState(false);
   const [researchProgress, setResearchProgress] = useState<{
     objective?: string;
+    stoppingConditions?: string;
+    successCriteria?: string;
     iteration?: number;
   }>({});
   const [brain, setBrain] = useState<string>('');
@@ -142,8 +144,11 @@ export function useChatAgent() {
         } else if (update.type === 'research_started') {
           setIsResearching(true);
           setStatus('researching');
+          const brief = (update as any).brief;
           setResearchProgress({
             objective: update.objective,
+            stoppingConditions: brief?.stoppingConditions,
+            successCriteria: brief?.successCriteria,
             iteration: 0
           });
         } else if (update.type === 'search_started') {

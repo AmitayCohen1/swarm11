@@ -165,10 +165,11 @@ RESEARCH LOOP
 SEARCH RULES
 ═══════════════════════════════════════════════════════════════
 
-• search() accepts 1-5 queries - all run in parallel via Promise.all
+• PREFER 1 QUERY AT A TIME - this allows you to reason about each result before continuing
+• Use 2-3 queries ONLY when exploring multiple independent directions simultaneously
+• Maximum 3 parallel queries allowed
 • Each query must include a PURPOSE explaining what uncertainty it tests
-• Exploration: use 3-5 queries
-• Narrowing: use 1-2 queries
+• WAIT for ALL queries to complete before calling reflect()
 • Do NOT call search() again until reflect() is complete
 
 ═══════════════════════════════════════════════════════════════
@@ -316,7 +317,7 @@ CRITICAL: Use FULL natural language questions.
 ✅ Good: "What are the most popular finance podcasts in 2024?"
 ❌ Bad: "finance podcasts 2024"
 
-Begin with search() using 3-5 queries targeting different signal categories. Each query needs {query, purpose}. After results, call reflect().`
+Begin with search() using 1 query. Each query needs {query, purpose}. After results, call reflect() to reason about findings before searching again.`
     });
 
     // Structured output from AI SDK 6 - typed by ResearchOutputSchema

@@ -432,16 +432,32 @@ export default function ChatAgentView() {
           </div>
         </header>
 
-        {/* Research Objective Banner */}
+        {/* Research Brief Banner */}
         {isResearching && researchProgress?.objective && (
           <div className="px-6 py-4 bg-linear-to-r from-blue-50 to-indigo-50 dark:from-blue-500/10 dark:to-indigo-500/10 border-b border-blue-100 dark:border-blue-500/20 animate-in slide-in-from-top duration-500">
             <div className="max-w-4xl mx-auto flex items-start gap-4">
               <div className="w-10 h-10 rounded-2xl bg-white/80 dark:bg-white/5 flex items-center justify-center shrink-0 shadow-sm border border-blue-200/50 dark:border-blue-500/20">
                 <Activity className="w-5 h-5 text-blue-600 dark:text-blue-400 animate-pulse" />
               </div>
-              <div className="space-y-1">
-                <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-[0.2em]">Current Mission</p>
-                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-tight">{researchProgress.objective}</p>
+              <div className="flex-1 space-y-2">
+                <div>
+                  <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-[0.2em]">Objective</p>
+                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-tight">{researchProgress.objective}</p>
+                </div>
+                <div className="flex gap-6 text-xs">
+                  {researchProgress.stoppingConditions && (
+                    <div>
+                      <span className="text-slate-500 dark:text-slate-400">Stop when: </span>
+                      <span className="text-slate-700 dark:text-slate-200">{researchProgress.stoppingConditions}</span>
+                    </div>
+                  )}
+                  {researchProgress.successCriteria && (
+                    <div>
+                      <span className="text-slate-500 dark:text-slate-400">Success: </span>
+                      <span className="text-slate-700 dark:text-slate-200">{researchProgress.successCriteria}</span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>

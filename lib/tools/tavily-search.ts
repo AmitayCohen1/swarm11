@@ -11,7 +11,7 @@ export const search = tool({
     queries: z.array(z.object({
       query: z.string().describe('FULL NATURAL LANGUAGE QUESTION'),
       purpose: z.string().describe('What uncertainty does this test?')
-    })).min(1).max(5).describe('1-5 queries. Use multiple for exploration, single for narrowing.')
+    })).min(1).max(3).describe('1-3 queries. Prefer 1 query at a time. Use 2-3 only when exploring multiple independent directions.')
   }),
   execute: async ({ queries }) => {
     const results = await Promise.all(
