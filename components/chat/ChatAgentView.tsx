@@ -336,6 +336,34 @@ function ReasoningIndicator() {
 }
 
 /**
+ * Component for synthesizing/final answer indicator
+ */
+function SynthesizingIndicator() {
+  return (
+    <div className="group relative pl-11 py-2 animate-in fade-in duration-300">
+      <div className="absolute left-3.5 top-0 bottom-0 w-px bg-slate-200 dark:bg-white/10 group-last:bg-transparent" />
+      <div className="absolute left-[9px] top-3 w-2.5 h-2.5 rounded-full border-2 border-emerald-300 dark:border-emerald-500/40 bg-white dark:bg-[#0a0a0a] animate-pulse" />
+
+      <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-50/50 to-teal-50/50 dark:from-emerald-500/5 dark:to-teal-500/5 border border-emerald-100/50 dark:border-emerald-500/10 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="w-5 h-5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center shrink-0">
+            <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 animate-pulse" />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-emerald-700 dark:text-emerald-300 text-base font-medium">Synthesizing findings</span>
+            <span className="flex gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 dark:bg-emerald-500 animate-bounce" style={{ animationDelay: '0ms' }} />
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 dark:bg-emerald-500 animate-bounce" style={{ animationDelay: '150ms' }} />
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 dark:bg-emerald-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Component for agent thinking steps
  */
 function AgentThinking({ msg }: { msg: any }) {
@@ -560,6 +588,9 @@ export default function ChatAgentView() {
                 }
                 if (msg.metadata?.type === 'reasoning_started') {
                   return <ReasoningIndicator key={idx} />;
+                }
+                if (msg.metadata?.type === 'synthesizing_started') {
+                  return <SynthesizingIndicator key={idx} />;
                 }
                 if (msg.metadata?.type === 'agent_thinking') {
                   return <AgentThinking key={idx} msg={msg} />;
