@@ -558,6 +558,9 @@ export default function ChatAgentView() {
                 if (msg.metadata?.type === 'research_query') {
                   return <ResearchQuery key={idx} msg={msg} />;
                 }
+                if (msg.metadata?.type === 'reasoning_started') {
+                  return <ReasoningIndicator key={idx} />;
+                }
                 if (msg.metadata?.type === 'agent_thinking') {
                   return <AgentThinking key={idx} msg={msg} />;
                 }
