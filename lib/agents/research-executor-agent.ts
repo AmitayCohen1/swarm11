@@ -18,7 +18,7 @@ const ResearchOutputSchema = z.object({
 interface ResearchExecutorConfig {
   chatSessionId: string;
   userId: string;
-  researchObjective: string;
+  researchIntent: string;
   conversationHistory?: any[];
   onProgress?: (update: any) => void;
   abortSignal?: AbortSignal;
@@ -31,7 +31,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   const {
     chatSessionId,
     userId,
-    researchObjective,
+    researchIntent,
     conversationHistory = [],
     onProgress,
     abortSignal
@@ -92,7 +92,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
       let currentBrain = session?.brain || '';
 
       if (!currentBrain.trim()) {
-        currentBrain = `# ${researchObjective}\n\n`;
+        currentBrain = `# ${researchIntent}\n\n`;
       }
 
       // Brain stores findings only - no internal markers
@@ -119,17 +119,14 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   You are an autonomous research agent.
   
   Your objective is:
-  "${researchObjective}"
+  "${researchIntent}"
   
   Your role is to autonomously determine how to achieve this objective through investigation.
-  People come to you to get EXACTLY what they want back, so your job is to understand what exactly they want back, not general research.
 
-  Behavioral expectations:
-  - Start with the most promising or informative line of inquiry
-  - Dig deeper when evidence is strong or surprising
-  - Pivot when a path shows low value or diminishing returns
-  - Narrow or broaden scope as needed to improve outcome quality
-  - Continuously and relenlessly research untill you have found the best possible result.
+  Behavioral expectations: Research > View results and reflect > Research > View results and reflect > ...
+
+  You can either double down on the same direction, or pivot to a new direction if you think you are going in the wrong direction.
+  Be smart, creative and efficient.
 
   STRICT LOOP:
   1. Call search() with ONE query
@@ -227,7 +224,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     }
 
     const result = await agent.generate({
-      prompt: `${contextPrompt}Research: "${researchObjective}"
+      prompt: `${contextPrompt}Research: "${researchIntent}"
 
 CRITICAL: Use FULL natural language questions for ALL searches.
 ✅ Good: "What are the most popular finance podcasts in 2024?"

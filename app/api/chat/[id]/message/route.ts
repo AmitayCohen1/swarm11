@@ -151,7 +151,7 @@ export async function POST(
 
           } else if (decision.type === 'start_research') {
             // Start research immediately - no plan approval needed
-            const researchObjective = decision.researchObjective || userMessage;
+            const researchIntent = decision.researchIntent || userMessage;
 
             // POC: Credit checks disabled - free to use
             // TODO: Enable credit checks before production launch
@@ -164,7 +164,7 @@ export async function POST(
 
             const currentBrain = currentSession?.brain || '';
             const separator = currentBrain ? '\n\n---\n\n' : '';
-            const newBrainSection = `${separator}# ${researchObjective}\n\n`;
+            const newBrainSection = `${separator}# ${researchIntent}\n\n`;
 
             await db
               .update(chatSessions)
@@ -201,7 +201,7 @@ export async function POST(
             // Start research
             sendEvent({
               type: 'research_started',
-              objective: researchObjective
+              objective: researchIntent
             });
 
             // Emit brain update with new section
@@ -215,7 +215,7 @@ export async function POST(
               researchResult = await executeResearch({
                 chatSessionId,
                 userId: user.id,
-                researchObjective,
+                researchIntent,
                 conversationHistory,
                 onProgress: (update) => {
                   // Stream progress as structured events (UI can show/hide details)

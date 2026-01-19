@@ -261,13 +261,14 @@ export default function ChatAgentView() {
                       </div>
                     </div>
                   ) : msg.metadata?.type === 'agent_thinking' ? (
-                    // Agent reflection - prominent card
-                    <div className="ml-2 p-4 bg-amber-50 dark:bg-amber-500/10 rounded-lg border border-amber-200 dark:border-amber-500/20">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Lightbulb className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                        <span className="text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide">Reflecting</span>
+                    // Agent thinking - looks like a regular message but muted
+                    <div className="flex items-start gap-3">
+                      <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center shrink-0">
+                        <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                       </div>
-                      <p className="text-sm text-amber-900 dark:text-amber-100 leading-relaxed">{msg.metadata.thinking}</p>
+                      <div className="flex-1 pt-0.5">
+                        <p className="text-slate-500 dark:text-slate-400 text-sm italic leading-relaxed">{msg.metadata.thinking}</p>
+                      </div>
                     </div>
                   ) : msg.metadata?.type === 'ask_user' ? (
                     // Question with selectable options

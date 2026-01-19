@@ -6,7 +6,7 @@ export interface OrchestratorDecision {
   type: 'chat_response' | 'ask_clarification' | 'start_research';
   message?: string;
   options?: { label: string }[]; // For ask_clarification
-  researchObjective?: string;
+  researchIntent?: string;
   reasoning: string;
 }
 
@@ -20,43 +20,41 @@ export async function analyzeUserMessage(
 ): Promise<OrchestratorDecision> {
 
   const decisionTool = {
-    description: 'Decide how to respond',
+    description: 'Decide how to respond to the user',
     inputSchema: z.object({
       decision: z.enum(['chat_response', 'ask_clarification', 'start_research']).describe(
-        'chat_response' +
-        'ask_clarification' +
-        'start_research'
+        'chat_response: DEFAULT. Ask a simple question like "What is your business?" ' +
+        'ask_clarification: ONLY for yes/no or clear choices like "B2B or B2C?" ' +
+        'start_research: When you know what to research.'
       ),
-      message: z.string().describe('Your message or question'),
+      message: z.string().describe('Your question or message. Keep it short.'),
       options: z.array(z.object({
-        label: z.string().describe('Short label 2-5 words')
-      })).min(2).max(4).optional().describe('REQUIRED for ask_clarification. 2-4 options.'),
-      researchObjective: z.string().optional().describe('For start_research: the research objective'),
+        label: z.string().describe('2-4 word answer option')
+      })).min(2).max(4).optional().describe('Only for ask_clarification. Must be real answers like "B2B", "B2C", not actions like "Explain more".'),
+      researchIntent: z.string().optional().describe('For start_research. What the user wants to find.'),
       reasoning: z.string().describe('Brief reasoning')
     }),
     execute: async (params: any) => params
   };
 
   const systemPrompt = `
-  You are the orchestrator agent.
+You are a research assistant. Your job is to ensure we fully understand what to research, so we can pass that to the research agent.
+What he is looking to get back? 
+What is he planning to do with the results?
 
-  The research agent is autonomous and can dive extremely deep - it can find exact names, exact contact info, exact details. Pixel-perfect results. That's our advantage.
+Don't start until you have enough context to do useful research.
+If the request is vague, ask for the missing context.
 
-  But to deliver that, we need to know what the user wants to see in the output. 
-  So we need to udnerstnd what is he trying to achive with this research, so we can set the research objective accordingly.
-  Keep every question short and concise.
+TOOLS:
+- ask_clarification: Ask with clickable options. Good for resolving forks in the conversation.
+- chat_response: Ask a question. Keep shrot and concise. Use this if ask_clarification is not enough.
+- start_research: Start when you have enough context
 
+CONVERSATION HISTORY:
+${conversationHistory.map((msg: any) => `${msg.role}: ${msg.content}`).join('\n')}
 
-  TOOLS:
-  - ask_clarification: To understand what they want in the output. Good for resolving forks in the conversation.
-  - chat_response: If you want the user to type a response, if can't be reolved with ask_clarification, or just to confirm plan before starting the research.
-  - start_research: Once you know what output they want
-
-  CONVERSATION HISTORY:
-  ${conversationHistory.map((msg: any) => `${msg.role}: ${msg.content}`).join('\n')}
-
-  ${brain ? `\nPREVIOUS RESEARCH:\n${brain.substring(0, 10000)}...` : ''}
-  `;
+${brain ? `\nPREVIOUS RESEARCH:\n${brain.substring(0, 10000)}...` : ''}
+`;
   
   
   
@@ -80,7 +78,7 @@ Analyze this message and decide how to respond.`,
       type: args.decision,
       message: args.message,
       options: args.options,
-      researchObjective: args.researchObjective,
+      researchIntent: args.researchIntent,
       reasoning: args.reasoning
     };
   }
