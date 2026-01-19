@@ -22,19 +22,38 @@ function AskUserOptions({
 }) {
   const [showInput, setShowInput] = useState(false);
   const [customInput, setCustomInput] = useState('');
+  const [selected, setSelected] = useState<string | null>(null);
 
   const handleSelect = (label: string) => {
-    if (status !== 'ready') return;
+    if (status !== 'ready' || selected) return;
+    setSelected(label);
     onSelect(label);
   };
 
   const handleSubmitCustom = () => {
-    if (customInput.trim() && status === 'ready') {
+    if (customInput.trim() && status === 'ready' && !selected) {
+      setSelected(customInput.trim());
       onSelect(customInput.trim());
-      setCustomInput('');
       setShowInput(false);
     }
   };
+
+  // If something was selected, show simplified view
+  if (selected) {
+    return (
+      <div className="flex items-start gap-3">
+        <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center shrink-0">
+          <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+        </div>
+        <div className="flex-1 space-y-2">
+          <p className="text-slate-500 dark:text-slate-400 text-sm">{question}</p>
+          <span className="inline-flex px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30">
+            {selected}
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-start gap-3">
@@ -115,6 +134,7 @@ export default function ChatAgentView() {
     messages,
     error,
     isResearching,
+    researchProgress,
     brain,
     sendMessage,
     stopResearch
@@ -195,6 +215,19 @@ export default function ChatAgentView() {
             )}
           </div>
         </header>
+
+        {/* Research Objective Banner */}
+        {isResearching && researchProgress?.objective && (
+          <div className="px-6 py-3 bg-blue-50 dark:bg-blue-500/10 border-b border-blue-100 dark:border-blue-500/20">
+            <div className="max-w-5xl mx-auto flex items-start gap-3">
+              <Activity className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wide">Researching</p>
+                <p className="text-sm text-blue-900 dark:text-blue-100 mt-0.5">{researchProgress.objective}</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Main Chat Area - Log Style */}
         <main className="flex-1 overflow-hidden relative">
