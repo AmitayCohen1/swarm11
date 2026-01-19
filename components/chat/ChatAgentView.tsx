@@ -261,13 +261,13 @@ export default function ChatAgentView() {
                       </div>
                     </div>
                   ) : msg.metadata?.type === 'agent_thinking' ? (
-                    // Agent thinking - looks like a regular message but muted
+                    // Agent thinking - looks like a regular message
                     <div className="flex items-start gap-3">
                       <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center shrink-0">
                         <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                       </div>
                       <div className="flex-1 pt-0.5">
-                        <p className="text-slate-500 dark:text-slate-400 text-sm italic leading-relaxed">{msg.metadata.thinking}</p>
+                        <p className="text-slate-800 dark:text-slate-100 text-base leading-relaxed">{msg.metadata.thinking}</p>
                       </div>
                     </div>
                   ) : msg.metadata?.type === 'ask_user' ? (

@@ -70,7 +70,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     inputSchema: z.object({
       keyFindings: z.string().describe('Concrete discoveries: names, companies, numbers, tools, resources (be specific)'),
       nextMove: z.enum(['continue', 'pivot', 'narrow', 'cross-reference', 'deep-dive', 'complete', 'ask_user']),
-      userFacingSummary: z.string().describe('A short, clean summary for the user (1-2 sentences). No internal jargon.')
+      userFacingSummary: z.string().describe('A short, clean summary for the user (1-2 sentences). No internal jargon. Explains the user what you found in the search, and what you want to do next.s Should be conversational and friendly.')
     }),
     execute: async ({ keyFindings, nextMove, userFacingSummary }) => {
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -125,7 +125,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
 
   Behavioral expectations: Research > View results and reflect > Research > View results and reflect > ...
 
-  You can either double down on the same direction, or pivot to a new direction if you think you are going in the wrong direction.
+  You can either double down on the same direction to get more information and dive deeper, or pivot to a new direction if you think you are going in the wrong direction.
   Be smart, creative and efficient.
 
   STRICT LOOP:
@@ -134,7 +134,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   3. Repeat until done
 
   Tools:
-  - search(query): ONE search at a time, then you MUST reflect
+  - search(query): ONE search at a time, then you MUST reflect. You can ask general questions to get a broad sense, or specific questions to get more information on a specific vertical.
   - reflect(keyFindings, nextMove, userFacingSummary): REQUIRED after every single search
   - askUser(question, options): if you want to ask the user a question
 
