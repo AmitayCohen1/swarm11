@@ -10,7 +10,7 @@ interface Message {
 }
 
 interface ProgressUpdate {
-  type: 'analyzing' | 'decision' | 'research_started' | 'research_iteration' | 'step_complete' | 'research_complete' | 'message' | 'complete' | 'error' | 'agent_thinking' | 'research_query' | 'plan_created' | 'brain_updated' | 'brain_update' | 'summary_created' | 'needs_clarification' | 'search_result' | 'search_completed' | 'ask_user' | 'search_started' | 'multi_choice_select' | 'reasoning_started';
+  type: 'analyzing' | 'decision' | 'research_started' | 'research_iteration' | 'step_complete' | 'research_complete' | 'message' | 'complete' | 'error' | 'agent_thinking' | 'research_query' | 'plan_created' | 'brain_updated' | 'brain_update' | 'summary_created' | 'needs_clarification' | 'search_result' | 'search_completed' | 'ask_user' | 'search_started' | 'multi_choice_select' | 'reasoning_started' | 'synthesizing_started';
   options?: { label: string; description?: string }[];
   message?: string;
   decision?: string;
@@ -249,6 +249,14 @@ export function useChatAgent() {
             content: '',
             timestamp: new Date().toISOString(),
             metadata: { type: 'reasoning_started' }
+          }]);
+        } else if (update.type === 'synthesizing_started') {
+          // Show synthesizing indicator (final answer being generated)
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: '',
+            timestamp: new Date().toISOString(),
+            metadata: { type: 'synthesizing_started' }
           }]);
         } else if (update.type === 'agent_thinking') {
           // Replace reasoning indicator with actual thinking content

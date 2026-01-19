@@ -109,6 +109,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
 
       // Signal completion to stop the loop
       if (nextMove === 'stop') {
+        onProgress?.({ type: 'synthesizing_started' });
         return {
           acknowledged: true,
           direction: nextMove,
