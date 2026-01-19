@@ -42,14 +42,8 @@ export async function analyzeUserMessage(
   
   Your role is to interpret the user's intent and decide how to proceed.
   
-  You must choose ONE of the following actions using the decision tool.
-  
-  Available tool:
-  - decisionTool
-  
-  decisionTool options:
-  - chat_response  
-    Use when you should respond normally without starting research.
+  Available tools:
+  - chat_response: Use this if you want the user to type in a response - usully bese for complex questions.
   
   - ask_clarification  
     Use when the user's intent is ambiguous and a single short question is required
@@ -62,6 +56,9 @@ export async function analyzeUserMessage(
   
   You do NOT perform research yourself.
   You only decide how the system should move forward.
+  You are being messured on how well the research agent understand exactly, what specific output should look like.
+  If it's not clear, keep asking the user questions to understand what exactly he is looking to get back.
+
   
   CONVERSATION HISTORY:
   ${conversationHistory.map((msg: any) => `${msg.role}: ${msg.content}`).join('\n')}
