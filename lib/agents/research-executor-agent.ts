@@ -1,6 +1,6 @@
 import { ToolLoopAgent, Output, stepCountIs, tool } from 'ai';
 import { openai } from '@ai-sdk/openai';
-import { search as tavilySearch } from '@/lib/tools/tavily-search';
+import { search } from '@/lib/tools/tavily-search';
 import { db } from '@/lib/db';
 import { chatSessions } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -40,31 +40,6 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   let totalCreditsUsed = 0;
   const MAX_STEPS = 100;
   let stepCounter = 0;
-  let pendingReflect = false; // Tracks if we need to reflect before searching again
-
-  // Wrapped search tool that enforces reflect() between searches
-  const searchTool = tool({
-    description: 'Search the web. Call ONCE, then MUST call reflect() before searching again.',
-    inputSchema: z.object({
-      queries: z.array(z.object({
-        query: z.string().describe('FULL NATURAL LANGUAGE QUESTION'),
-        purpose: z.string().describe('What uncertainty does this test?')
-      })).min(1).max(3).describe('1-3 queries. Default to 1. Use 2-3 only for independent hypotheses.')
-    }),
-    execute: async (input) => {
-      if (pendingReflect) {
-        return {
-          error: 'You must call reflect() to analyze previous search results before searching again.',
-          hint: 'Call reflect() with your analysis of the previous results, then you can search again.'
-        };
-      }
-
-      // Call the actual search
-      const result = await tavilySearch.execute!(input, { abortSignal: abortSignal } as any);
-      pendingReflect = true; // Now must reflect before next search
-      return result;
-    }
-  });
 
   const askUserTool = tool({
     description: 'Ask the user a question with selectable options. Use this to clarify goals, narrow focus, or get decisions.',
@@ -90,7 +65,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   });
 
   const reflectionTool = tool({
-    description: 'MANDATORY after every search. Synthesize results, update hypotheses, decide next action. Must call this before searching again.',
+    description: 'MANDATORY after every search. Synthesize results, update hypotheses, decide next action.',
     inputSchema: z.object({
       materialChange: z.string().describe('What materially changed in your understanding from this batch?'),
       hypotheses: z.string().describe('Which hypotheses were strengthened, weakened, or discarded?'),
@@ -99,7 +74,6 @@ export async function executeResearch(config: ResearchExecutorConfig) {
       nextAction: z.string().describe('If not stopping, what specific queries will you run next and why?')
     }),
     execute: async ({ materialChange, hypotheses, keyFindings, nextMove, nextAction }) => {
-      pendingReflect = false; // Allow searching again
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
       // Send synthesis to UI
@@ -147,7 +121,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   });
 
   const tools = {
-    search: searchTool,
+    search,
     reflect: reflectionTool,
     askUser: askUserTool
   };
@@ -187,21 +161,19 @@ RESEARCH LOOP
 3. NARROW: Progressively drill down and focus on the strongest signals
 
 ═══════════════════════════════════════════════════════════════
-SEARCH RULES (STRICT)
+TOOLS
 ═══════════════════════════════════════════════════════════════
 
-WORKFLOW PER CYCLE:
-1. Call search() ONCE with 1-3 queries
-2. search() returns ALL results together (waits internally)
-3. Call reflect() to analyze ALL results from that batch
-4. Based on reflect(), decide: search again OR stop
+search({queries}):
+• Takes 1-3 queries, runs them in parallel, returns ALL results together
+• Each query: {query: "full question", purpose: "what this tests"}
+• Tool waits for all queries to complete before returning
 
-• Default: 1 query per search() call
-• Use 2-3 queries ONLY when testing independent hypotheses in parallel
-• Maximum 3 queries per search() call
-• Each query needs {query, purpose}
-• NEVER call search() twice before calling reflect()
-• NEVER call reflect() until you have analyzed the search results
+reflect({...}):
+• Call after each search() to analyze results
+• Decide: narrow (focus), pivot (change direction), or stop
+
+CYCLE: search() → reflect() → search() → reflect() → ... → stop
 
 ═══════════════════════════════════════════════════════════════
 MANDATORY SYNTHESIS (after every batch)
