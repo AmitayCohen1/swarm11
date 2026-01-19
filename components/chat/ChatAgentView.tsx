@@ -364,6 +364,20 @@ export default function ChatAgentView() {
                 );
               })}
 
+              {/* Thinking Indicator */}
+              {status === 'processing' && (
+                <div className="py-2">
+                  <div className="flex items-start gap-3">
+                    <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center shrink-0">
+                      <Loader2 className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-spin" />
+                    </div>
+                    <div className="flex-1 pt-1">
+                      <span className="text-slate-500 dark:text-slate-400 text-sm italic">thinking...</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Error Display */}
               {error && (
                 <div className="ml-2 p-3 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20">
