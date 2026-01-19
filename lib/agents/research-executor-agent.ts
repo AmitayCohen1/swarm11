@@ -1,10 +1,11 @@
 import { ToolLoopAgent, Output, stepCountIs, tool } from 'ai';
 import { openai } from '@ai-sdk/openai';
-import { tavilySearch } from '@/lib/tools/tavily-search';
+import { search } from '@/lib/tools/tavily-search';
 import { db } from '@/lib/db';
 import { chatSessions } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { ResearchBrief } from './orchestrator-chat-agent';
 // import { deductCredits } from '@/lib/credits'; // POC: Disabled for free usage
 
 // Schema for structured research output
@@ -16,7 +17,7 @@ const ResearchOutputSchema = z.object({
 interface ResearchExecutorConfig {
   chatSessionId: string;
   userId: string;
-  researchObjective: string;
+  researchBrief: ResearchBrief;
   conversationHistory?: any[];
   onProgress?: (update: any) => void;
   abortSignal?: AbortSignal;
@@ -24,12 +25,13 @@ interface ResearchExecutorConfig {
 
 /**
  * Research Executor Agent - Uses ToolLoopAgent for multi-step autonomous research
+ * Receives a structured ResearchBrief from the Orchestrator
  */
 export async function executeResearch(config: ResearchExecutorConfig) {
   const {
     chatSessionId,
     userId,
-    researchObjective,
+    researchBrief,
     conversationHistory = [],
     onProgress,
     abortSignal
@@ -64,21 +66,23 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   });
 
   const reflectionTool = tool({
-    description: 'REQUIRED after EVERY search() - Evaluate what you learned and decide next move.',
+    description: 'MANDATORY after every search batch. Synthesize results, update hypotheses, decide next action.',
     inputSchema: z.object({
-      keyFindings: z.string().describe('Concrete discoveries: names, companies, numbers, tools, resources (be specific)'),
-      nextMove: z.enum(['continue', 'pivot', 'narrow', 'cross-reference', 'deep-dive', 'complete', 'ask_user']),
-      review: z.string().describe('Short summary of what you found (1 sentence). E.g. "Found 3 podcast agencies that focus on B2B content."'),
-      next: z.string().describe('What you will do next (1 sentence). E.g. "Looking into their pricing and contact info."')
+      materialChange: z.string().describe('What materially changed in your understanding from this batch?'),
+      hypotheses: z.string().describe('Which hypotheses were strengthened, weakened, or discarded?'),
+      keyFindings: z.string().describe('Concrete discoveries: names, companies, numbers, contacts (be specific)'),
+      nextMove: z.enum(['narrow', 'pivot', 'stop']).describe('narrow: focus on strongest signals. pivot: change direction. stop: sufficient confidence reached.'),
+      nextAction: z.string().describe('If not stopping, what specific queries will you run next and why?')
     }),
-    execute: async ({ keyFindings, nextMove, review, next }) => {
+    execute: async ({ materialChange, hypotheses, keyFindings, nextMove, nextAction }) => {
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-      // Send review and next separately for UI
+      // Send synthesis to UI
       onProgress?.({
         type: 'agent_thinking',
-        review,
-        next
+        materialChange,
+        hypotheses,
+        nextAction
       });
 
       // Save detailed findings to brain (internal only, never shown raw to user)
@@ -90,7 +94,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
       let currentBrain = session?.brain || '';
 
       if (!currentBrain.trim()) {
-        currentBrain = `# ${researchObjective}\n\n`;
+        currentBrain = `# ${researchBrief.objective}\n\n`;
       }
 
       // Brain stores findings only - no internal markers
@@ -105,11 +109,11 @@ export async function executeResearch(config: ResearchExecutorConfig) {
       onProgress?.({ type: 'brain_update', brain: updatedBrain });
 
       // Signal completion to stop the loop
-      if (nextMove === 'complete') {
+      if (nextMove === 'stop') {
         return {
           acknowledged: true,
           direction: nextMove,
-          shouldStop: true  // Signal to stop the loop
+          shouldStop: true
         };
       }
 
@@ -118,49 +122,114 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   });
 
   const tools = {
-    search: tavilySearch,
+    search,
     reflect: reflectionTool,
     askUser: askUserTool
   };
+
+  // Build structured instructions from the research brief
   const instructions = `
-You are an autonomous research agent.
+You are an Autonomous Research Agent operating in an iterative reasoning loop.
+Your objective is to reduce uncertainty for the research brief by discovering, validating, and synthesizing high-signal evidence.
 
-Your objective is:
-"${researchObjective}"
+═══════════════════════════════════════════════════════════════
+RESEARCH BRIEF FROM ORCHESTRATOR
+═══════════════════════════════════════════════════════════════
 
-Your role is to autonomously determine how to achieve this objective through investigation.
+OBJECTIVE:
+${researchBrief.objective}
 
-RESEARCH LOOP:
-1. Call search() with ONE natural language question
-2. IMMEDIATELY call reflect() after each search - no exceptions
-3. Based on your reflect decision, either continue searching or stop
+TARGET:
+${researchBrief.targetProfile}
 
-RESEARCH STRATEGIES:
-- Start broad to understand the landscape
-- Drill down on promising leads
-- Cross-reference to verify information
-- Pivot if a direction isn't productive
+SIGNAL CATEGORIES TO PRIORITIZE:
+${researchBrief.signalTypes.map(s => `• ${s}`).join('\n')}
 
-WHEN TO STOP:
-- You have specific, actionable findings (names, companies, contacts, numbers)
-- You've verified information from multiple sources
-- Further searching would be redundant
-- You have enough to answer the user's objective
+DISQUALIFIERS (filter out):
+${researchBrief.exclusionCriteria.map(e => `• ${e}`).join('\n')}
+
+STOPPING CONDITIONS:
+${researchBrief.stoppingConditions}
+
+SUCCESS CRITERIA:
+${researchBrief.successCriteria}
+
+═══════════════════════════════════════════════════════════════
+OPERATING PRINCIPLES
+═══════════════════════════════════════════════════════════════
+
+• Optimize for signal density, not information volume
+• Prefer observable behavior and external validation over stated claims
+• Actively seek disconfirming evidence
+
+═══════════════════════════════════════════════════════════════
+RESEARCH LOOP
+═══════════════════════════════════════════════════════════════
+
+1. EXPLORE: Begin with broad exploration to identify promising signal directions
+2. FILTER: Rapidly discard low-signal material (self-descriptions, repetition, inactivity, unverified claims)
+3. NARROW: Progressively focus toward the strongest signals
+
+═══════════════════════════════════════════════════════════════
+SEARCH RULES
+═══════════════════════════════════════════════════════════════
+
+• search() accepts 1-5 queries - all run in parallel via Promise.all
+• Each query must include a PURPOSE explaining what uncertainty it tests
+• Exploration: use 3-5 queries
+• Narrowing: use 1-2 queries
+• Do NOT call search() again until reflect() is complete
+
+═══════════════════════════════════════════════════════════════
+MANDATORY SYNTHESIS (after every batch)
+═══════════════════════════════════════════════════════════════
+
+After each batch, you MUST call reflect() with:
+• materialChange: What materially changed in your understanding?
+• hypotheses: Which hypotheses were strengthened, weakened, or discarded?
+• keyFindings: Concrete discoveries (names, companies, numbers, contacts)
+• nextMove: narrow | pivot | stop
+• nextAction: What specific queries next and why? (if not stopping)
+
+═══════════════════════════════════════════════════════════════
+CHANGE & TIMING SIGNALS
+═══════════════════════════════════════════════════════════════
+
+• Actively look for momentum, disengagement, transition, or contradiction over time
+• Treat recent changes as higher-weight signals
+
+═══════════════════════════════════════════════════════════════
+STOPPING CONDITIONS
+═══════════════════════════════════════════════════════════════
+
+Stop when:
+• Additional queries are unlikely to materially reduce uncertainty, OR
+• The brief's confidence threshold has been met
+
+═══════════════════════════════════════════════════════════════
+OUTPUT REQUIREMENTS
+═══════════════════════════════════════════════════════════════
+
+• Surface only the most meaningful findings
+• Explain why each finding matters
+• Explicitly flag weak signals, assumptions, and contradictions
+• If the brief cannot be satisfied, specify exactly which signal is missing
+
+═══════════════════════════════════════════════════════════════
+CONSTRAINTS
+═══════════════════════════════════════════════════════════════
+
+• Do NOT rely on titles, credentials, or self-reported claims as primary evidence
+• Do NOT optimize for coverage or exhaustiveness
+• You are a reasoning agent, not a search engine
+• Your success is measured by how clearly a decision can be made from your output
 
 TOOLS:
-- search(query): Search the web. Use FULL natural language questions.
-- reflect(keyFindings, nextMove, review, next): REQUIRED after every search.
-  - keyFindings: Concrete discoveries (names, companies, numbers, URLs)
-  - nextMove: 'continue' | 'pivot' | 'narrow' | 'cross-reference' | 'deep-dive' | 'complete'
-  - review: 1-sentence summary of what you found
-  - next: 1-sentence description of your next action (or "Completing research" if done)
-- askUser(question, options): Ask user for clarification if stuck
-
-When nextMove is 'complete', you are signaling that research is done. The system will then generate the final answer from your accumulated findings.
-
-AIM FOR: 5-15 searches for a typical research task. Don't stop too early (< 3 searches) or go too long (> 20 searches) unless necessary.
+• search(queries): 1-5 queries run in parallel. Each needs {query, purpose}.
+• reflect(...): MANDATORY after every search. Synthesize and decide: narrow | pivot | stop.
+• askUser(question, options): Only if genuinely blocked.
 `;
-  
+
 
   try {
     const agent = new ToolLoopAgent({
@@ -199,9 +268,11 @@ AIM FOR: 5-15 searches for a typical research task. Don't stop too early (< 3 se
             const input = (toolCall as any).input;
 
             if (toolName === 'search') {
+              const queries = input?.queries || [];
               onProgress?.({
-                type: 'research_query',
-                query: input?.query || 'Searching...'
+                type: 'search_started',
+                count: queries.length,
+                queries: queries.map((q: any) => ({ query: q.query, purpose: q.purpose }))
               });
             }
           }
@@ -213,17 +284,23 @@ AIM FOR: 5-15 searches for a typical research task. Don't stop too early (< 3 se
             const toolResult = (result as any).output;
 
             if (toolName === 'search') {
-              const sources = (toolResult?.results || []).map((r: any) => ({
-                title: r.title,
-                url: r.url
-              }));
+              // Emit results for each query
+              const searchResults = toolResult?.results || [];
+              for (const sr of searchResults) {
+                const sources = (sr.results || []).map((r: any) => ({
+                  title: r.title,
+                  url: r.url
+                }));
 
-              onProgress?.({
-                type: 'search_result',
-                query: (result as any).input?.query,
-                answer: toolResult?.answer || '',
-                sources
-              });
+                onProgress?.({
+                  type: 'search_result',
+                  query: sr.query,
+                  purpose: sr.purpose,
+                  answer: sr.answer || '',
+                  sources,
+                  status: sr.status
+                });
+              }
             }
           }
         }
@@ -242,13 +319,13 @@ AIM FOR: 5-15 searches for a typical research task. Don't stop too early (< 3 se
     }
 
     const result = await agent.generate({
-      prompt: `${contextPrompt}Research: "${researchObjective}"
+      prompt: `${contextPrompt}Execute the research brief above.
 
-CRITICAL: Use FULL natural language questions for ALL searches.
+CRITICAL: Use FULL natural language questions.
 ✅ Good: "What are the most popular finance podcasts in 2024?"
 ❌ Bad: "finance podcasts 2024"
 
-Start with search() using a complete, readable question.`
+Begin with search() using 3-5 queries targeting different signal categories. Each query needs {query, purpose}. After results, call reflect().`
     });
 
     // Structured output from AI SDK 6 - typed by ResearchOutputSchema
@@ -258,7 +335,7 @@ Start with search() using a complete, readable question.`
       completed: true,
       iterations: result.steps?.length || 0,
       creditsUsed: totalCreditsUsed,
-      output // { confidenceLevel, keyFindings, recommendedActions, finalAnswer }
+      output // { confidenceLevel, finalAnswer }
     };
 
   } catch (error) {

@@ -1,32 +1,56 @@
-// Tavily Search Tool
+// Tavily Search Tool - supports single or batch queries
 import { tavily } from '@tavily/core';
 import { tool } from 'ai';
 import { z } from 'zod';
 
 const client = tavily({ apiKey: process.env.TAVILY_API_KEY! });
 
-export const tavilySearch = tool({
-  description: 'Search the web using FULL NATURAL LANGUAGE QUESTIONS. Returns AI-generated answer PLUS full extracted text content from each result. CRITICAL: Use complete questions like "What are the most popular podcasts in 2024?" NOT keyword strings like "podcasts 2024".',
+export const search = tool({
+  description: 'Search the web. Accepts a single query OR multiple queries (run in parallel via Promise.all). Each query should be a FULL NATURAL LANGUAGE QUESTION.',
   inputSchema: z.object({
-    query: z.string().describe('FULL NATURAL LANGUAGE QUESTION. Always use complete, readable questions like "What are the best options for X?" NOT keyword strings like "best X options".'),
-    searchDepth: z.enum(['basic', 'advanced']).optional().describe('basic = 5 results (fast), advanced = 10 results (deeper)')
+    queries: z.array(z.object({
+      query: z.string().describe('FULL NATURAL LANGUAGE QUESTION'),
+      purpose: z.string().describe('What uncertainty does this test?')
+    })).min(1).max(5).describe('1-5 queries. Use multiple for exploration, single for narrowing.')
   }),
-  execute: async ({ query, searchDepth = 'basic' }) => {
-    const response = await client.search(query, {
-      searchDepth,
-      maxResults: searchDepth === 'advanced' ? 10 : 5,
-      includeAnswer: true
-    });
+  execute: async ({ queries }) => {
+    const results = await Promise.all(
+      queries.map(async ({ query, purpose }) => {
+        try {
+          const response = await client.search(query, {
+            searchDepth: 'basic',
+            maxResults: 5,
+            includeAnswer: true
+          });
+
+          return {
+            query,
+            purpose,
+            answer: response.answer || null,
+            results: (response.results as any[]).map((r: any) => ({
+              title: r.title,
+              url: r.url,
+              content: r.content,
+              score: r.score
+            })),
+            status: 'success' as const
+          };
+        } catch (error: any) {
+          return {
+            query,
+            purpose,
+            answer: null,
+            results: [],
+            status: 'error' as const,
+            error: error.message
+          };
+        }
+      })
+    );
 
     return {
-      query,
-      answer: response.answer || null,
-      results: (response.results as any[]).map((r: any) => ({
-        title: r.title,
-        url: r.url,
-        content: r.content,
-        score: r.score
-      })),
+      count: queries.length,
+      results,
       timestamp: new Date().toISOString()
     };
   }

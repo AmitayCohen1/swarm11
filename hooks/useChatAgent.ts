@@ -196,10 +196,7 @@ export function useChatAgent() {
             role: 'assistant',
             content: '',
             timestamp: new Date().toISOString(),
-            metadata: {
-              type: update.type,
-              ...update
-            }
+            metadata: { ...update }
           }]);
         }
 

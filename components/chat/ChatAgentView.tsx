@@ -62,11 +62,18 @@ function AskUserOptions({
 
   if (selected) {
     return (
-      <div className="flex flex-col gap-2 mt-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
-        <p className="text-slate-500 dark:text-slate-400 text-xs font-medium uppercase tracking-wider px-1">Selected Answer</p>
-        <div className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-500/20 w-fit">
-          <Check className="w-3.5 h-3.5" />
-          {selected}
+      <div className="space-y-3 mt-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <div className="flex items-start gap-3 opacity-60">
+          <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/5 flex items-center justify-center shrink-0">
+            <MessageSquare className="w-4 h-4 text-slate-400 dark:text-slate-500" />
+          </div>
+          <p className="text-slate-600 dark:text-slate-400 text-base font-medium pt-1">{question}</p>
+        </div>
+        <div className="pl-11">
+          <div className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-500/20 shadow-sm">
+            <Check className="w-4 h-4" />
+            {selected}
+          </div>
         </div>
       </div>
     );

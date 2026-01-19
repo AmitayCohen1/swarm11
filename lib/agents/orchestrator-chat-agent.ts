@@ -2,16 +2,29 @@ import { generateText } from 'ai';
 import { anthropic } from '@ai-sdk/anthropic';
 import { z } from 'zod';
 
+export interface ResearchBrief {
+  objective: string;
+  targetProfile: string;
+  signalTypes: string[];
+  exclusionCriteria: string[];
+  stoppingConditions: string;
+  successCriteria: string;
+}
+
 export interface OrchestratorDecision {
-  type: 'chat_response' | 'ask_clarification' | 'start_research';
-  message?: string;
-  options?: { label: string }[]; // For ask_clarification
-  researchObjective?: string;
+  type: 'text_response' | 'single_select' | 'start_research';
+  message: string;
   reasoning: string;
+  // single_select (required)
+  blockedField?: 'objective' | 'targetProfile' | 'signalTypes' | 'successCriteria';
+  options?: { label: string }[];
+  // start_research
+  researchBrief?: ResearchBrief;
 }
 
 /**
- * Orchestrator Agent - Analyzes user messages and decides next action
+ * Orchestrator Agent - Signal Scout Orchestrator
+ * Decomposes intent, defines success criteria, routes work, and enforces output quality.
  */
 export async function analyzeUserMessage(
   userMessage: string,
@@ -22,69 +35,97 @@ export async function analyzeUserMessage(
   const decisionTool = {
     description: 'Decide how to respond to the user',
     inputSchema: z.object({
-      decision: z.enum(['chat_response', 'ask_clarification', 'start_research']).describe(
-        'chat_response: Use for broad questions.' +
-        'ask_clarification: Use for specific option-based questions to resolve forks in the conversation.' +
-        'start_research: Use when you have enough information to start the research.'
+      decision: z.enum(['text_response', 'single_select', 'start_research']).describe(
+        'text_response: For greetings, capability questions, or non-research requests. ' +
+        'single_select: Present 2-4 options for user to pick. Use only when a constraint is required. ' +
+        'start_research: Default. Use when you can proceed with reasonable assumptions.'
       ),
-      message: z.string().describe('Your question or message. Keep it short.'),
+      message: z.string().describe('Your response or question text.'),
+
+      // single_select fields (required when decision=single_select)
+      blockedField: z.enum(['objective', 'targetProfile', 'signalTypes', 'successCriteria'])
+        .optional()
+        .describe('For single_select: which research brief field is blocked'),
       options: z.array(z.object({
-        label: z.string().describe('2-4 word answer option')
-      })).min(2).max(4).optional().describe('Only for ask_clarification.'),
-      researchObjective: z.string().optional().describe('For start_research. What the user wants to find.'),
-      reasoning: z.string().describe('Brief reasoning')
+        label: z.string().describe('2-4 word option')
+      })).min(2).max(4).optional().describe('REQUIRED for single_select: 2-4 concrete options'),
+
+      // start_research fields
+      researchBrief: z.object({
+        objective: z.string().describe('The core research question - what decision is the user trying to make?'),
+        targetProfile: z.string().describe('Who or what we are looking for - the hypothesis to validate.'),
+        signalTypes: z.array(z.string()).describe('Real-world signals to prioritize (e.g., "social engagement", "recent job changes", "public writing", "hiring activity", "funding announcements")'),
+        exclusionCriteria: z.array(z.string()).describe('What to filter out (e.g., "just raised funding", "recently changed jobs", "inactive social presence")'),
+        stoppingConditions: z.string().describe('When research is "good enough" (e.g., "3-5 qualified candidates with contact paths", "clear market leader identified")'),
+        successCriteria: z.string().describe('What a good answer enables the user to DO (e.g., "send personalized outreach to top 3 candidates")')
+      }).optional().describe('Required for start_research. The structured brief for the research agent.'),
+
+      reasoning: z.string().describe('Brief reasoning for your decision')
     }),
     execute: async (params: any) => params
   };
 
-
   const systemPrompt = `
-You are a research intake assistant. Your DEFAULT action is to START RESEARCH. Only ask questions if absolutely necessary.
+You are the Orchestrator Agent.
 
-BIAS TOWARD ACTION: If you can guess what the user wants, START RESEARCH. Don't ask for clarification unless you genuinely have no idea what they're asking for.
+Your job is to turn a vague user request into a concrete research action with minimal back-and-forth.
 
-DECISION GUIDE:
+INTENT GATE (FIRST CHECK):
+This agent is ONLY for research, discovery, evaluation, or scouting tasks.
+If the user is asking for:
+- explanation or education
+- creative generation
+- execution of a known task
+respond directly instead of running an orchestration flow.
 
-1. start_research (USE THIS 90% OF THE TIME):
-   - User mentions ANY topic they want to learn about → START
-   - User wants to find people, companies, tools, strategies → START
-   - User's request is even remotely actionable → START
-   Examples that should START IMMEDIATELY:
-   - "Looking for customers for my podcast platform" → Start: "Find potential customers and market segments for a podcast platform"
-   - "I need marketing help" → Start: "Research effective marketing strategies and tactics"
-   - "Find me investors" → Start: "Find investors and funding sources"
+FIRST PRINCIPLES:
+- You own research design. Do not ask the user to design it.
+- Defaults are better than questions. If a reasonable default exists, use it.
+- The only valid reason to ask a question is to apply a constraint the user explicitly cares about.
 
-2. chat_response - ONLY for:
-   - Pure greetings with zero context ("hi", "hello")
-   - Questions about YOUR capabilities ("what can you do?")
+OPERATING RULES:
+1. Infer the user's intent and expected research output silently.
+2. If you can proceed with reasonable assumptions, start research immediately.
+3. Ask AT MOST one question before starting research.
+4. Only ask about constraints that materially narrow scope (e.g. segment, role, geography, priority).
+5. Never ask about signals, methods, strategy, hypotheticals, or internal reasoning.
+6. If the user's answer is vague, proceed anyway and state assumptions in your reasoning.
 
-3. ask_clarification - RARELY USE:
-   - Only when there's genuine ambiguity that would waste research time
-   - Never ask more than ONE clarifying question per conversation
-   - If user seems frustrated or impatient, just start research with your best guess
+DECISION MODES:
+- start_research: Default. Use whenever you can act with reasonable assumptions.
+- ask_clarification: Use only when a required constraint is missing.
+- chat_response: Use only for greetings, capability questions, or non-research requests.
 
-CRITICAL RULES:
-- When in doubt, START RESEARCH
-- The research agent can figure out details - you don't need perfect clarity
-- Users hate being asked multiple questions - just go
-- A slightly imperfect research objective is better than annoying the user
+RESEARCH BRIEF REQUIREMENTS (for start_research):
+- objective: What decision the research supports
+- targetProfile: Who or what is being sought or evaluated
+- signalTypes: Signals YOU choose to use
+- exclusionCriteria: Filters YOU apply
+- stoppingConditions: When confidence is sufficient
+- successCriteria: The concrete research output produced
+
+CONSTRAINTS:
+- Do not ask more than one question.
+- Do not ask the user to choose signals, evidence, or methods.
+- Do not ask strategic or hypothetical questions.
+- Do not delay action to gather context you can reasonably assume.
+- Maximum 2 clarification turns total, then proceed with assumptions.
 
 CONVERSATION HISTORY:
 ${conversationHistory.map((msg: any) => `${msg.role}: ${msg.content}`).join('\n')}
 
 ${brain ? `\nPREVIOUS RESEARCH:\n${brain.substring(0, 1000)}...` : ''}
 `;
-
+  
 
   const result = await generateText({
     model: anthropic('claude-sonnet-4-20250514'),
     system: systemPrompt,
     prompt: `User message: "${userMessage}"
 
-Analyze this message and decide how to respond.`,
+Analyze this message. If you can construct a complete research brief, do so. If you need clarification to define success criteria, ask ONE focused question.`,
     tools: { decisionTool },
-    toolChoice: 'required',
-    maxToolRoundtrips: 1
+    toolChoice: 'required'
   });
 
   // Extract the decision from tool call
@@ -94,16 +135,17 @@ Analyze this message and decide how to respond.`,
     return {
       type: args.decision,
       message: args.message,
+      reasoning: args.reasoning,
+      blockedField: args.blockedField,
       options: args.options,
-      researchObjective: args.researchObjective,
-      reasoning: args.reasoning
+      researchBrief: args.researchBrief
     };
   }
 
-  // Fallback: treat as chat response
+  // Fallback: ask for clarification
   return {
-    type: 'chat_response',
-    message: result.text || 'I need more information to help you. Could you clarify what you\'d like me to research?',
-    reasoning: 'Fallback response'
+    type: 'ask_clarification',
+    message: 'I want to help you find actionable results. Could you tell me more about what decision you\'re trying to make?',
+    reasoning: 'Fallback - insufficient context'
   };
 }
