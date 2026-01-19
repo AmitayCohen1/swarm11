@@ -44,7 +44,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   const askUserTool = tool({
     description: 'Ask the user a question with selectable options. Use this to clarify goals, narrow focus, or get decisions.',
     inputSchema: z.object({
-      question: z.string().describe('The question to ask'),
+      question: z.string().describe('The question to ask - keep spesific and to the point'),
       options: z.array(z.object({
         label: z.string().describe('Short label for the option (2-5 words)'),
         description: z.string().optional().describe('Optional longer description')
@@ -155,6 +155,8 @@ OPERATING PRINCIPLES
 ═══════════════════════════════════════════════════════════════
 RESEARCH LOOP
 ═══════════════════════════════════════════════════════════════
+
+You can run hours to find what you need. Don't rush.
 
 1. EXPLORE: Begin with broad exploration to identify promising signal directions
 2. FILTER: Rapidly discard low-signal material (self-descriptions, repetition, inactivity, unverified claims)
@@ -285,23 +287,23 @@ Uncertainty is a valid output.
             const toolResult = (result as any).output;
 
             if (toolName === 'search') {
-              // Emit results for each query
+              // Emit all results at once to avoid race conditions
               const searchResults = toolResult?.results || [];
-              for (const sr of searchResults) {
-                const sources = (sr.results || []).map((r: any) => ({
+              const completedQueries = searchResults.map((sr: any) => ({
+                query: sr.query,
+                purpose: sr.purpose,
+                answer: sr.answer || '',
+                sources: (sr.results || []).map((r: any) => ({
                   title: r.title,
                   url: r.url
-                }));
+                })),
+                status: sr.status === 'success' ? 'complete' : 'error'
+              }));
 
-                onProgress?.({
-                  type: 'search_result',
-                  query: sr.query,
-                  purpose: sr.purpose,
-                  answer: sr.answer || '',
-                  sources,
-                  status: sr.status
-                });
-              }
+              onProgress?.({
+                type: 'search_completed',
+                queries: completedQueries
+              });
             }
           }
         }

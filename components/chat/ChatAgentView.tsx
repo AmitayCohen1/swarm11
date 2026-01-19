@@ -188,11 +188,11 @@ function SearchBatch({ queries }: { queries: any[] }) {
                 }
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-700 dark:text-slate-200 leading-snug">
+                <p className="text-base font-medium text-slate-700 dark:text-slate-200 leading-snug">
                   {q.query}
                 </p>
                 {q.purpose && (
-                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{q.purpose}</p>
+                  <p className="text-sm text-slate-400 dark:text-slate-500 mt-0.5">{q.purpose}</p>
                 )}
               </div>
             </div>
@@ -201,7 +201,7 @@ function SearchBatch({ queries }: { queries: any[] }) {
           {/* Answer */}
           {q.answer && (
             <div className="px-4 py-3">
-              <div className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed prose prose-sm dark:prose-invert max-w-none">
+              <div className="text-base text-slate-700 dark:text-slate-300 leading-relaxed prose dark:prose-invert max-w-none">
                 <ReactMarkdown
                   components={{
                     p: ({ node, ...props }) => <p {...props} className="mb-2 last:mb-0" />,
@@ -239,7 +239,7 @@ function SearchBatch({ queries }: { queries: any[] }) {
           {/* Loading state */}
           {q.status === 'searching' && !q.answer && (
             <div className="px-4 py-3">
-              <div className="flex items-center gap-2 text-sm text-slate-400 dark:text-slate-500">
+              <div className="flex items-center gap-2 text-base text-slate-400 dark:text-slate-500">
                 <span>Searching...</span>
               </div>
             </div>
@@ -262,7 +262,7 @@ function ResearchQuery({ msg }: { msg: any }) {
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center gap-2">
           <Globe className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
-          <span className="text-slate-500 dark:text-slate-400 text-sm font-medium tracking-tight">
+          <span className="text-slate-500 dark:text-slate-400 text-base font-medium tracking-tight">
             {msg.metadata.query}
           </span>
           {!msg.metadata.answer && <Loader2 className="w-3 h-3 text-blue-500 animate-spin" />}
@@ -270,7 +270,7 @@ function ResearchQuery({ msg }: { msg: any }) {
         
         {msg.metadata.answer && (
           <div className="p-4 rounded-2xl bg-white dark:bg-white/3 border border-slate-200/60 dark:border-white/6 shadow-sm">
-            <div className="text-slate-800 dark:text-slate-200 text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none">
+            <div className="text-slate-800 dark:text-slate-200 text-base leading-relaxed prose dark:prose-invert max-w-none">
               <ReactMarkdown
                 components={{
                   p: ({ node, ...props }) => <p {...props} className="mb-2 last:mb-0" />,
@@ -327,7 +327,7 @@ function AgentThinking({ msg }: { msg: any }) {
             <div className="w-5 h-5 rounded-md bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center shrink-0 mt-0.5">
               <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
             </div>
-            <p className="text-slate-700 dark:text-slate-200 text-sm leading-relaxed">{msg.metadata.materialChange}</p>
+            <p className="text-slate-700 dark:text-slate-200 text-base leading-relaxed">{msg.metadata.materialChange}</p>
           </div>
         )}
         {msg.metadata.keyFindings && (
@@ -335,7 +335,7 @@ function AgentThinking({ msg }: { msg: any }) {
             <div className="w-5 h-5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
               <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
             </div>
-            <p className="text-slate-700 dark:text-slate-200 text-sm leading-relaxed">{msg.metadata.keyFindings}</p>
+            <p className="text-slate-700 dark:text-slate-200 text-base leading-relaxed">{msg.metadata.keyFindings}</p>
           </div>
         )}
         {msg.metadata.review && (
@@ -343,7 +343,7 @@ function AgentThinking({ msg }: { msg: any }) {
             <div className="w-5 h-5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
               <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
             </div>
-            <p className="text-slate-700 dark:text-slate-200 text-sm leading-relaxed">{msg.metadata.review}</p>
+            <p className="text-slate-700 dark:text-slate-200 text-base leading-relaxed">{msg.metadata.review}</p>
           </div>
         )}
         {msg.metadata.next && (
@@ -351,7 +351,7 @@ function AgentThinking({ msg }: { msg: any }) {
             <div className="w-5 h-5 rounded-md bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
               <ArrowRight className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
             </div>
-            <p className="text-slate-500 dark:text-slate-400 text-sm leading-relaxed italic">{msg.metadata.next}</p>
+            <p className="text-slate-500 dark:text-slate-400 text-base leading-relaxed italic">{msg.metadata.next}</p>
           </div>
         )}
         {msg.metadata.thinking && !msg.metadata.review && (
@@ -359,7 +359,7 @@ function AgentThinking({ msg }: { msg: any }) {
             <div className="w-5 h-5 rounded-md bg-slate-100 dark:bg-white/10 flex items-center justify-center shrink-0 mt-0.5">
               <Brain className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
             </div>
-            <p className="text-slate-700 dark:text-slate-200 text-sm leading-relaxed">{msg.metadata.thinking}</p>
+            <p className="text-slate-700 dark:text-slate-200 text-base leading-relaxed">{msg.metadata.thinking}</p>
           </div>
         )}
       </div>
@@ -478,9 +478,9 @@ export default function ChatAgentView() {
               <div className="flex-1 space-y-2">
                 <div>
                   <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-[0.2em]">Objective</p>
-                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-tight">{researchProgress.objective}</p>
+                  <p className="text-base font-semibold text-slate-800 dark:text-slate-100 leading-tight">{researchProgress.objective}</p>
                 </div>
-                <div className="flex gap-6 text-xs">
+                <div className="flex gap-6 text-sm">
                   {researchProgress.stoppingConditions && (
                     <div>
                       <span className="text-slate-500 dark:text-slate-400">Stop when: </span>
@@ -513,7 +513,7 @@ export default function ChatAgentView() {
                     <div key={idx} className="flex flex-col items-end gap-2 animate-in fade-in slide-in-from-right-4 duration-300">
                       <div className="flex items-start gap-3 max-w-[85%]">
                         <div className="px-5 py-3 rounded-2xl bg-slate-800 dark:bg-white text-white dark:text-slate-900 shadow-md">
-                          <p className="text-sm md:text-base leading-relaxed font-medium">{msg.content}</p>
+                          <p className="text-base md:text-lg leading-relaxed font-medium">{msg.content}</p>
                         </div>
                         <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-white/10 flex items-center justify-center shrink-0 border border-slate-200 dark:border-white/10">
                           <User className="w-4 h-4 text-slate-600 dark:text-slate-300" />
@@ -555,7 +555,7 @@ export default function ChatAgentView() {
                     </div>
                     <div className="flex-1 pt-1.5 space-y-2">
                       {msg.metadata?.reason && (
-                        <p className="text-sm text-slate-500 dark:text-slate-400 italic">{msg.metadata.reason}</p>
+                        <p className="text-base text-slate-500 dark:text-slate-400 italic">{msg.metadata.reason}</p>
                       )}
                       <div className="prose prose-slate dark:prose-invert max-w-none text-slate-800 dark:text-slate-100">
                         <ReactMarkdown

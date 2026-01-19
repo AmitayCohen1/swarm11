@@ -10,7 +10,7 @@ interface Message {
 }
 
 interface ProgressUpdate {
-  type: 'analyzing' | 'decision' | 'research_started' | 'research_iteration' | 'step_complete' | 'research_complete' | 'message' | 'complete' | 'error' | 'agent_thinking' | 'research_query' | 'plan_created' | 'brain_updated' | 'brain_update' | 'summary_created' | 'needs_clarification' | 'search_result' | 'ask_user' | 'search_started' | 'multi_choice_select';
+  type: 'analyzing' | 'decision' | 'research_started' | 'research_iteration' | 'step_complete' | 'research_complete' | 'message' | 'complete' | 'error' | 'agent_thinking' | 'research_query' | 'plan_created' | 'brain_updated' | 'brain_update' | 'summary_created' | 'needs_clarification' | 'search_result' | 'search_completed' | 'ask_user' | 'search_started' | 'multi_choice_select';
   options?: { label: string; description?: string }[];
   message?: string;
   decision?: string;
@@ -60,6 +60,7 @@ export function useChatAgent() {
   
   const eventSourceRef = useRef<EventSource | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const pendingBatchRef = useRef<any[] | null>(null);
 
   // Initialize chat session
   const initializeSession = async () => {
@@ -152,6 +153,16 @@ export function useChatAgent() {
             iteration: 0
           });
         } else if (update.type === 'search_started') {
+          // Store pending batch queries in ref (for race condition handling)
+          const queries = (update as any).queries.map((q: any) => ({
+            query: q.query,
+            purpose: q.purpose,
+            status: 'searching',
+            answer: null,
+            sources: []
+          }));
+          pendingBatchRef.current = queries;
+
           // Create batch message with all queries
           setMessages(prev => [...prev, {
             role: 'assistant',
@@ -159,41 +170,40 @@ export function useChatAgent() {
             timestamp: new Date().toISOString(),
             metadata: {
               type: 'search_batch',
-              queries: (update as any).queries.map((q: any) => ({
-                query: q.query,
-                purpose: q.purpose,
-                status: 'searching',
-                answer: null,
-                sources: []
-              }))
+              queries
             }
           }]);
-        } else if (update.type === 'search_result') {
-          // Update the matching query in the batch message
+        } else if (update.type === 'search_completed') {
+          // All results came back - update or create the batch with complete data
+          const completedQueries = (update as any).queries || [];
           setMessages(prev => {
             const batchIdx = prev.findLastIndex(m => m.metadata?.type === 'search_batch');
+
             if (batchIdx !== -1) {
+              // Update existing batch with all completed results
               const newMessages = [...prev];
-              const batch = newMessages[batchIdx];
-              const queries = batch.metadata?.queries?.map((q: any) => {
-                if (q.query === update.query && q.status === 'searching') {
-                  return {
-                    ...q,
-                    status: 'complete',
-                    answer: update.answer,
-                    sources: update.sources
-                  };
-                }
-                return q;
-              });
               newMessages[batchIdx] = {
-                ...batch,
-                metadata: { ...batch.metadata, queries }
+                ...newMessages[batchIdx],
+                metadata: {
+                  type: 'search_batch',
+                  queries: completedQueries
+                }
               };
               return newMessages;
             }
-            return prev;
+
+            // Batch doesn't exist yet (race condition) - create it
+            return [...prev, {
+              role: 'assistant' as const,
+              content: '',
+              timestamp: new Date().toISOString(),
+              metadata: {
+                type: 'search_batch',
+                queries: completedQueries
+              }
+            }];
           });
+          pendingBatchRef.current = null;
         } else if (update.type === 'ask_user') {
           // Question with selectable options
           setMessages(prev => [...prev, {
