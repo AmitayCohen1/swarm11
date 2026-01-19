@@ -10,8 +10,6 @@ import { z } from 'zod';
 // Schema for structured research output
 const ResearchOutputSchema = z.object({
   confidenceLevel: z.enum(['low', 'medium', 'high']).describe('Confidence in the completeness of findings'),
-  keyFindings: z.array(z.string()).describe('Key actionable findings (bullet points)'),
-  recommendedActions: z.array(z.string()).describe('Concrete next steps the user should take'),
   finalAnswer: z.string().describe('Complete answer in markdown, concise and actionable')
 });
 
@@ -125,7 +123,11 @@ export async function executeResearch(config: ResearchExecutorConfig) {
 
   Behavioral expectations: Research > View results and reflect > Research > View results and reflect > ...
 
-  You can either double down on the same direction to get more information and dive deeper, or pivot to a new direction if you think you are going in the wrong direction.
+  You can ask:
+  1. Broad qusetions to get a view of the landsacpe 
+  2. Drill down, double down on a veritical
+  3. Pivot to a new direction if you think you are going in the wrong direction.
+
   Be smart, creative and efficient.
   Iterate as much needed to get the best and most spesific and actionable research results.
   The more specific and actionable the research results are, the better.
@@ -139,6 +141,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   - search(query): ONE search at a time, then you MUST reflect. You can ask general questions to get a broad sense, or specific questions to get more information on a specific vertical.
   - reflect(keyFindings, nextMove, userFacingSummary): REQUIRED after every single search
   - askUser(question, options): if you want to ask the user a question
+  - complete(reasoning, confidenceLevel, keyFindings, recommendedActions, sourcesUsed, finalAnswerMarkdown): if you want to complete the research
   `;
   
 

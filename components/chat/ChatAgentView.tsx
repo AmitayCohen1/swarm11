@@ -365,7 +365,7 @@ export default function ChatAgentView() {
                 );
               })}
 
-              {/* Thinking Indicator */}
+              {/* Thinking Indicator - only for processing, not researching (search cards have their own spinners) */}
               {status === 'processing' && (
                 <div className="py-2">
                   <div className="flex items-start gap-3">
