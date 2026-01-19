@@ -308,6 +308,34 @@ function ResearchQuery({ msg }: { msg: any }) {
 }
 
 /**
+ * Component for reasoning/thinking indicator
+ */
+function ReasoningIndicator() {
+  return (
+    <div className="group relative pl-11 py-2 animate-in fade-in duration-300">
+      <div className="absolute left-3.5 top-0 bottom-0 w-px bg-slate-200 dark:bg-white/10 group-last:bg-transparent" />
+      <div className="absolute left-[9px] top-3 w-2.5 h-2.5 rounded-full border-2 border-purple-300 dark:border-purple-500/40 bg-white dark:bg-[#0a0a0a] animate-pulse" />
+
+      <div className="p-4 rounded-2xl bg-gradient-to-br from-purple-50/50 to-indigo-50/50 dark:from-purple-500/5 dark:to-indigo-500/5 border border-purple-100/50 dark:border-purple-500/10 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="w-5 h-5 rounded-md bg-purple-100 dark:bg-purple-500/20 flex items-center justify-center shrink-0">
+            <Brain className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 animate-pulse" />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-purple-700 dark:text-purple-300 text-base font-medium">Reasoning</span>
+            <span className="flex gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-purple-400 dark:bg-purple-500 animate-bounce" style={{ animationDelay: '0ms' }} />
+              <span className="w-1.5 h-1.5 rounded-full bg-purple-400 dark:bg-purple-500 animate-bounce" style={{ animationDelay: '150ms' }} />
+              <span className="w-1.5 h-1.5 rounded-full bg-purple-400 dark:bg-purple-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Component for agent thinking steps
  */
 function AgentThinking({ msg }: { msg: any }) {

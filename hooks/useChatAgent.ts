@@ -10,7 +10,7 @@ interface Message {
 }
 
 interface ProgressUpdate {
-  type: 'analyzing' | 'decision' | 'research_started' | 'research_iteration' | 'step_complete' | 'research_complete' | 'message' | 'complete' | 'error' | 'agent_thinking' | 'research_query' | 'plan_created' | 'brain_updated' | 'brain_update' | 'summary_created' | 'needs_clarification' | 'search_result' | 'search_completed' | 'ask_user' | 'search_started' | 'multi_choice_select';
+  type: 'analyzing' | 'decision' | 'research_started' | 'research_iteration' | 'step_complete' | 'research_complete' | 'message' | 'complete' | 'error' | 'agent_thinking' | 'research_query' | 'plan_created' | 'brain_updated' | 'brain_update' | 'summary_created' | 'needs_clarification' | 'search_result' | 'search_completed' | 'ask_user' | 'search_started' | 'multi_choice_select' | 'reasoning_started';
   options?: { label: string; description?: string }[];
   message?: string;
   decision?: string;
@@ -242,10 +242,36 @@ export function useChatAgent() {
               reason: (update as any).reason
             }
           }]);
-        } else if (
-          update.type === 'agent_thinking' ||
-          update.type === 'research_iteration'
-        ) {
+        } else if (update.type === 'reasoning_started') {
+          // Show reasoning indicator
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: '',
+            timestamp: new Date().toISOString(),
+            metadata: { type: 'reasoning_started' }
+          }]);
+        } else if (update.type === 'agent_thinking') {
+          // Replace reasoning indicator with actual thinking content
+          setMessages(prev => {
+            const reasoningIdx = prev.findLastIndex(m => m.metadata?.type === 'reasoning_started');
+            if (reasoningIdx !== -1) {
+              const newMessages = [...prev];
+              newMessages[reasoningIdx] = {
+                role: 'assistant',
+                content: '',
+                timestamp: new Date().toISOString(),
+                metadata: { ...update }
+              };
+              return newMessages;
+            }
+            return [...prev, {
+              role: 'assistant',
+              content: '',
+              timestamp: new Date().toISOString(),
+              metadata: { ...update }
+            }];
+          });
+        } else if (update.type === 'research_iteration') {
           // Treat activity as messages in the stream
           setMessages(prev => [...prev, {
             role: 'assistant',

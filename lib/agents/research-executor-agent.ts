@@ -277,6 +277,10 @@ Uncertainty is a valid output.
                 count: queries.length,
                 queries: queries.map((q: any) => ({ query: q.query, purpose: q.purpose }))
               });
+            } else if (toolName === 'reflect') {
+              onProgress?.({
+                type: 'reasoning_started'
+              });
             }
           }
         }

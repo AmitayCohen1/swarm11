@@ -239,7 +239,7 @@ export async function POST(
                     sendEvent(update);
                   } else if (update.type === 'search_completed') {
                     sendEvent(update);
-                  } else if (update.type === 'agent_thinking') {
+                  } else if (update.type === 'agent_thinking' || update.type === 'reasoning_started') {
                     sendEvent(update);
                   } else if (update.type === 'research_iteration') {
                     sendEvent(update);
