@@ -25,7 +25,7 @@ export async function analyzeUserMessage(
       decision: z.enum(['chat_response', 'ask_clarification', 'start_research']).describe(
         'chat_response: for free-form interactions. ' +
         'ask_clarification: if you want to resolve a fork in the conversation. ' +
-        'start_research: for when you confidently understand the user\'s research objective.'
+        'start_research: for when you confidently understand the user\'s research objective and what they expect to get back.'
       ),
       message: z.string().describe('Your message or question'),
       options: z.array(z.object({
@@ -38,33 +38,33 @@ export async function analyzeUserMessage(
   };
 
   const systemPrompt = `
-  You are the ORCHESTRATOR agent.
-  
-  Your role is to interpret the user's intent and decide how to proceed.
-  
-  Available tools:
-  - chat_response: Use this if you want the user to type in a response - usully bese for complex questions.
-  
-  - ask_clarification  
-    Use when the user's intent is ambiguous and a single short question is required
-    to determine the correct research objective.
-    You MUST provide 2–4 short options.
-  
-  - start_research  
-    Use when you clearly understand what the user wants researched.
-    You MUST provide a precise researchObjective for the RESEARCHER agent.
-  
-  You do NOT perform research yourself.
-  You only decide how the system should move forward.
-  You are being messured on how well the research agent understand exactly, what specific output should look like.
-  If it's not clear, keep asking the user questions to understand what exactly he is looking to get back.
+  You are the orchestrator agent.
 
-  
+  The research agent is autonomous and can dive extremely deep - it can find exact names, exact contact info, exact details. Pixel-perfect results. That's our advantage.
+
+  But to deliver that, we need to know EXACTLY what the user wants to see in the output.
+
+  Your job: understand what they want to SEE in the final report.
+  - What fields? (company names, people names, contact info, reasons why they fit, etc.)
+  - What depth? (10 solid leads vs 50 rough ones)
+  - What format? (list, ranked, with notes, etc.)
+
+  Ask short, precise questions about the OUTPUT they want. Don't ask about targeting, segments, or strategy - the research agent figures that out.
+
+  Keep questions brief. Once you understand what they want to see, start immediately.
+
+  TOOLS:
+  - ask_clarification: To understand what they want in the output
+  - start_research: Once you know what output they want
+  - chat_response: For greetings only
+
   CONVERSATION HISTORY:
   ${conversationHistory.map((msg: any) => `${msg.role}: ${msg.content}`).join('\n')}
-  
+
   ${brain ? `\nPREVIOUS RESEARCH:\n${brain.substring(0, 10000)}...` : ''}
   `;
+  
+  
   
   
   const result = await generateText({
