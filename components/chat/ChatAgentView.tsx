@@ -6,9 +6,31 @@ import ReactMarkdown from 'react-markdown';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Send, StopCircle, Loader2, Sparkles, Moon, Sun, User, Search, FileText, Lightbulb, ChevronRight, Activity, PenLine, Check, ArrowRight } from 'lucide-react';
+import { 
+  Send, 
+  StopCircle, 
+  Loader2, 
+  Sparkles, 
+  Moon, 
+  Sun, 
+  User, 
+  Search, 
+  Activity, 
+  PenLine, 
+  Check, 
+  ArrowRight,
+  Globe,
+  Brain,
+  MessageSquare,
+  AlertCircle
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
 
-// Component for ask_user questions with options + write your own (single-select)
+// --- Sub-components for better organization ---
+
+/**
+ * Component for ask_user questions with options + custom input
+ */
 function AskUserOptions({
   question,
   options,
@@ -38,95 +60,190 @@ function AskUserOptions({
     }
   };
 
-  // If something was selected, show simplified view
   if (selected) {
     return (
-      <div className="flex items-start gap-3">
-        <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center shrink-0">
-          <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-        </div>
-        <div className="flex-1 space-y-2">
-          <p className="text-slate-500 dark:text-slate-400 text-sm">{question}</p>
-          <span className="inline-flex px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30">
-            {selected}
-          </span>
+      <div className="flex flex-col gap-2 mt-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <p className="text-slate-500 dark:text-slate-400 text-xs font-medium uppercase tracking-wider px-1">Selected Answer</p>
+        <div className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-500/20 w-fit">
+          <Check className="w-3.5 h-3.5" />
+          {selected}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex items-start gap-3">
-      <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center shrink-0">
-        <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-      </div>
-      <div className="flex-1 space-y-3">
-        <p className="text-slate-800 dark:text-slate-100 text-base">{question}</p>
-        <div className="flex flex-wrap gap-2">
-          {options.map((opt, i) => (
-            <button
-              key={i}
-              onClick={() => handleSelect(opt.label)}
-              disabled={status !== 'ready'}
-              className="px-4 py-2 text-sm font-medium rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-not-allowed border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/10 hover:border-slate-300 dark:hover:border-white/20"
-            >
-              {opt.label}
-            </button>
-          ))}
-          {!showInput && (
-            <button
-              onClick={() => setShowInput(true)}
-              disabled={status !== 'ready'}
-              className="px-4 py-2 text-sm font-medium rounded-lg border border-dashed border-slate-300 dark:border-white/20 bg-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/5 hover:border-slate-400 dark:hover:border-white/30 hover:text-slate-700 dark:hover:text-slate-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-            >
-              <PenLine className="w-3.5 h-3.5" />
-              Write your own
-            </button>
-          )}
+    <div className="space-y-4 mt-2 p-4 rounded-2xl bg-slate-50/50 dark:bg-white/2 border border-slate-200/60 dark:border-white/5 animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div className="flex items-start gap-3">
+        <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center shrink-0">
+          <MessageSquare className="w-4 h-4 text-blue-600 dark:text-blue-400" />
         </div>
-        {showInput && (
-          <div className="flex gap-2">
-            <Input
-              type="text"
-              value={customInput}
-              onChange={(e) => setCustomInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleSubmitCustom();
-                if (e.key === 'Escape') {
-                  setShowInput(false);
-                  setCustomInput('');
-                }
-              }}
-              placeholder="Type your answer..."
-              autoFocus
-              disabled={status !== 'ready'}
-              className="flex-1 h-9 text-sm bg-white dark:bg-white/5 border-slate-200 dark:border-white/10"
-            />
-            <Button
-              onClick={handleSubmitCustom}
-              disabled={!customInput.trim() || status !== 'ready'}
-              size="sm"
-              className="h-9 px-3 bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
-            >
-              <Send className="w-3.5 h-3.5" />
-            </Button>
-            <Button
-              onClick={() => {
+        <p className="text-slate-800 dark:text-slate-100 text-base font-medium pt-1">{question}</p>
+      </div>
+      
+      <div className="flex flex-wrap gap-2 pl-11">
+        {options.map((opt, i) => (
+          <button
+            key={i}
+            onClick={() => handleSelect(opt.label)}
+            disabled={status !== 'ready'}
+            className="group px-4 py-2 text-sm font-medium rounded-xl border transition-all disabled:opacity-50 disabled:cursor-not-allowed border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-500/10 hover:border-blue-200 dark:hover:border-blue-500/30 hover:text-blue-700 dark:hover:text-blue-300"
+          >
+            {opt.label}
+          </button>
+        ))}
+        {!showInput && (
+          <button
+            onClick={() => setShowInput(true)}
+            disabled={status !== 'ready'}
+            className="px-4 py-2 text-sm font-medium rounded-xl border border-dashed border-slate-300 dark:border-white/20 bg-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/5 hover:border-slate-400 dark:hover:border-white/30 hover:text-slate-700 dark:hover:text-slate-200 transition-all flex items-center gap-1.5"
+          >
+            <PenLine className="w-3.5 h-3.5" />
+            Custom...
+          </button>
+        )}
+      </div>
+
+      {showInput && (
+        <div className="flex gap-2 pl-11 animate-in zoom-in-95 duration-200">
+          <Input
+            type="text"
+            value={customInput}
+            onChange={(e) => setCustomInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSubmitCustom();
+              if (e.key === 'Escape') {
                 setShowInput(false);
                 setCustomInput('');
-              }}
-              variant="ghost"
-              size="sm"
-              className="h-9 px-3 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-            >
-              Cancel
-            </Button>
+              }
+            }}
+            placeholder="Type your answer..."
+            autoFocus
+            disabled={status !== 'ready'}
+            className="flex-1 h-10 text-sm bg-white dark:bg-white/5 border-slate-200 dark:border-white/10 rounded-xl"
+          />
+          <Button
+            onClick={handleSubmitCustom}
+            disabled={!customInput.trim() || status !== 'ready'}
+            size="sm"
+            className="h-10 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-sm"
+          >
+            <Send className="w-3.5 h-3.5" />
+          </Button>
+          <Button
+            onClick={() => {
+              setShowInput(false);
+              setCustomInput('');
+            }}
+            variant="ghost"
+            size="sm"
+            className="h-10 px-3 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 rounded-xl"
+          >
+            Cancel
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Component for research/search results
+ */
+function ResearchQuery({ msg }: { msg: any }) {
+  return (
+    <div className="group relative pl-11 py-2 animate-in fade-in duration-500">
+      <div className="absolute left-3.5 top-0 bottom-0 w-px bg-slate-200 dark:bg-white/10 group-last:bg-transparent" />
+      <div className="absolute left-[9px] top-3 w-2.5 h-2.5 rounded-full border-2 border-slate-300 dark:border-white/20 bg-white dark:bg-[#0a0a0a]" />
+      
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-2">
+          <Globe className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+          <span className="text-slate-500 dark:text-slate-400 text-sm font-medium tracking-tight">
+            {msg.metadata.query}
+          </span>
+          {!msg.metadata.answer && <Loader2 className="w-3 h-3 text-blue-500 animate-spin" />}
+        </div>
+        
+        {msg.metadata.answer && (
+          <div className="p-4 rounded-2xl bg-white dark:bg-white/3 border border-slate-200/60 dark:border-white/6 shadow-sm">
+            <div className="text-slate-800 dark:text-slate-200 text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none">
+              <ReactMarkdown
+                components={{
+                  p: ({ node, ...props }) => <p {...props} className="mb-2 last:mb-0" />,
+                  a: ({ node, ...props }) => (
+                    <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 font-medium hover:underline" />
+                  ),
+                }}
+              >
+                {msg.metadata.answer}
+              </ReactMarkdown>
+            </div>
+            
+            {msg.metadata.sources?.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-slate-100 dark:border-white/5">
+                {msg.metadata.sources.slice(0, 4).map((s: any, i: number) => (
+                  <a
+                    key={i}
+                    href={s.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={s.title}
+                    className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-medium rounded-md bg-slate-50 dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors max-w-[150px] truncate"
+                  >
+                    <Search className="w-2.5 h-2.5" />
+                    {s.title}
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
     </div>
   );
 }
+
+/**
+ * Component for agent thinking steps
+ */
+function AgentThinking({ msg }: { msg: any }) {
+  return (
+    <div className="group relative pl-11 py-2 animate-in fade-in duration-500">
+      <div className="absolute left-3.5 top-0 bottom-0 w-px bg-slate-200 dark:bg-white/10 group-last:bg-transparent" />
+      <div className="absolute left-[9px] top-3 w-2.5 h-2.5 rounded-full border-2 border-blue-300 dark:border-blue-500/40 bg-white dark:bg-[#0a0a0a]" />
+
+      <div className="p-4 rounded-2xl bg-linear-to-br from-blue-50/50 to-indigo-50/50 dark:from-blue-500/5 dark:to-indigo-500/5 border border-blue-100/50 dark:border-blue-500/10 shadow-sm space-y-3">
+        {msg.metadata.review && (
+          <div className="flex items-start gap-3">
+            <div className="w-5 h-5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
+              <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <p className="text-slate-700 dark:text-slate-200 text-sm leading-relaxed">{msg.metadata.review}</p>
+          </div>
+        )}
+        {msg.metadata.next && (
+          <div className="flex items-start gap-3">
+            <div className="w-5 h-5 rounded-md bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
+              <ArrowRight className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+            </div>
+            <p className="text-slate-500 dark:text-slate-400 text-sm leading-relaxed italic">{msg.metadata.next}</p>
+          </div>
+        )}
+        {msg.metadata.thinking && !msg.metadata.review && (
+          <div className="flex items-start gap-3">
+            <div className="w-5 h-5 rounded-md bg-slate-100 dark:bg-white/10 flex items-center justify-center shrink-0 mt-0.5">
+              <Brain className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+            </div>
+            <p className="text-slate-700 dark:text-slate-200 text-sm leading-relaxed">{msg.metadata.thinking}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// --- Main Component ---
 
 export default function ChatAgentView() {
   const {
@@ -135,16 +252,14 @@ export default function ChatAgentView() {
     error,
     isResearching,
     researchProgress,
-    brain,
     sendMessage,
     stopResearch
   } = useChatAgent();
 
   const [inputMessage, setInputMessage] = useState('');
-  const [isDarkMode, setIsDarkMode] = useState(true); // Default to dark mode
+  const [isDarkMode, setIsDarkMode] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isResearching]);
@@ -159,36 +274,49 @@ export default function ChatAgentView() {
   };
 
   const getStatusBadge = () => {
-    const variants = {
-      initializing: { text: 'text-slate-500 dark:text-slate-400', label: 'Initializing' },
-      ready: { text: 'text-emerald-600 dark:text-emerald-400', label: 'Ready' },
-      processing: { text: 'text-blue-600 dark:text-blue-400', label: 'Processing' },
-      researching: { text: 'text-blue-600 dark:text-blue-400', label: 'Researching' },
-      error: { text: 'text-red-600 dark:text-red-400', label: 'Error' }
+    const variants: Record<string, { bg: string; text: string; label: string; pulse?: boolean }> = {
+      initializing: { bg: 'bg-slate-100 dark:bg-white/10', text: 'text-slate-500', label: 'Booting' },
+      ready: { bg: 'bg-emerald-100 dark:bg-emerald-500/20', text: 'text-emerald-600 dark:text-emerald-400', label: 'Online' },
+      processing: { bg: 'bg-blue-100 dark:bg-blue-500/20', text: 'text-blue-600 dark:text-blue-400', label: 'Thinking', pulse: true },
+      researching: { bg: 'bg-indigo-100 dark:bg-indigo-500/20', text: 'text-indigo-600 dark:text-indigo-400', label: 'Researching', pulse: true },
+      error: { bg: 'bg-red-100 dark:bg-red-500/20', text: 'text-red-600 dark:text-red-400', label: 'Offline' }
     };
 
     const config = variants[status as keyof typeof variants] || variants.ready;
 
     return (
-      <span className={`${config.text} font-semibold text-xs`}>
+      <div className={cn(
+        "flex items-center gap-2 px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider shadow-sm transition-all duration-500",
+        config.bg,
+        config.text
+      )}>
+        {config.pulse && (
+          <span className="relative flex h-2 w-2">
+            <span className={cn("animate-ping absolute inline-flex h-full w-full rounded-full opacity-75", config.text.replace('text-', 'bg-'))}></span>
+            <span className={cn("relative inline-flex rounded-full h-2 w-2", config.text.replace('text-', 'bg-'))}></span>
+          </span>
+        )}
         {config.label}
-      </span>
+      </div>
     );
   };
 
   return (
-    <div className={`${isDarkMode ? 'dark' : ''} h-screen w-full flex overflow-hidden`}>
-      <div className="flex-1 flex flex-col bg-white dark:bg-[#0a0a0a] transition-colors duration-300">
-        {/* Header - Compact */}
-        <header className="h-12 flex items-center justify-between px-6 border-b border-slate-200 dark:border-white/5 bg-white dark:bg-black/40 text-sm">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-              <span className="font-bold text-slate-800 dark:text-white">
+    <div className={cn("h-screen w-full flex overflow-hidden font-sans selection:bg-blue-100 dark:selection:bg-blue-500/30", isDarkMode ? 'dark' : '')}>
+      <div className="flex-1 flex flex-col bg-white dark:bg-[#0a0a0a] transition-colors duration-500">
+        
+        {/* Header */}
+        <header className="h-14 flex items-center justify-between px-6 border-b border-slate-200/60 dark:border-white/5 bg-white/80 dark:bg-black/40 backdrop-blur-md z-30">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2.5 group">
+              <div className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/20 group-hover:scale-105 transition-transform">
+                <Sparkles className="w-5 h-5 text-white" />
+              </div>
+              <span className="font-extrabold text-lg tracking-tight text-slate-800 dark:text-white">
                 Swarm<span className="text-blue-600">10</span>
               </span>
             </div>
-            <div className="h-3 w-px bg-slate-200 dark:bg-white/10" />
+            <div className="h-4 w-px bg-slate-200 dark:bg-white/10 mx-1" />
             {getStatusBadge()}
           </div>
 
@@ -196,10 +324,10 @@ export default function ChatAgentView() {
             <Button
               variant="ghost"
               size="icon"
-              className="w-8 h-8 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5"
+              className="w-9 h-9 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 rounded-xl transition-colors"
               onClick={() => setIsDarkMode(!isDarkMode)}
             >
-              {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              {isDarkMode ? <Sun className="w-4.5 h-4.5" /> : <Moon className="w-4.5 h-4.5" />}
             </Button>
 
             {isResearching && (
@@ -207,10 +335,10 @@ export default function ChatAgentView() {
                 onClick={stopResearch}
                 variant="destructive"
                 size="sm"
-                className="h-8 px-3 bg-red-500/90 hover:bg-red-600 text-white text-xs font-semibold"
+                className="h-9 px-4 bg-red-500 hover:bg-red-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-red-500/20 transition-all hover:scale-105 active:scale-95"
               >
-                <StopCircle className="w-3.5 h-3.5 mr-1.5" />
-                Stop
+                <StopCircle className="w-4 h-4 mr-2" />
+                STOP
               </Button>
             )}
           </div>
@@ -218,141 +346,91 @@ export default function ChatAgentView() {
 
         {/* Research Objective Banner */}
         {isResearching && researchProgress?.objective && (
-          <div className="px-6 py-3 bg-blue-50 dark:bg-blue-500/10 border-b border-blue-100 dark:border-blue-500/20">
-            <div className="max-w-5xl mx-auto flex items-start gap-3">
-              <Activity className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
-              <div>
-                <p className="text-xs font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wide">Researching</p>
-                <p className="text-sm text-blue-900 dark:text-blue-100 mt-0.5">{researchProgress.objective}</p>
+          <div className="px-6 py-4 bg-linear-to-r from-blue-50 to-indigo-50 dark:from-blue-500/10 dark:to-indigo-500/10 border-b border-blue-100 dark:border-blue-500/20 animate-in slide-in-from-top duration-500">
+            <div className="max-w-4xl mx-auto flex items-start gap-4">
+              <div className="w-10 h-10 rounded-2xl bg-white/80 dark:bg-white/5 flex items-center justify-center shrink-0 shadow-sm border border-blue-200/50 dark:border-blue-500/20">
+                <Activity className="w-5 h-5 text-blue-600 dark:text-blue-400 animate-pulse" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-[0.2em]">Current Mission</p>
+                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-tight">{researchProgress.objective}</p>
               </div>
             </div>
           </div>
         )}
 
-        {/* Main Chat Area - Log Style */}
+        {/* Chat Content */}
         <main className="flex-1 overflow-hidden relative">
-          <ScrollArea className="h-full px-6 sm:px-8">
-            <div className="max-w-5xl mx-auto py-6 space-y-3">
+          <ScrollArea className="h-full scroll-smooth">
+            <div className="max-w-4xl mx-auto py-10 px-6 space-y-8">
               {messages.map((msg, idx) => {
                 if (msg.metadata?.type === 'research_iteration') return null;
 
                 const isUser = msg.role === 'user';
-                const isProcessStep = ['research_query', 'agent_thinking', 'search_result', 'search_complete'].includes(msg.metadata?.type);
 
+                if (isUser) {
+                  return (
+                    <div key={idx} className="flex flex-col items-end gap-2 animate-in fade-in slide-in-from-right-4 duration-300">
+                      <div className="flex items-start gap-3 max-w-[85%]">
+                        <div className="px-5 py-3 rounded-2xl bg-slate-800 dark:bg-white text-white dark:text-slate-900 shadow-md">
+                          <p className="text-sm md:text-base leading-relaxed font-medium">{msg.content}</p>
+                        </div>
+                        <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-white/10 flex items-center justify-center shrink-0 border border-slate-200 dark:border-white/10">
+                          <User className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // Metadata-driven messages (process steps)
+                if (msg.metadata?.type === 'research_query') {
+                  return <ResearchQuery key={idx} msg={msg} />;
+                }
+                if (msg.metadata?.type === 'agent_thinking') {
+                  return <AgentThinking key={idx} msg={msg} />;
+                }
+                if (msg.metadata?.type === 'ask_user') {
+                  return (
+                    <div key={idx} className="animate-in fade-in duration-300">
+                      <AskUserOptions
+                        question={msg.metadata.question}
+                        options={msg.metadata.options || []}
+                        status={status}
+                        onSelect={(value) => sendMessage(value)}
+                      />
+                    </div>
+                  );
+                }
+
+                // Default Agent Message
                 return (
-                <div key={idx} className="py-2 hover:bg-slate-50/50 dark:hover:bg-white/[0.02] transition-colors">
-                  {isUser ? (
-                    // User message - clean and prominent
-                    <div className="flex items-start gap-3">
-                      <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-white/10 flex items-center justify-center shrink-0">
-                        <User className="w-4 h-4 text-slate-600 dark:text-slate-400" />
-                      </div>
-                      <div className="flex-1 pt-0.5">
-                        <p className="text-slate-900 dark:text-white text-base leading-relaxed">{msg.content}</p>
-                      </div>
+                  <div key={idx} className="flex items-start gap-4 animate-in fade-in slide-in-from-left-4 duration-500">
+                    <div className="w-9 h-9 rounded-2xl bg-blue-600 flex items-center justify-center shrink-0 shadow-lg shadow-blue-500/20">
+                      <Sparkles className="w-5 h-5 text-white" />
                     </div>
-                  ) : msg.metadata?.type === 'research_query' ? (
-                    // Search card: query + response
-                    <div className="flex items-start gap-3">
-                      <div className="w-7 h-7 rounded-full bg-slate-100 dark:bg-white/5 flex items-center justify-center shrink-0">
-                        <Search className="w-4 h-4 text-slate-400 dark:text-slate-500" />
-                      </div>
-                      <div className="flex-1">
-                        {/* Query */}
-                        <div className="flex items-center gap-2">
-                          <span className="text-slate-600 dark:text-slate-400 text-sm">{msg.metadata.query}</span>
-                          {!msg.metadata.answer && <Loader2 className="w-3 h-3 text-slate-400 animate-spin" />}
-                        </div>
-                        {/* Response */}
-                        {msg.metadata.answer && (
-                          <div className="mt-2 text-slate-800 dark:text-slate-100 text-base leading-relaxed">
-                            <ReactMarkdown
-                              components={{
-                                p: ({ node, ...props }) => <p {...props} className="mb-2 last:mb-0" />,
-                                a: ({ node, ...props }) => (
-                                  <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline" />
-                                ),
-                              }}
-                            >
-                              {msg.metadata.answer}
-                            </ReactMarkdown>
-                            {/* Sources */}
-                            {msg.metadata.sources?.length > 0 && (
-                              <div className="flex flex-wrap gap-1.5 mt-2">
-                                {msg.metadata.sources.slice(0, 3).map((s: any, i: number) => (
-                                  <a
-                                    key={i}
-                                    href={s.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-xs text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400"
-                                  >
-                                    {s.title}
-                                  </a>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ) : msg.metadata?.type === 'agent_thinking' ? (
-                    // Agent thinking - review + next as a nice card
-                    <div className="ml-2 flex flex-col gap-2 p-3 rounded-xl bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-white/[0.03] dark:to-white/[0.01] border border-slate-200/60 dark:border-white/[0.06]">
-                      {msg.metadata.review && (
-                        <div className="flex items-start gap-2">
-                          <div className="w-5 h-5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                            <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                          </div>
-                          <p className="text-slate-700 dark:text-slate-200 text-sm leading-relaxed">{msg.metadata.review}</p>
-                        </div>
-                      )}
-                      {msg.metadata.next && (
-                        <div className="flex items-start gap-2">
-                          <div className="w-5 h-5 rounded-md bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                            <ArrowRight className="w-3 h-3 text-blue-600 dark:text-blue-400" />
-                          </div>
-                          <p className="text-slate-500 dark:text-slate-400 text-sm leading-relaxed">{msg.metadata.next}</p>
-                        </div>
-                      )}
-                      {/* Fallback for old format */}
-                      {msg.metadata.thinking && !msg.metadata.review && (
-                        <p className="text-slate-700 dark:text-slate-200 text-sm leading-relaxed">{msg.metadata.thinking}</p>
-                      )}
-                    </div>
-                  ) : msg.metadata?.type === 'ask_user' ? (
-                    // Question with selectable options
-                    <AskUserOptions
-                      question={msg.metadata.question}
-                      options={msg.metadata.options || []}
-                      status={status}
-                      onSelect={(value) => sendMessage(value)}
-                    />
-                  ) : (
-                    // Agent response - clean with sparkle icon
-                    <div className="flex items-start gap-3">
-                      <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center shrink-0">
-                        <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                      </div>
-                      <div className="flex-1 pt-0.5 text-slate-800 dark:text-slate-100">
+                    <div className="flex-1 pt-1.5 space-y-4">
+                      <div className="prose prose-slate dark:prose-invert max-w-none text-slate-800 dark:text-slate-100">
                         <ReactMarkdown
                           components={{
-                            p: ({ node, ...props }) => <p {...props} className="mb-3 last:mb-0 leading-relaxed text-base" />,
-                            ul: ({ node, ...props }) => <ul {...props} className="mb-3 space-y-1.5 list-disc list-inside" />,
-                            ol: ({ node, ...props }) => <ol {...props} className="mb-3 space-y-1.5 list-decimal list-inside" />,
-                            li: ({ node, ...props }) => <li {...props} className="text-base leading-relaxed" />,
-                            h1: ({ node, ...props }) => <h1 {...props} className="text-lg font-semibold mb-2 text-slate-900 dark:text-white" />,
-                            h2: ({ node, ...props }) => <h2 {...props} className="text-base font-semibold mb-2 text-slate-900 dark:text-white" />,
-                            h3: ({ node, ...props }) => <h3 {...props} className="text-base font-medium mb-1.5 text-slate-900 dark:text-white" />,
-                            a: ({ node, ...props }) => (
-                              <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline" />
+                            p: ({ node, ...props }) => <p {...props} className="text-base md:text-lg leading-relaxed mb-4 last:mb-0" />,
+                            ul: ({ node, ...props }) => <ul {...props} className="mb-4 space-y-2 list-none" />,
+                            ol: ({ node, ...props }) => <ol {...props} className="mb-4 space-y-2 list-decimal list-inside" />,
+                            li: ({ node, ...props }) => (
+                              <li className="flex items-start gap-2 text-base md:text-lg">
+                                <span className="mt-2.5 w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0" />
+                                <span {...props} />
+                              </li>
                             ),
-                            strong: ({ node, ...props }) => <strong {...props} className="font-semibold text-slate-900 dark:text-white" />,
+                            h1: ({ node, ...props }) => <h1 {...props} className="text-2xl font-black mb-4 tracking-tight" />,
+                            h2: ({ node, ...props }) => <h2 {...props} className="text-xl font-bold mb-3 tracking-tight" />,
+                            h3: ({ node, ...props }) => <h3 {...props} className="text-lg font-bold mb-2 tracking-tight" />,
+                            strong: ({ node, ...props }) => <strong {...props} className="font-bold text-slate-900 dark:text-white" />,
                             code: (rawProps: any) => {
                               const { inline, ...props } = rawProps || {};
                               return inline
-                                ? <code {...props} className="px-1.5 py-0.5 bg-slate-100 dark:bg-white/10 rounded text-sm font-mono" />
-                                : <code {...props} className="block p-3 bg-slate-100 dark:bg-black/40 rounded-lg text-sm overflow-x-auto my-2 font-mono" />;
+                                ? <code {...props} className="px-1.5 py-0.5 bg-slate-100 dark:bg-white/10 rounded-md text-sm font-mono text-blue-600 dark:text-blue-400" />
+                                : <pre className="p-4 bg-slate-900 dark:bg-black/40 rounded-2xl text-sm overflow-x-auto my-6 border border-white/5"><code {...props} className="font-mono text-slate-300" /></pre>;
                             },
                           }}
                         >
@@ -360,65 +438,70 @@ export default function ChatAgentView() {
                         </ReactMarkdown>
                       </div>
                     </div>
-                  )}
-                </div>
+                  </div>
                 );
               })}
 
-              {/* Thinking Indicator - only for processing, not researching (search cards have their own spinners) */}
+              {/* Thinking Indicator */}
               {status === 'processing' && (
-                <div className="py-2">
-                  <div className="flex items-start gap-3">
-                    <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center shrink-0">
-                      <Loader2 className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-spin" />
-                    </div>
-                    <div className="flex-1 pt-1">
-                      <span className="text-slate-500 dark:text-slate-400 text-sm italic">thinking...</span>
-                    </div>
+                <div className="flex items-start gap-4 animate-pulse">
+                  <div className="w-9 h-9 rounded-2xl bg-slate-100 dark:bg-white/5 flex items-center justify-center shrink-0 border border-slate-200 dark:border-white/10">
+                    <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
+                  </div>
+                  <div className="flex-1 pt-2">
+                    <div className="h-4 bg-slate-100 dark:bg-white/5 rounded-full w-24 mb-2" />
+                    <div className="h-3 bg-slate-100 dark:bg-white/5 rounded-full w-48 opacity-50" />
                   </div>
                 </div>
               )}
 
               {/* Error Display */}
               {error && (
-                <div className="ml-2 p-3 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20">
-                  <div className="flex items-start gap-2">
-                    <StopCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
-                    <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
+                <div className="mx-auto max-w-2xl p-4 rounded-2xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 flex items-start gap-3 animate-in shake-1">
+                  <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="text-sm font-bold text-red-800 dark:text-red-400 uppercase tracking-wider">System Error</p>
+                    <p className="text-sm text-red-700 dark:text-red-300 leading-relaxed">{error}</p>
                   </div>
                 </div>
               )}
 
-              <div ref={messagesEndRef} />
+              <div ref={messagesEndRef} className="h-4" />
             </div>
           </ScrollArea>
         </main>
 
         {/* Input Area */}
-        <footer className="p-4 bg-white dark:bg-[#0a0a0a] border-t border-slate-200 dark:border-white/5">
-          <form onSubmit={handleSend} className="flex items-center gap-3 max-w-5xl mx-auto">
-            <Input
-              type="text"
-              value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
-              placeholder={status === 'ready' ? "Type your message..." : "Busy..."}
-              disabled={status !== 'ready'}
-              className="flex-1 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 h-11 px-4 text-base focus-visible:ring-1 focus-visible:ring-blue-500"
-            />
-            <Button
-              type="submit"
-              disabled={!inputMessage.trim() || status !== 'ready'}
-              className={`h-11 px-5 text-sm font-semibold ${
-                inputMessage.trim() && status === 'ready'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-slate-200 dark:bg-white/5 text-slate-400 opacity-50'
-              }`}
-              size="sm"
-            >
-              <Send className="w-4 h-4 mr-2" />
-              Send
-            </Button>
+        <footer className="p-6 bg-white dark:bg-[#0a0a0a] border-t border-slate-200/60 dark:border-white/5 z-40">
+          <form onSubmit={handleSend} className="max-w-4xl mx-auto relative group">
+            <div className="absolute -inset-1 bg-linear-to-r from-blue-600 to-indigo-600 rounded-[28px] opacity-0 group-focus-within:opacity-10 blur-xl transition-opacity duration-500" />
+            <div className="relative flex items-center gap-3 p-2 rounded-[24px] bg-slate-50 dark:bg-white/3 border border-slate-200 dark:border-white/10 focus-within:border-blue-500/50 focus-within:bg-white dark:focus-within:bg-black/40 transition-all duration-300 shadow-sm">
+              <Input
+                type="text"
+                value={inputMessage}
+                onChange={(e) => setInputMessage(e.target.value)}
+                placeholder={status === 'ready' ? "Ask anything..." : "System busy..."}
+                disabled={status !== 'ready'}
+                className="flex-1 bg-transparent border-none h-12 px-4 text-base md:text-lg focus-visible:ring-0 placeholder:text-slate-400 dark:placeholder:text-slate-600"
+              />
+              <Button
+                type="submit"
+                disabled={!inputMessage.trim() || status !== 'ready'}
+                className={cn(
+                  "h-12 w-12 rounded-2xl transition-all duration-300 shadow-lg",
+                  inputMessage.trim() && status === 'ready'
+                    ? 'bg-blue-600 text-white shadow-blue-500/20 hover:scale-105 active:scale-95'
+                    : 'bg-slate-200 dark:bg-white/5 text-slate-400 opacity-50'
+                )}
+                size="icon"
+              >
+                <Send className="w-5 h-5" />
+              </Button>
+            </div>
           </form>
+          <p className="text-center mt-3 text-[10px] text-slate-400 dark:text-slate-600 font-medium uppercase tracking-widest">
+            Powered by Swarm10 Autonomous Intelligence
+          </p>
         </footer>
       </div>
     </div>

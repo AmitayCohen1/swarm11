@@ -10,7 +10,7 @@ import { z } from 'zod';
 // Schema for structured research output
 const ResearchOutputSchema = z.object({
   confidenceLevel: z.enum(['low', 'medium', 'high']).describe('Confidence in the completeness of findings'),
-  finalAnswer: z.string().describe('Complete answer in markdown, concise and actionable')
+  finalAnswer: z.string().describe('Complete answer, concise and actionable')
 });
 
 interface ResearchExecutorConfig {
@@ -104,6 +104,15 @@ export async function executeResearch(config: ResearchExecutorConfig) {
 
       onProgress?.({ type: 'brain_update', brain: updatedBrain });
 
+      // Signal completion to stop the loop
+      if (nextMove === 'complete') {
+        return {
+          acknowledged: true,
+          direction: nextMove,
+          shouldStop: true  // Signal to stop the loop
+        };
+      }
+
       return { acknowledged: true, direction: nextMove };
     }
   });
@@ -114,35 +123,43 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     askUser: askUserTool
   };
   const instructions = `
-  You are an autonomous research agent.
-  
-  Your objective is:
-  "${researchObjective}"
-  
-  Your role is to autonomously determine how to achieve this objective through investigation.
+You are an autonomous research agent.
 
-  Behavioral expectations: Research > View results and reflect > Research > View results and reflect > ...
+Your objective is:
+"${researchObjective}"
 
-  You can ask:
-  1. Broad qusetions to get a view of the landsacpe 
-  2. Drill down, double down on a veritical
-  3. Pivot to a new direction if you think you are going in the wrong direction.
+Your role is to autonomously determine how to achieve this objective through investigation.
 
-  Be smart, creative and efficient.
-  Iterate as much needed to get the best and most spesific and actionable research results.
-  The more specific and actionable the research results are, the better.
+RESEARCH LOOP:
+1. Call search() with ONE natural language question
+2. IMMEDIATELY call reflect() after each search - no exceptions
+3. Based on your reflect decision, either continue searching or stop
 
-  STRICT LOOP:
-  1. Call search() with ONE query
-  2. MUST call reflect() immediately after - no exceptions
-  3. Repeat until done
+RESEARCH STRATEGIES:
+- Start broad to understand the landscape
+- Drill down on promising leads
+- Cross-reference to verify information
+- Pivot if a direction isn't productive
 
-  Tools:
-  - search(query): ONE search at a time, then you MUST reflect. You can ask general questions to get a broad sense, or specific questions to get more information on a specific vertical.
-  - reflect(keyFindings, nextMove, userFacingSummary): REQUIRED after every single search
-  - askUser(question, options): if you want to ask the user a question
-  - complete(reasoning, confidenceLevel, keyFindings, recommendedActions, sourcesUsed, finalAnswerMarkdown): if you want to complete the research
-  `;
+WHEN TO STOP:
+- You have specific, actionable findings (names, companies, contacts, numbers)
+- You've verified information from multiple sources
+- Further searching would be redundant
+- You have enough to answer the user's objective
+
+TOOLS:
+- search(query): Search the web. Use FULL natural language questions.
+- reflect(keyFindings, nextMove, review, next): REQUIRED after every search.
+  - keyFindings: Concrete discoveries (names, companies, numbers, URLs)
+  - nextMove: 'continue' | 'pivot' | 'narrow' | 'cross-reference' | 'deep-dive' | 'complete'
+  - review: 1-sentence summary of what you found
+  - next: 1-sentence description of your next action (or "Completing research" if done)
+- askUser(question, options): Ask user for clarification if stuck
+
+When nextMove is 'complete', you are signaling that research is done. The system will then generate the final answer from your accumulated findings.
+
+AIM FOR: 5-15 searches for a typical research task. Don't stop too early (< 3 searches) or go too long (> 20 searches) unless necessary.
+`;
   
 
   try {
