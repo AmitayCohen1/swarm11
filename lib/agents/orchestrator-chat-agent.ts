@@ -4,9 +4,6 @@ import { z } from 'zod';
 
 export interface ResearchBrief {
   objective: string;
-  targetProfile: string;
-  signalTypes: string[];
-  exclusionCriteria: string[];
   stoppingConditions: string;
   successCriteria: string;
 }
@@ -17,7 +14,7 @@ export interface OrchestratorDecision {
   reasoning: string;
   // multi_choice_select & text_input (when asking)
   reason?: string; // Why this question is being asked - shown to user
-  blockedField?: 'objective' | 'targetProfile' | 'signalTypes' | 'successCriteria';
+  blockedField?: 'objective' | 'successCriteria';
   options?: { label: string }[];
   // start_research
   researchBrief?: ResearchBrief;
@@ -44,8 +41,8 @@ export async function analyzeUserMessage(
       message: z.string().describe('Your response or question text.'),
 
       // For questions (multi_choice_select or text_input when asking)
-      reason: z.string().optional().describe('REQUIRED when using text_input or multi_choice_select. Brief explanation of WHY you need this info to proceed. Shown to user.'),
-      blockedField: z.enum(['objective', 'targetProfile', 'signalTypes', 'successCriteria'])
+      reason: z.string().optional().describe('REQUIRED when using text_input or multi_choice_select. Brief explanation of WHY you need this info to proceed. Shown to user. For multi_choice_select, reason is shown to user as the options.'),
+      blockedField: z.enum(['objective', 'successCriteria'])
         .optional()
         .describe('For multi_choice_select: which research brief field is blocked'),
       options: z.array(z.object({
@@ -55,10 +52,7 @@ export async function analyzeUserMessage(
       // start_research fields
       researchBrief: z.object({
         objective: z.string().describe('The core research question - what decision is the user trying to make?'),
-        targetProfile: z.string().describe('Who or what we are looking for - the hypothesis to validate.'),
-        signalTypes: z.array(z.string()).describe('Real-world signals to prioritize (e.g., "social engagement", "recent job changes", "public writing", "hiring activity", "funding announcements")'),
-        exclusionCriteria: z.array(z.string()).describe('What to filter out (e.g., "just raised funding", "recently changed jobs", "inactive social presence")'),
-        stoppingConditions: z.string().describe('When research is "good enough" (e.g., "3-5 qualified candidates with contact paths", "clear market leader identified")'),
+        stoppingConditions: z.string().describe('When research is "good enough" (e.g., "3-5 qualified candidates", "clear market leader identified")'),
         successCriteria: z.string().describe('What a good answer enables the user to DO (e.g., "send personalized outreach to top 3 candidates")')
       }).optional().describe('Required for start_research. The structured brief for the research agent.'),
 
@@ -73,7 +67,7 @@ Your job is to gather all the information required for a research agent to act.
 You are not a researcher, strategist, or intake form.
 
 CORE RESPONSIBILITY:
-Understand what the user is trying to achieve with the research.
+Understand what the user is trying to achieve with the research (“We are researching X, in order to produce Y.”)
 If something is unclear, ask the user for clarification.
 and translate it into a clear research task and expected output.
 
@@ -101,18 +95,20 @@ Use for:
 
 3. start_research 
 Use this when you can reasonably tell the research agent:
-- what to look for
-- what output to produce
+- what to look for (success criteria)
+- what output to produce 
 - what "useful" means
 
 RULES:
-- prefer multi_choice_select over text_input.
+- prefer multi_choice_select over text_input.s
 
 STRICT RULES:
 - Never ask the user to design the research
 - Never ask strategy or hypothetical questions
 - Never ask multiple questions at once.
 - Questions needs to be short and to the point.
+- Don't ask "strategic" questions or "quantitative" success criteria  - the resarch agent will figure it out. We just need the full context of the fundamental research question.
+- If the answer does not change the research target or output, do not ask the question.
 
 
 WHEN STARTING RESEARCH:

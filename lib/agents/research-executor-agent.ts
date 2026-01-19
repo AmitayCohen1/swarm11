@@ -139,15 +139,6 @@ RESEARCH BRIEF FROM ORCHESTRATOR
 OBJECTIVE:
 ${researchBrief.objective}
 
-TARGET:
-${researchBrief.targetProfile}
-
-SIGNAL CATEGORIES TO PRIORITIZE:
-${researchBrief.signalTypes.map(s => `• ${s}`).join('\n')}
-
-DISQUALIFIERS (filter out):
-${researchBrief.exclusionCriteria.map(e => `• ${e}`).join('\n')}
-
 STOPPING CONDITIONS:
 ${researchBrief.stoppingConditions}
 

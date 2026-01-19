@@ -147,6 +147,7 @@ export function useChatAgent() {
             iteration: 0
           });
         } else if (update.type === 'search_started') {
+          // Create batch message with all queries
           setMessages(prev => [...prev, {
             role: 'assistant',
             content: '',
@@ -156,34 +157,33 @@ export function useChatAgent() {
               queries: (update as any).queries.map((q: any) => ({
                 query: q.query,
                 purpose: q.purpose,
-                status: 'searching'
+                status: 'searching',
+                answer: null,
+                sources: []
               }))
             }
           }]);
-        } else if (update.type === 'research_query') {
-          // Add search query message
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: '',
-            timestamp: new Date().toISOString(),
-            metadata: {
-              type: update.type,
-              query: update.query
-            }
-          }]);
         } else if (update.type === 'search_result') {
-          // Merge result into the query message (one card: query + response)
+          // Update the matching query in the batch message
           setMessages(prev => {
-            const lastIdx = prev.findIndex(m => m.metadata?.type === 'research_query' && !m.metadata?.answer);
-            if (lastIdx !== -1) {
+            const batchIdx = prev.findLastIndex(m => m.metadata?.type === 'search_batch');
+            if (batchIdx !== -1) {
               const newMessages = [...prev];
-              newMessages[lastIdx] = {
-                ...newMessages[lastIdx],
-                metadata: {
-                  ...newMessages[lastIdx].metadata,
-                  answer: update.answer,
-                  sources: update.sources
+              const batch = newMessages[batchIdx];
+              const queries = batch.metadata?.queries?.map((q: any) => {
+                if (q.query === update.query && q.status === 'searching') {
+                  return {
+                    ...q,
+                    status: 'complete',
+                    answer: update.answer,
+                    sources: update.sources
+                  };
                 }
+                return q;
+              });
+              newMessages[batchIdx] = {
+                ...batch,
+                metadata: { ...batch.metadata, queries }
               };
               return newMessages;
             }

@@ -171,7 +171,7 @@ export async function POST(
 
             const currentBrain = currentSession?.brain || '';
             const separator = currentBrain ? '\n\n---\n\n' : '';
-            const newBrainSection = `${separator}# ${researchBrief.objective}\n\n**Target:** ${researchBrief.targetProfile}\n**Success:** ${researchBrief.successCriteria}\n\n`;
+            const newBrainSection = `${separator}# ${researchBrief.objective}\n\n**Success:** ${researchBrief.successCriteria}\n\n`;
 
             await db
               .update(chatSessions)

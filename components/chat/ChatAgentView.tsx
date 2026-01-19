@@ -167,6 +167,75 @@ function AskUserOptions({
 }
 
 /**
+ * Component for batch search results (parallel queries)
+ */
+function SearchBatch({ queries }: { queries: any[] }) {
+  return (
+    <div className="space-y-3 animate-in fade-in duration-500">
+      {queries.map((q, i) => (
+        <div key={i} className="group relative pl-11 py-2">
+          <div className="absolute left-3.5 top-0 bottom-0 w-px bg-slate-200 dark:bg-white/10 group-last:bg-transparent" />
+          <div className={`absolute left-[9px] top-3 w-2.5 h-2.5 rounded-full border-2 ${
+            q.status === 'complete'
+              ? 'border-emerald-400 dark:border-emerald-500/60 bg-emerald-50 dark:bg-emerald-500/20'
+              : 'border-blue-400 dark:border-blue-500/40 bg-white dark:bg-[#0a0a0a]'
+          }`} />
+
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-2">
+              <Globe className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+              <span className="text-slate-500 dark:text-slate-400 text-sm font-medium tracking-tight">
+                {q.query}
+              </span>
+              {q.status === 'searching' && <Loader2 className="w-3 h-3 text-blue-500 animate-spin" />}
+            </div>
+
+            {q.purpose && (
+              <p className="text-slate-400 dark:text-slate-500 text-xs italic ml-5">{q.purpose}</p>
+            )}
+
+            {q.answer && (
+              <div className="p-4 rounded-2xl bg-white dark:bg-white/3 border border-slate-200/60 dark:border-white/6 shadow-sm mt-1">
+                <div className="text-slate-800 dark:text-slate-200 text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none">
+                  <ReactMarkdown
+                    components={{
+                      p: ({ node, ...props }) => <p {...props} className="mb-2 last:mb-0" />,
+                      a: ({ node, ...props }) => (
+                        <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 font-medium hover:underline" />
+                      ),
+                    }}
+                  >
+                    {q.answer}
+                  </ReactMarkdown>
+                </div>
+
+                {q.sources?.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-slate-100 dark:border-white/5">
+                    {q.sources.slice(0, 4).map((s: any, j: number) => (
+                      <a
+                        key={j}
+                        href={s.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={s.title}
+                        className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-medium rounded-md bg-slate-50 dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors max-w-[150px] truncate"
+                      >
+                        <Search className="w-2.5 h-2.5" />
+                        {s.title}
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
  * Component for research/search results
  */
 function ResearchQuery({ msg }: { msg: any }) {
@@ -403,6 +472,9 @@ export default function ChatAgentView() {
                 }
 
                 // Metadata-driven messages (process steps)
+                if (msg.metadata?.type === 'search_batch') {
+                  return <SearchBatch key={idx} queries={msg.metadata.queries || []} />;
+                }
                 if (msg.metadata?.type === 'research_query') {
                   return <ResearchQuery key={idx} msg={msg} />;
                 }
