@@ -296,12 +296,33 @@ function ResearchQuery({ msg }: { msg: any }) {
  * Component for agent thinking steps
  */
 function AgentThinking({ msg }: { msg: any }) {
+  const hasContent = msg.metadata.review || msg.metadata.next || msg.metadata.thinking ||
+                     msg.metadata.materialChange || msg.metadata.keyFindings;
+
+  if (!hasContent) return null;
+
   return (
     <div className="group relative pl-11 py-2 animate-in fade-in duration-500">
       <div className="absolute left-3.5 top-0 bottom-0 w-px bg-slate-200 dark:bg-white/10 group-last:bg-transparent" />
       <div className="absolute left-[9px] top-3 w-2.5 h-2.5 rounded-full border-2 border-blue-300 dark:border-blue-500/40 bg-white dark:bg-[#0a0a0a]" />
 
       <div className="p-4 rounded-2xl bg-linear-to-br from-blue-50/50 to-indigo-50/50 dark:from-blue-500/5 dark:to-indigo-500/5 border border-blue-100/50 dark:border-blue-500/10 shadow-sm space-y-3">
+        {msg.metadata.materialChange && (
+          <div className="flex items-start gap-3">
+            <div className="w-5 h-5 rounded-md bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center shrink-0 mt-0.5">
+              <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+            </div>
+            <p className="text-slate-700 dark:text-slate-200 text-sm leading-relaxed">{msg.metadata.materialChange}</p>
+          </div>
+        )}
+        {msg.metadata.keyFindings && (
+          <div className="flex items-start gap-3">
+            <div className="w-5 h-5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
+              <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <p className="text-slate-700 dark:text-slate-200 text-sm leading-relaxed">{msg.metadata.keyFindings}</p>
+          </div>
+        )}
         {msg.metadata.review && (
           <div className="flex items-start gap-3">
             <div className="w-5 h-5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
