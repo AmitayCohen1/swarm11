@@ -1,5 +1,76 @@
 # Chat Orchestrator with Research Executor
 
+## Vision: What Great Research Looks Like
+
+A founder messages his agent: "I need a developer relations lead. Someone technical enough to earn respect from senior engineers, but who actually enjoys being on Twitter. We sell to platform teams. Go."
+
+The agent starts with the obvious: LinkedIn searches for "Developer Advocate" and "DevRel" at great developer-first companies — Datadog, Temporal, Langchain. It finds hundreds of profiles. But job titles don't reveal who's actually good at this.
+
+It pivots to signal over credentials. It searches YouTube for conference talks. It finds 50+ speakers, then filters for those with talks that have strong engagement.
+
+It cross-references those speakers with Twitter. Half have inactive accounts or just retweet their employer's blog posts. Not what we want. But a dozen have real followings — they post real opinions, reply to people, and get engagement from developers. And their posts have real taste.
+
+The agent narrows further. It checks who's been posting less frequently in the last three months. A drop in activity sometimes signals disengagement from their current role. Three names surface.
+
+It researches those three. One just announced a new role — too late. One is a founder of a company that just raised funding — not leaving. The third is a senior DevRel at a Series D company that just did layoffs in marketing. Her last talk was about exactly the platform engineering space the startup targets. She has 14k Twitter followers and posts memes that actual engineers engage with. She hasn't updated her LinkedIn in two months.
+
+The agent drafts an email acknowledging her recent talk, the overlap with the startup's ICP, and a specific note about the creative freedom a smaller team offers. It suggests a casual conversation, not a pitch.
+
+Total time: 31 minutes. The founder has a shortlist of one instead of a JD posted to a job board.
+
+---
+
+### Example 2: Finding Buyers for a Fact-Checking Tool
+
+A founder messages: "Find me customers for my AI fact-checking platform for podcasts and audio."
+
+The agent starts broad: it searches for media organizations and podcasts that talk about misinformation. It finds news networks, political podcasts, health misinformation watchdogs. Hundreds of potential targets, but no signal on who would actually buy.
+
+It pivots to buying signals. It searches job boards for companies currently hiring fact-checkers. If they're hiring humans, they might pay for automation. A dozen media companies and podcast networks surface.
+
+It looks for pain signals. It searches for podcasts that have been publicly called out for spreading misinformation — Spotify controversies, advertisers pulling out, public apologies. These companies have felt the pain. Three major podcast networks and two health-focused shows appear.
+
+It narrows to people. For each company, it finds the Head of Content, VP of Trust & Safety, or Editorial Director. It cross-references with LinkedIn to see who's been posting about content moderation challenges or AI tools.
+
+One name stands out: a Director of Editorial Standards at a podcast network that had an advertiser exodus last year. She posted on LinkedIn three weeks ago about "the impossible task of fact-checking 40 hours of weekly content." She liked two posts about AI content moderation tools.
+
+The agent drafts outreach that acknowledges the scale problem she mentioned, references a specific episode controversy (without being accusatory), and offers a 15-minute demo focused on her use case.
+
+Total time: 28 minutes. The founder has a warm lead instead of a cold list.
+
+---
+
+### Orchestrator vs Research Agent Responsibilities
+
+**The orchestrator does NOT:**
+- Decide the correct market, segment, or answer
+- Choose hypotheses the research agent must confirm
+- Perform reasoning, validation, or exploration
+
+**The orchestrator DOES:**
+- Understand what the user is ultimately trying to achieve
+- Translate vague or messy input into a clear research intent
+- Define what a useful result looks like to the user
+- Hand the research agent a goal and success criteria, not a path
+
+**The research agent:**
+- Is autonomous
+- Decides what to investigate first
+- Follows signals, pivots, and digs deeper
+- Refines hypotheses during research
+- Optimizes for the success criteria provided by the orchestrator
+
+**In short:**
+The orchestrator frames the question.
+The research agent discovers the answer.
+
+**Example:**
+If the goal is to find buyers for a fact-checking tool for podcasts, the orchestrator would first frame the research by clarifying the intent and success criteria. It would ask only what is necessary to understand the goal, such as whether the user wants to identify likely buyer types, concrete organizations, or both. Once the objective is clear, it would hand off a concise research framing without assuming who the buyers are.
+
+The researcher would then operate autonomously. It would explore media organizations and podcasts that discuss misinformation or accuracy, look for demand signals such as companies hiring fact-checkers or investing in editorial processes, and examine cases where podcasts or networks have faced reputational harm due to misinformation. As strong signals emerge, the researcher would dig deeper—analyzing specific organizations, identifying relevant teams or individuals, and assessing whether they have publicly expressed concern about accuracy or compliance. The researcher follows evidence, revises hypotheses as it learns, and produces results aligned with the defined success criteria.
+
+---
+
 ## Overview
 
 The Chat Orchestrator is an intelligent conversational agent that decides when to ask clarifying questions, respond directly, or launch autonomous research. This creates a clean separation of concerns:

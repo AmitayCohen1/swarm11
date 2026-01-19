@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Send, StopCircle, Loader2, Sparkles, Moon, Sun, User, Search, FileText, Lightbulb, ChevronRight, Activity, PenLine } from 'lucide-react';
 
-// Component for ask_user questions with options + write your own (multi-select)
+// Component for ask_user questions with options + write your own (single-select)
 function AskUserOptions({
   question,
   options,
@@ -22,34 +22,17 @@ function AskUserOptions({
 }) {
   const [showInput, setShowInput] = useState(false);
   const [customInput, setCustomInput] = useState('');
-  const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  const handleToggle = (label: string) => {
+  const handleSelect = (label: string) => {
     if (status !== 'ready') return;
-    const newSelected = new Set(selected);
-    if (newSelected.has(label)) {
-      newSelected.delete(label);
-    } else {
-      newSelected.add(label);
-    }
-    setSelected(newSelected);
-  };
-
-  const handleSubmit = () => {
-    if (selected.size === 0 || status !== 'ready') return;
-    const answer = Array.from(selected).join(', ');
-    onSelect(answer);
-    setSelected(new Set());
+    onSelect(label);
   };
 
   const handleSubmitCustom = () => {
     if (customInput.trim() && status === 'ready') {
-      // Combine selected options with custom input
-      const parts = [...Array.from(selected), customInput.trim()];
-      onSelect(parts.join(', '));
+      onSelect(customInput.trim());
       setCustomInput('');
       setShowInput(false);
-      setSelected(new Set());
     }
   };
 
@@ -61,23 +44,16 @@ function AskUserOptions({
       <div className="flex-1 space-y-3">
         <p className="text-slate-800 dark:text-slate-100 text-base">{question}</p>
         <div className="flex flex-wrap gap-2">
-          {options.map((opt, i) => {
-            const isSelected = selected.has(opt.label);
-            return (
-              <button
-                key={i}
-                onClick={() => handleToggle(opt.label)}
-                disabled={status !== 'ready'}
-                className={`px-4 py-2 text-sm font-medium rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                  isSelected
-                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300'
-                    : 'border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/10 hover:border-slate-300 dark:hover:border-white/20'
-                }`}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
+          {options.map((opt, i) => (
+            <button
+              key={i}
+              onClick={() => handleSelect(opt.label)}
+              disabled={status !== 'ready'}
+              className="px-4 py-2 text-sm font-medium rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-not-allowed border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/10 hover:border-slate-300 dark:hover:border-white/20"
+            >
+              {opt.label}
+            </button>
+          ))}
           {!showInput && (
             <button
               onClick={() => setShowInput(true)}
@@ -127,18 +103,6 @@ function AskUserOptions({
               Cancel
             </Button>
           </div>
-        )}
-        {/* Submit button when options are selected */}
-        {selected.size > 0 && !showInput && (
-          <Button
-            onClick={handleSubmit}
-            disabled={status !== 'ready'}
-            size="sm"
-            className="h-9 px-4 bg-blue-600 hover:bg-blue-700 text-white"
-          >
-            <Send className="w-3.5 h-3.5 mr-2" />
-            Submit ({selected.size} selected)
-          </Button>
         )}
       </div>
     </div>
