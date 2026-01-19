@@ -10,7 +10,7 @@ interface Message {
 }
 
 interface ProgressUpdate {
-  type: 'analyzing' | 'decision' | 'research_started' | 'research_iteration' | 'step_complete' | 'research_complete' | 'message' | 'complete' | 'error' | 'agent_thinking' | 'research_query' | 'plan_created' | 'brain_updated' | 'brain_update' | 'summary_created' | 'needs_clarification' | 'search_result' | 'ask_user';
+  type: 'analyzing' | 'decision' | 'research_started' | 'research_iteration' | 'step_complete' | 'research_complete' | 'message' | 'complete' | 'error' | 'agent_thinking' | 'research_query' | 'plan_created' | 'brain_updated' | 'brain_update' | 'summary_created' | 'needs_clarification' | 'search_result' | 'ask_user' | 'search_started' | 'multi_choice_select';
   options?: { label: string; description?: string }[];
   message?: string;
   decision?: string;
@@ -146,6 +146,20 @@ export function useChatAgent() {
             objective: update.objective,
             iteration: 0
           });
+        } else if (update.type === 'search_started') {
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: '',
+            timestamp: new Date().toISOString(),
+            metadata: {
+              type: 'search_batch',
+              queries: (update as any).queries.map((q: any) => ({
+                query: q.query,
+                purpose: q.purpose,
+                status: 'searching'
+              }))
+            }
+          }]);
         } else if (update.type === 'research_query') {
           // Add search query message
           setMessages(prev => [...prev, {
@@ -185,6 +199,19 @@ export function useChatAgent() {
               type: 'ask_user',
               question: update.question,
               options: update.options
+            }
+          }]);
+        } else if (update.type === 'multi_choice_select') {
+          // Specific fork with options to pick
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: '',
+            timestamp: new Date().toISOString(),
+            metadata: {
+              type: 'multi_choice_select',
+              question: update.question,
+              options: update.options,
+              reason: (update as any).reason
             }
           }]);
         } else if (

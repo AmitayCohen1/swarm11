@@ -112,7 +112,7 @@ export async function POST(
           });
 
           // Handle decision
-          if (decision.type === 'chat_response') {
+          if (decision.type === 'text_input') {
             const assistantMessage = decision.message || 'Hello! How can I help?';
 
             conversationHistory.push({
@@ -129,15 +129,16 @@ export async function POST(
             sendEvent({ type: 'message', message: assistantMessage, role: 'assistant' });
             sendEvent({ type: 'complete' });
 
-          } else if (decision.type === 'ask_clarification') {
-            const question = decision.message || 'I need more information.';
+          } else if (decision.type === 'multi_choice_select') {
+            const question = decision.message || 'Please select an option:';
             const options = decision.options || [];
+            const reason = decision.reason;
 
             conversationHistory.push({
               role: 'assistant',
               content: question,
               timestamp: new Date().toISOString(),
-              metadata: { type: 'ask_user', options }
+              metadata: { type: 'multi_choice_select', options, reason, blockedField: decision.blockedField }
             });
 
             await db
@@ -145,8 +146,8 @@ export async function POST(
               .set({ messages: conversationHistory, updatedAt: new Date() })
               .where(eq(chatSessions.id, chatSessionId));
 
-            // Send as ask_user so UI renders clickable buttons
-            sendEvent({ type: 'ask_user', question, options });
+            // Send as multi_choice_select so UI renders clickable buttons
+            sendEvent({ type: 'multi_choice_select', question, options, reason, blockedField: decision.blockedField });
             sendEvent({ type: 'complete' });
 
           } else if (decision.type === 'start_research') {
@@ -232,7 +233,7 @@ export async function POST(
                       type: 'brain_update',
                       brain: update.brain
                     });
-                  } else if (update.type === 'research_query') {
+                  } else if (update.type === 'research_query' || update.type === 'search_started') {
                     sendEvent(update);
                   } else if (update.type === 'search_result') {
                     sendEvent(update);

@@ -34,11 +34,13 @@ import { cn } from '@/lib/utils';
 function AskUserOptions({
   question,
   options,
+  reason,
   status,
   onSelect
 }: {
   question: string;
   options: { label: string; description?: string }[];
+  reason?: string;
   status: string;
   onSelect: (value: string) => void;
 }) {
@@ -67,7 +69,12 @@ function AskUserOptions({
           <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/5 flex items-center justify-center shrink-0">
             <MessageSquare className="w-4 h-4 text-slate-400 dark:text-slate-500" />
           </div>
-          <p className="text-slate-600 dark:text-slate-400 text-base font-medium pt-1">{question}</p>
+          <div className="space-y-1 pt-1">
+            <p className="text-slate-600 dark:text-slate-400 text-base font-medium">{question}</p>
+            {reason && (
+              <p className="text-slate-500 dark:text-slate-500 text-sm italic">{reason}</p>
+            )}
+          </div>
         </div>
         <div className="pl-11">
           <div className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-500/20 shadow-sm">
@@ -85,9 +92,14 @@ function AskUserOptions({
         <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center shrink-0">
           <MessageSquare className="w-4 h-4 text-blue-600 dark:text-blue-400" />
         </div>
-        <p className="text-slate-800 dark:text-slate-100 text-base font-medium pt-1">{question}</p>
+        <div className="space-y-1 pt-1">
+          <p className="text-slate-800 dark:text-slate-100 text-base font-medium">{question}</p>
+          {reason && (
+            <p className="text-slate-500 dark:text-slate-400 text-sm italic">{reason}</p>
+          )}
+        </div>
       </div>
-      
+
       <div className="flex flex-wrap gap-2 pl-11">
         {options.map((opt, i) => (
           <button
@@ -397,12 +409,13 @@ export default function ChatAgentView() {
                 if (msg.metadata?.type === 'agent_thinking') {
                   return <AgentThinking key={idx} msg={msg} />;
                 }
-                if (msg.metadata?.type === 'ask_user') {
+                if (msg.metadata?.type === 'ask_user' || msg.metadata?.type === 'multi_choice_select') {
                   return (
                     <div key={idx} className="animate-in fade-in duration-300">
                       <AskUserOptions
                         question={msg.metadata.question}
                         options={msg.metadata.options || []}
+                        reason={msg.metadata.reason}
                         status={status}
                         onSelect={(value) => sendMessage(value)}
                       />

@@ -12,10 +12,11 @@ export interface ResearchBrief {
 }
 
 export interface OrchestratorDecision {
-  type: 'text_response' | 'single_select' | 'start_research';
+  type: 'text_input' | 'multi_choice_select' | 'start_research';
   message: string;
   reasoning: string;
-  // single_select (required)
+  // multi_choice_select & text_input (when asking)
+  reason?: string; // Why this question is being asked - shown to user
   blockedField?: 'objective' | 'targetProfile' | 'signalTypes' | 'successCriteria';
   options?: { label: string }[];
   // start_research
@@ -35,20 +36,21 @@ export async function analyzeUserMessage(
   const decisionTool = {
     description: 'Decide how to respond to the user',
     inputSchema: z.object({
-      decision: z.enum(['text_response', 'single_select', 'start_research']).describe(
-        'text_response: For greetings, capability questions, or non-research requests. ' +
-        'single_select: Present 2-4 options for user to pick. Use only when a constraint is required. ' +
-        'start_research: Default. Use when you can proceed with reasonable assumptions.'
+      decision: z.enum(['text_input', 'multi_choice_select', 'start_research']).describe(
+        'text_input' +
+        'multi_choice_select:' +
+        'start_research'
       ),
       message: z.string().describe('Your response or question text.'),
 
-      // single_select fields (required when decision=single_select)
+      // For questions (multi_choice_select or text_input when asking)
+      reason: z.string().optional().describe('REQUIRED when using text_input or multi_choice_select. Brief explanation of WHY you need this info to proceed. Shown to user.'),
       blockedField: z.enum(['objective', 'targetProfile', 'signalTypes', 'successCriteria'])
         .optional()
-        .describe('For single_select: which research brief field is blocked'),
+        .describe('For multi_choice_select: which research brief field is blocked'),
       options: z.array(z.object({
         label: z.string().describe('2-4 word option')
-      })).min(2).max(4).optional().describe('REQUIRED for single_select: 2-4 concrete options'),
+      })).min(2).max(4).optional().describe('REQUIRED for multi_choice_select: 2-4 concrete options'),
 
       // start_research fields
       researchBrief: z.object({
@@ -64,58 +66,66 @@ export async function analyzeUserMessage(
     }),
     execute: async (params: any) => params
   };
-
   const systemPrompt = `
 You are the Orchestrator Agent.
 
-Your job is to turn a vague user request into a concrete research action with minimal back-and-forth.
+Your job is to gather all the information required for a research agent to act.
+You are not a researcher, strategist, or intake form.
 
-INTENT GATE (FIRST CHECK):
-This agent is ONLY for research, discovery, evaluation, or scouting tasks.
-If the user is asking for:
-- explanation or education
-- creative generation
-- execution of a known task
-respond directly instead of running an orchestration flow.
+CORE RESPONSIBILITY:
+Understand what the user is trying to achieve with the research.
+If something is unclear, ask the user for clarification.
+and translate it into a clear research task and expected output.
 
-FIRST PRINCIPLES:
-- You own research design. Do not ask the user to design it.
-- Defaults are better than questions. If a reasonable default exists, use it.
-- The only valid reason to ask a question is to apply a constraint the user explicitly cares about.
+WHAT YOU MUST INFER (SILENTLY):
+- The user’s intent: why they want this researched?
+- The goal: what decision or action the research should support?
+- The expected output: what a useful result looks like (e.g. list, shortlist, comparison)
 
-OPERATING RULES:
-1. Infer the user's intent and expected research output silently.
-2. If you can proceed with reasonable assumptions, start research immediately.
-3. Ask AT MOST one question before starting research.
-4. Only ask about constraints that materially narrow scope (e.g. segment, role, geography, priority).
-5. Never ask about signals, methods, strategy, hypotheticals, or internal reasoning.
-6. If the user's answer is vague, proceed anyway and state assumptions in your reasoning.
 
-DECISION MODES:
-- start_research: Default. Use whenever you can act with reasonable assumptions.
-- ask_clarification: Use only when a required constraint is missing.
-- chat_response: Use only for greetings, capability questions, or non-research requests.
+CORE PRINCIPLE: Resolve ambiguity once, then proceed.
 
-RESEARCH BRIEF REQUIREMENTS (for start_research):
-- objective: What decision the research supports
-- targetProfile: Who or what is being sought or evaluated
-- signalTypes: Signals YOU choose to use
-- exclusionCriteria: Filters YOU apply
-- stoppingConditions: When confidence is sufficient
-- successCriteria: The concrete research output produced
 
-CONSTRAINTS:
-- Do not ask more than one question.
-- Do not ask the user to choose signals, evidence, or methods.
-- Do not ask strategic or hypothetical questions.
-- Do not delay action to gather context you can reasonably assume.
-- Maximum 2 clarification turns total, then proceed with assumptions.
+DECISION TYPES:
+
+1. multi_choice_select  
+Use when one user-controlled constraint must be chosen.
+- Present 2–4 options
+- After the user answers, proceed immediately to start_research
+
+2. text_input  
+Use for:
+- Greetings
+- Explanations
+- Open ended quesitons (please describe... etc.)
+
+3. start_research 
+Use this when you can reasonably tell the research agent:
+- what to look for
+- what output to produce
+- what "useful" means
+
+RULES:
+- prefer multi_choice_select over text_input.
+
+STRICT RULES:
+- Never ask the user to design the research
+- Never ask strategy or hypothetical questions
+- Never ask multiple questions at once.
+- Questions needs to be short and to the point.
+
+
+WHEN STARTING RESEARCH:
+- Provide a clear research brief
+- Make the goal and expected output explicit
+- Optimize for action, not completeness
 
 CONVERSATION HISTORY:
 ${conversationHistory.map((msg: any) => `${msg.role}: ${msg.content}`).join('\n')}
 
 ${brain ? `\nPREVIOUS RESEARCH:\n${brain.substring(0, 1000)}...` : ''}
 `;
+
   
 
   const result = await generateText({
@@ -136,16 +146,17 @@ Analyze this message. If you can construct a complete research brief, do so. If 
       type: args.decision,
       message: args.message,
       reasoning: args.reasoning,
+      reason: args.reason,
       blockedField: args.blockedField,
       options: args.options,
       researchBrief: args.researchBrief
     };
   }
 
-  // Fallback: ask for clarification
+  // Fallback: text input
   return {
-    type: 'ask_clarification',
-    message: 'I want to help you find actionable results. Could you tell me more about what decision you\'re trying to make?',
-    reasoning: 'Fallback - insufficient context'
+    type: 'text_input',
+    message: 'I can help with research tasks. What would you like me to find or evaluate?',
+    reasoning: 'Fallback - unclear intent'
   };
 }
