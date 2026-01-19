@@ -1,12 +1,12 @@
 import { generateText } from 'ai';
-import { openai } from '@ai-sdk/openai';
+import { anthropic } from '@ai-sdk/anthropic';
 import { z } from 'zod';
 
 export interface OrchestratorDecision {
   type: 'chat_response' | 'ask_clarification' | 'start_research';
   message?: string;
   options?: { label: string }[]; // For ask_clarification
-  researchIntent?: string;
+  researchObjective?: string;
   reasoning: string;
 }
 
@@ -23,57 +23,56 @@ export async function analyzeUserMessage(
     description: 'Decide how to respond to the user',
     inputSchema: z.object({
       decision: z.enum(['chat_response', 'ask_clarification', 'start_research']).describe(
-        'chat_response: DEFAULT. Ask a simple question like "What is your business?" ' +
-        'ask_clarification: ONLY for yes/no or clear choices like "B2B or B2C?" ' +
-        'start_research: When you know what to research.'
+        'chat_response: Use for broad questions.' +
+        'ask_clarification: Use for specific option-based questions to resolve forks in the conversation.' +
+        'start_research: Use when you have enough information to start the research.'
       ),
       message: z.string().describe('Your question or message. Keep it short.'),
       options: z.array(z.object({
         label: z.string().describe('2-4 word answer option')
-      })).min(2).max(4).optional().describe('Only for ask_clarification. Must be real answers like "B2B", "B2C", not actions like "Explain more".'),
-      researchIntent: z.string().optional().describe('For start_research. What the user wants to find.'),
+      })).min(2).max(4).optional().describe('Only for ask_clarification.'),
+      researchObjective: z.string().optional().describe('For start_research. What the user wants to find.'),
       reasoning: z.string().describe('Brief reasoning')
     }),
     execute: async (params: any) => params
   };
 
+
   const systemPrompt = `
-  You are a research intake assistant.
-  
-  Your job is to understand the user's research goal well enough to hand it off to a research agent.
-  
-  Determine:
-  - What is being researched
-  - The user's general objective (even if vague)
-  - What kind of output would be useful
-  
-  CORE RULES:
-  - The user may not know strategic answers. This is normal.
-  - Do NOT force the user to make decisions or choose between options they are unsure about. That's the research agent's job.
-  - Do NOT ask hypothetical or preference questions unless the user has already expressed an opinion.
-  - Ask clarifying questions ONLY to identify the research objective, not to define strategy.
-  
-  STOP ASKING QUESTIONS and START RESEARCH when you know:
-  - the research objective
-  - the general goal of the research - what is he planning to do with the research results?
-  
-  
-  TOOLS:
-  - ask_clarification: Use only to resolve forks in the conversation. 
-  - chat_response: Ask ONE short, direct question if needed. Ask ONE question at a time.
-  - start_research: Use as soon as the goal is clear enough.
-  
-  CONVERSATION HISTORY:
-  ${conversationHistory.map((msg: any) => `${msg.role}: ${msg.content}`).join('\n')}
-  
-  ${brain ? `\nPREVIOUS RESEARCH:\n${brain.substring(0, 10000)}...` : ''}
-  `;
-  
-  
-  
-  
+You are a research intake assistant. 
+Make sure you udnerstand what to research, and what he wants to get back, then hand off to the autonomous research agent.
+
+
+YOUR TOOLS:
+
+1. chat_response: Use when:
+   - User is greeting ("hi", "hello")
+   - Request is vague, need to ask a broad question
+
+2. ask_clarification - Use when:
+   - You have a specific question with 2-4 clear options
+   - Good for resolving forks: "List or strategy?"
+   - Options must be answers, not actions
+
+3. start_research - Use when:
+   - You know what to research AND what output user wants
+   - NO APPROVAL NEEDED - just start!
+
+Be conversational! If unclear, ask. If clear, start research immediately.
+
+Then just clearly hand off to the autonomous research agent with the research objective. Don't invent anything, just hand off the information you have.
+
+CONVERSATION HISTORY:
+${conversationHistory.map((msg: any) => `${msg.role}: ${msg.content}`).join('\n')}
+
+${brain ? `\nACCUMULATED RESEARCH:\n${brain.substring(0, 1000)}...` : ''}
+
+
+`;
+
+
   const result = await generateText({
-    model: openai('gpt-5.1'),
+    model: anthropic('claude-sonnet-4-20250514'),
     system: systemPrompt,
     prompt: `User message: "${userMessage}"
 
@@ -91,7 +90,7 @@ Analyze this message and decide how to respond.`,
       type: args.decision,
       message: args.message,
       options: args.options,
-      researchIntent: args.researchIntent,
+      researchObjective: args.researchObjective,
       reasoning: args.reasoning
     };
   }

@@ -158,34 +158,22 @@ export function useChatAgent() {
             }
           }]);
         } else if (update.type === 'search_result') {
-          // Update the previous research_query message with results
+          // Merge result into the query message (one card: query + response)
           setMessages(prev => {
-            const lastMessage = prev[prev.length - 1];
-            if (lastMessage?.metadata?.type === 'research_query') {
-              // Merge result into the query message
-              return [
-                ...prev.slice(0, -1),
-                {
-                  ...lastMessage,
-                  metadata: {
-                    type: 'search_complete',
-                    query: lastMessage.metadata.query,
-                    answer: update.answer,
-                    sources: update.sources
-                  }
+            const lastIdx = prev.findIndex(m => m.metadata?.type === 'research_query' && !m.metadata?.answer);
+            if (lastIdx !== -1) {
+              const newMessages = [...prev];
+              newMessages[lastIdx] = {
+                ...newMessages[lastIdx],
+                metadata: {
+                  ...newMessages[lastIdx].metadata,
+                  answer: update.answer,
+                  sources: update.sources
                 }
-              ];
+              };
+              return newMessages;
             }
-            // Fallback: add as separate message if no query found
-            return [...prev, {
-              role: 'assistant',
-              content: '',
-              timestamp: new Date().toISOString(),
-              metadata: {
-                type: 'search_result',
-                ...update
-              }
-            }];
+            return prev;
           });
         } else if (update.type === 'ask_user') {
           // Question with selectable options

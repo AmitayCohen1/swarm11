@@ -6,7 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Send, StopCircle, Loader2, Sparkles, Moon, Sun, User, Search, FileText, Lightbulb, ChevronRight, Activity, PenLine } from 'lucide-react';
+import { Send, StopCircle, Loader2, Sparkles, Moon, Sun, User, Search, FileText, Lightbulb, ChevronRight, Activity, PenLine, Check, ArrowRight } from 'lucide-react';
 
 // Component for ask_user questions with options + write your own (single-select)
 function AskUserOptions({
@@ -252,23 +252,73 @@ export default function ChatAgentView() {
                       </div>
                     </div>
                   ) : msg.metadata?.type === 'research_query' ? (
-                    // Standalone search query (waiting for results)
-                    <div className="ml-2">
-                      <div className="inline-flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-white/5 rounded-lg border border-slate-200 dark:border-white/10">
+                    // Search card: query + response
+                    <div className="flex items-start gap-3">
+                      <div className="w-7 h-7 rounded-full bg-slate-100 dark:bg-white/5 flex items-center justify-center shrink-0">
                         <Search className="w-4 h-4 text-slate-400 dark:text-slate-500" />
-                        <span className="text-sm text-slate-700 dark:text-slate-300">{msg.metadata.query}</span>
-                        <Loader2 className="w-3 h-3 text-slate-400 animate-spin ml-1" />
+                      </div>
+                      <div className="flex-1">
+                        {/* Query */}
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-600 dark:text-slate-400 text-sm">{msg.metadata.query}</span>
+                          {!msg.metadata.answer && <Loader2 className="w-3 h-3 text-slate-400 animate-spin" />}
+                        </div>
+                        {/* Response */}
+                        {msg.metadata.answer && (
+                          <div className="mt-2 text-slate-800 dark:text-slate-100 text-base leading-relaxed">
+                            <ReactMarkdown
+                              components={{
+                                p: ({ node, ...props }) => <p {...props} className="mb-2 last:mb-0" />,
+                                a: ({ node, ...props }) => (
+                                  <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline" />
+                                ),
+                              }}
+                            >
+                              {msg.metadata.answer}
+                            </ReactMarkdown>
+                            {/* Sources */}
+                            {msg.metadata.sources?.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 mt-2">
+                                {msg.metadata.sources.slice(0, 3).map((s: any, i: number) => (
+                                  <a
+                                    key={i}
+                                    href={s.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400"
+                                  >
+                                    {s.title}
+                                  </a>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ) : msg.metadata?.type === 'agent_thinking' ? (
-                    // Agent thinking - looks like a regular message
-                    <div className="flex items-start gap-3">
-                      <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center shrink-0">
-                        <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                      </div>
-                      <div className="flex-1 pt-0.5">
-                        <p className="text-slate-800 dark:text-slate-100 text-base leading-relaxed">{msg.metadata.thinking}</p>
-                      </div>
+                    // Agent thinking - review + next as a nice card
+                    <div className="ml-2 flex flex-col gap-2 p-3 rounded-xl bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-white/[0.03] dark:to-white/[0.01] border border-slate-200/60 dark:border-white/[0.06]">
+                      {msg.metadata.review && (
+                        <div className="flex items-start gap-2">
+                          <div className="w-5 h-5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                            <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                          </div>
+                          <p className="text-slate-700 dark:text-slate-200 text-sm leading-relaxed">{msg.metadata.review}</p>
+                        </div>
+                      )}
+                      {msg.metadata.next && (
+                        <div className="flex items-start gap-2">
+                          <div className="w-5 h-5 rounded-md bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                            <ArrowRight className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                          </div>
+                          <p className="text-slate-500 dark:text-slate-400 text-sm leading-relaxed">{msg.metadata.next}</p>
+                        </div>
+                      )}
+                      {/* Fallback for old format */}
+                      {msg.metadata.thinking && !msg.metadata.review && (
+                        <p className="text-slate-700 dark:text-slate-200 text-sm leading-relaxed">{msg.metadata.thinking}</p>
+                      )}
                     </div>
                   ) : msg.metadata?.type === 'ask_user' ? (
                     // Question with selectable options
@@ -278,56 +328,6 @@ export default function ChatAgentView() {
                       status={status}
                       onSelect={(value) => sendMessage(value)}
                     />
-                  ) : (msg.metadata?.type === 'search_result' || msg.metadata?.type === 'search_complete') ? (
-                    // Search + Results card
-                    <div className="ml-2 rounded-lg border border-slate-200 dark:border-white/10 overflow-hidden bg-slate-50/50 dark:bg-white/[0.02]">
-                      {/* Search query header */}
-                      {msg.metadata.query && (
-                        <div className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-white/5 border-b border-slate-200 dark:border-white/10">
-                          <Search className="w-4 h-4 text-slate-400 dark:text-slate-500" />
-                          <span className="text-sm text-slate-600 dark:text-slate-300">{msg.metadata.query}</span>
-                        </div>
-                      )}
-                      {/* Results body */}
-                      <div className="px-4 py-3">
-                        <div className="text-slate-800 dark:text-white/90">
-                          <ReactMarkdown
-                            components={{
-                              p: ({ node, ...props }) => <p {...props} className="mb-2 last:mb-0 leading-relaxed text-sm" />,
-                              a: ({ node, ...props }) => (
-                                <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline" />
-                              ),
-                              strong: ({ node, ...props }) => <strong {...props} className="font-semibold" />,
-                              code: (rawProps: any) => {
-                                const { inline, ...props } = rawProps || {};
-                                return inline
-                                  ? <code {...props} className="px-1 py-0.5 bg-slate-200 dark:bg-white/10 rounded text-xs" />
-                                  : <code {...props} className="block p-2 bg-slate-900 dark:bg-black/50 rounded text-xs overflow-x-auto my-2" />;
-                              },
-                            }}
-                          >
-                            {msg.metadata.answer}
-                          </ReactMarkdown>
-                        </div>
-                        {/* Sources */}
-                        {msg.metadata.sources && msg.metadata.sources.length > 0 && (
-                          <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-slate-200 dark:border-white/10">
-                            {msg.metadata.sources.slice(0, 3).map((s: any, i: number) => (
-                              <a
-                                key={i}
-                                href={s.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1.5 px-2 py-1 text-xs bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 rounded hover:bg-slate-200 dark:hover:bg-white/10 hover:text-slate-800 dark:hover:text-white transition-colors"
-                              >
-                                <FileText className="w-3 h-3" />
-                                <span className="truncate max-w-[200px]">{s.title}</span>
-                              </a>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
                   ) : (
                     // Agent response - clean with sparkle icon
                     <div className="flex items-start gap-3">

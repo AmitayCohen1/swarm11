@@ -18,7 +18,7 @@ const ResearchOutputSchema = z.object({
 interface ResearchExecutorConfig {
   chatSessionId: string;
   userId: string;
-  researchIntent: string;
+  researchObjective: string;
   conversationHistory?: any[];
   onProgress?: (update: any) => void;
   abortSignal?: AbortSignal;
@@ -31,7 +31,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   const {
     chatSessionId,
     userId,
-    researchIntent,
+    researchObjective,
     conversationHistory = [],
     onProgress,
     abortSignal
@@ -66,22 +66,22 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   });
 
   const reflectionTool = tool({
-    description: 'REQUIRED after EVERY search() - Evaluate what you learned, save key findings, and decide next move.',
+    description: 'REQUIRED after EVERY search() - Evaluate what you learned and decide next move.',
     inputSchema: z.object({
       keyFindings: z.string().describe('Concrete discoveries: names, companies, numbers, tools, resources (be specific)'),
       nextMove: z.enum(['continue', 'pivot', 'narrow', 'cross-reference', 'deep-dive', 'complete', 'ask_user']),
-      userFacingSummary: z.string().describe('A short, clean summary for the user (1-2 sentences). No internal jargon. Explains the user what you found in the search, and what you want to do next.s Should be conversational and friendly.')
+      review: z.string().describe('Short summary of what you found (1 sentence). E.g. "Found 3 podcast agencies that focus on B2B content."'),
+      next: z.string().describe('What you will do next (1 sentence). E.g. "Looking into their pricing and contact info."')
     }),
-    execute: async ({ keyFindings, nextMove, userFacingSummary }) => {
+    execute: async ({ keyFindings, nextMove, review, next }) => {
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-      // Show ONLY the user-facing summary in chat
-      if (userFacingSummary) {
-        onProgress?.({
-          type: 'agent_thinking',
-          thinking: userFacingSummary
-        });
-      }
+      // Send review and next separately for UI
+      onProgress?.({
+        type: 'agent_thinking',
+        review,
+        next
+      });
 
       // Save detailed findings to brain (internal only, never shown raw to user)
       const [session] = await db
@@ -92,7 +92,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
       let currentBrain = session?.brain || '';
 
       if (!currentBrain.trim()) {
-        currentBrain = `# ${researchIntent}\n\n`;
+        currentBrain = `# ${researchObjective}\n\n`;
       }
 
       // Brain stores findings only - no internal markers
@@ -119,7 +119,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   You are an autonomous research agent.
   
   Your objective is:
-  "${researchIntent}"
+  "${researchObjective}"
   
   Your role is to autonomously determine how to achieve this objective through investigation.
 
@@ -127,6 +127,8 @@ export async function executeResearch(config: ResearchExecutorConfig) {
 
   You can either double down on the same direction to get more information and dive deeper, or pivot to a new direction if you think you are going in the wrong direction.
   Be smart, creative and efficient.
+  Iterate as much needed to get the best and most spesific and actionable research results.
+  The more specific and actionable the research results are, the better.
 
   STRICT LOOP:
   1. Call search() with ONE query
@@ -137,10 +139,6 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   - search(query): ONE search at a time, then you MUST reflect. You can ask general questions to get a broad sense, or specific questions to get more information on a specific vertical.
   - reflect(keyFindings, nextMove, userFacingSummary): REQUIRED after every single search
   - askUser(question, options): if you want to ask the user a question
-
-  NEVER batch multiple searches. NEVER skip reflect.
-  
-  End goal: Deliver the strongest possible outcome for the stated objective
   `;
   
 
@@ -224,7 +222,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     }
 
     const result = await agent.generate({
-      prompt: `${contextPrompt}Research: "${researchIntent}"
+      prompt: `${contextPrompt}Research: "${researchObjective}"
 
 CRITICAL: Use FULL natural language questions for ALL searches.
 ✅ Good: "What are the most popular finance podcasts in 2024?"
