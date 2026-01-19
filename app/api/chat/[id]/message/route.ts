@@ -114,11 +114,13 @@ export async function POST(
           // Handle decision
           if (decision.type === 'text_input') {
             const assistantMessage = decision.message || 'Hello! How can I help?';
+            const reason = decision.reason;
 
             conversationHistory.push({
               role: 'assistant',
               content: assistantMessage,
-              timestamp: new Date().toISOString()
+              timestamp: new Date().toISOString(),
+              metadata: reason ? { reason } : undefined
             });
 
             await db
@@ -126,7 +128,7 @@ export async function POST(
               .set({ messages: conversationHistory, updatedAt: new Date() })
               .where(eq(chatSessions.id, chatSessionId));
 
-            sendEvent({ type: 'message', message: assistantMessage, role: 'assistant' });
+            sendEvent({ type: 'message', message: assistantMessage, role: 'assistant', reason });
             sendEvent({ type: 'complete' });
 
           } else if (decision.type === 'multi_choice_select') {
