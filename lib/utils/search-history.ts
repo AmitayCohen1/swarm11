@@ -72,7 +72,7 @@ export async function getUserResearchHistory(
   status: string;
   confidenceLevel: string | null;
   totalSteps: number | null;
-  startedAt: Date;
+  startedAt: Date | null;
   completedAt: Date | null;
 }[]> {
   const results = await db

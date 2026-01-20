@@ -48,26 +48,36 @@ export type NewChatSession = typeof chatSessions.$inferInsert;
 // Research sessions - one per research execution
 export const researchSessions = pgTable("research_sessions", {
   id: uuid("id").defaultRandom().primaryKey(),
-  chatSessionId: uuid("chat_session_id").notNull().references(() => chatSessions.id, { onDelete: 'cascade' }),
+
+  // Links (userId for legacy, chatSessionId for new)
+  userId: uuid("user_id").references(() => users.id),
+  chatSessionId: uuid("chat_session_id").references(() => chatSessions.id, { onDelete: 'cascade' }),
 
   // Research brief
   objective: text("objective").notNull(),
   successCriteria: text("success_criteria"),
   stoppingConditions: text("stopping_conditions"),
 
+  // Legacy fields
+  document: text("document").default(""),
+  conversationHistory: jsonb("conversation_history").default([]),
+
   // Outcome
-  status: text("status").notNull().default("running"),
-  // Values: 'running' | 'completed' | 'stopped' | 'error'
+  status: text("status").notNull().default("active"),
+  // Values: 'active' | 'running' | 'completed' | 'stopped' | 'error'
   confidenceLevel: text("confidence_level"),
   // Values: 'low' | 'medium' | 'high'
   finalAnswer: text("final_answer"),
 
   // Metrics
+  creditsUsed: integer("credits_used").notNull().default(0),
   totalSteps: integer("total_steps").default(0),
   totalCost: real("total_cost").default(0),
 
   // Timestamps
-  startedAt: timestamp("started_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  startedAt: timestamp("started_at").defaultNow(),
   completedAt: timestamp("completed_at")
 });
 

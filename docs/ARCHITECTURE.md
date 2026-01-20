@@ -229,6 +229,44 @@ URL updates use `window.history.replaceState()` for shallow routing (no remount)
 | `status` | text | active / researching / completed |
 | `creditsUsed` | int | Token usage tracking |
 
+### `research_sessions` table
+| Field | Type | Purpose |
+|-------|------|---------|
+| `id` | uuid | Research session ID |
+| `chatSessionId` | uuid | FK to chat_sessions |
+| `objective` | text | Research goal |
+| `successCriteria` | text | What defines success |
+| `status` | text | running / completed / stopped / error |
+| `confidenceLevel` | text | low / medium / high |
+| `finalAnswer` | text | Research conclusion |
+| `totalSteps` | int | Number of iterations |
+| `totalCost` | real | Credits used |
+
+### `search_queries` table
+| Field | Type | Purpose |
+|-------|------|---------|
+| `id` | uuid | Query ID |
+| `researchSessionId` | uuid | FK to research_sessions |
+| `query` | text | The search query |
+| `queryNormalized` | text | Lowercase for dedup |
+| `purpose` | text | Why this query |
+| `answer` | text | Tavily answer |
+| `sources` | jsonb | Array of {url, title} |
+| `wasUseful` | bool | Feedback for learning |
+| `cycleNumber` | int | Which research cycle |
+
+### Cross-Session Query Helpers (`lib/utils/search-history.ts`)
+
+| Function | Purpose |
+|----------|---------|
+| `findSimilarQueries(query)` | Find past similar searches |
+| `hasQueryBeenRunGlobally(query)` | Exact match dedup |
+| `getMostFrequentQueries()` | Analytics |
+| `getUserResearchHistory(userId)` | User's past research |
+| `getResearchSessionQueries(id)` | Queries from a session |
+| `markQueryUsefulness(id, bool)` | Feedback for learning |
+| `getResearchStats(userId?)` | Aggregate stats |
+
 ---
 
 ## Message Flow
