@@ -1,6 +1,7 @@
 import { generateText } from 'ai';
 import { anthropic } from '@ai-sdk/anthropic';
 import { z } from 'zod';
+import { parseResearchMemory, formatForOrchestrator } from '@/lib/utils/research-memory';
 
 export interface ResearchBrief {
   objective: string;
@@ -119,7 +120,7 @@ WHEN STARTING RESEARCH:
 CONVERSATION HISTORY:
 ${conversationHistory.map((msg: any) => `${msg.role}: ${msg.content}`).join('\n')}
 
-${brain ? `\nPREVIOUS RESEARCH:\n${brain.substring(0, 1000)}...` : ''}
+${brain ? `\nPREVIOUS RESEARCH:\n${formatForOrchestrator(parseResearchMemory(brain), 1500)}` : ''}
 `;
 
   

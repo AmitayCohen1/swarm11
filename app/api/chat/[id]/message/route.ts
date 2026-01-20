@@ -1,10 +1,15 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { db } from '@/lib/db';
-import { chatSessions, users } from '@/lib/db/schema';
+import { chatSessions, users, researchSessions } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { analyzeUserMessage } from '@/lib/agents/orchestrator-chat-agent';
 import { executeResearch } from '@/lib/agents/research-executor-agent';
+import {
+  parseResearchMemory,
+  createResearchMemory,
+  serializeResearchMemory
+} from '@/lib/utils/research-memory';
 
 export const maxDuration = 300; // 5 minutes
 
@@ -165,24 +170,50 @@ export async function POST(
             // POC: Credit checks disabled - free to use
             // TODO: Enable credit checks before production launch
 
-            // Get current brain and append new research section
+            // Initialize structured research memory
             const [currentSession] = await db
               .select({ brain: chatSessions.brain })
               .from(chatSessions)
               .where(eq(chatSessions.id, chatSessionId));
 
             const currentBrain = currentSession?.brain || '';
-            const separator = currentBrain ? '\n\n---\n\n' : '';
-            const newBrainSection = `${separator}# ${researchBrief.objective}\n\n**Success:** ${researchBrief.successCriteria}\n\n`;
+            const existingMemory = parseResearchMemory(currentBrain);
+
+            // Create new structured memory, preserving legacy brain if exists
+            let newMemory = createResearchMemory(
+              researchBrief.objective,
+              researchBrief.successCriteria
+            );
+
+            // Preserve legacy brain content if this is an existing session with old format
+            if (existingMemory?.legacyBrain) {
+              newMemory.legacyBrain = existingMemory.legacyBrain;
+            }
+
+            const serializedBrain = serializeResearchMemory(newMemory);
 
             await db
               .update(chatSessions)
               .set({
-                brain: currentBrain + newBrainSection,
+                brain: serializedBrain,
                 status: 'researching',
                 updatedAt: new Date()
               })
               .where(eq(chatSessions.id, chatSessionId));
+
+            // Create research session record
+            const [researchSession] = await db
+              .insert(researchSessions)
+              .values({
+                chatSessionId,
+                objective: researchBrief.objective,
+                successCriteria: researchBrief.successCriteria,
+                stoppingConditions: researchBrief.stoppingConditions,
+                status: 'running'
+              })
+              .returning({ id: researchSessions.id });
+
+            const researchSessionId = researchSession.id;
 
             // Send confirmation message if provided, otherwise default message
             const startMessage = decision.message || "Starting research now...";
@@ -214,16 +245,17 @@ export async function POST(
               brief: researchBrief
             });
 
-            // Emit brain update with new section
+            // Emit brain update with new structured memory
             sendEvent({
               type: 'brain_update',
-              brain: currentBrain + newBrainSection
+              brain: serializedBrain
             });
 
             let researchResult: any = null;
             try {
               researchResult = await executeResearch({
                 chatSessionId,
+                researchSessionId,
                 userId: user.id,
                 researchBrief,
                 conversationHistory,
@@ -250,6 +282,12 @@ export async function POST(
             } catch (researchError: any) {
               // Check if research was stopped by user
               if (researchError.message === 'Research stopped by user') {
+                // Update research session status
+                await db
+                  .update(researchSessions)
+                  .set({ status: 'stopped', completedAt: new Date() })
+                  .where(eq(researchSessions.id, researchSessionId));
+
                 sendEvent({
                   type: 'message',
                   message: 'Research stopped.',
@@ -268,13 +306,25 @@ export async function POST(
               throw researchError;
             }
 
+            // Update research session with results
+            const output = researchResult?.output;
+            await db
+              .update(researchSessions)
+              .set({
+                status: 'completed',
+                confidenceLevel: output?.confidenceLevel,
+                finalAnswer: output?.finalAnswer,
+                totalSteps: researchResult?.iterations || 0,
+                totalCost: researchResult?.creditsUsed || 0,
+                completedAt: new Date()
+              })
+              .where(eq(researchSessions.id, researchSessionId));
+
             // Get final answer from structured output - typed by ResearchOutputSchema
             const [updatedSession] = await db
               .select({ messages: chatSessions.messages })
               .from(chatSessions)
               .where(eq(chatSessions.id, chatSessionId));
-
-            const output = researchResult?.output;
 
             // Build final message from structured output
             let finalMessage = '';

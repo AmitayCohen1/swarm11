@@ -2,10 +2,19 @@ import { ToolLoopAgent, Output, stepCountIs, tool } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { search } from '@/lib/tools/tavily-search';
 import { db } from '@/lib/db';
-import { chatSessions } from '@/lib/db/schema';
+import { chatSessions, searchQueries } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { ResearchBrief } from './orchestrator-chat-agent';
+import {
+  parseResearchMemory,
+  serializeResearchMemory,
+  addSearchToMemory,
+  completeCycle,
+  startCycle,
+  hasQueryBeenRun
+} from '@/lib/utils/research-memory';
+import type { ResearchMemory, SearchResult } from '@/lib/types/research-memory';
 // import { deductCredits } from '@/lib/credits'; // POC: Disabled for free usage
 
 // Schema for structured research output
@@ -16,6 +25,7 @@ const ResearchOutputSchema = z.object({
 
 interface ResearchExecutorConfig {
   chatSessionId: string;
+  researchSessionId: string;
   userId: string;
   researchBrief: ResearchBrief;
   conversationHistory?: any[];
@@ -30,6 +40,7 @@ interface ResearchExecutorConfig {
 export async function executeResearch(config: ResearchExecutorConfig) {
   const {
     chatSessionId,
+    researchSessionId,
     userId,
     researchBrief,
     conversationHistory = [],
@@ -40,6 +51,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   let totalCreditsUsed = 0;
   const MAX_STEPS = 100;
   let stepCounter = 0;
+  let cycleCounter = 1;
 
   const askUserTool = tool({
     description: 'Ask the user a question with selectable options. Use this to clarify goals, narrow focus, or get decisions.',
@@ -74,8 +86,6 @@ export async function executeResearch(config: ResearchExecutorConfig) {
       nextAction: z.string().describe('If not stopping, what specific queries will you run next and why?')
     }),
     execute: async ({ materialChange, hypotheses, keyFindings, nextMove, nextAction }) => {
-      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
       // Send synthesis to UI
       onProgress?.({
         type: 'agent_thinking',
@@ -84,28 +94,47 @@ export async function executeResearch(config: ResearchExecutorConfig) {
         nextAction
       });
 
-      // Save detailed findings to brain (internal only, never shown raw to user)
+      // Load current memory from brain
       const [session] = await db
         .select({ brain: chatSessions.brain })
         .from(chatSessions)
         .where(eq(chatSessions.id, chatSessionId));
 
-      let currentBrain = session?.brain || '';
+      let memory = parseResearchMemory(session?.brain || '');
 
-      if (!currentBrain.trim()) {
-        currentBrain = `# ${researchBrief.objective}\n\n`;
+      // If no memory exists, create one (shouldn't happen but be safe)
+      if (!memory) {
+        memory = {
+          version: 1,
+          objective: researchBrief.objective,
+          successCriteria: researchBrief.successCriteria,
+          cycles: [],
+          queriesRun: []
+        };
       }
 
-      // Brain stores findings only - no internal markers
-      const reflection = `---\n**[${timestamp}]** ${keyFindings}\n\n`;
-      const updatedBrain = currentBrain + reflection;
+      // Complete the current cycle with learnings
+      // learned = material change + key findings
+      // nextStep = nextAction (what to do next)
+      const learned = `${materialChange}\n\nKey findings: ${keyFindings}`;
+      const nextStep = nextMove === 'stop' ? 'stop' : nextAction;
+
+      memory = completeCycle(memory, learned, nextStep);
+
+      // If not stopping, start a new cycle for the next round
+      if (nextMove !== 'stop') {
+        memory = startCycle(memory, nextAction);
+        cycleCounter++;
+      }
+
+      const serializedBrain = serializeResearchMemory(memory);
 
       await db
         .update(chatSessions)
-        .set({ brain: updatedBrain, updatedAt: new Date() })
+        .set({ brain: serializedBrain, updatedAt: new Date() })
         .where(eq(chatSessions.id, chatSessionId));
 
-      onProgress?.({ type: 'brain_update', brain: updatedBrain });
+      onProgress?.({ type: 'brain_update', brain: serializedBrain });
 
       // Signal completion to stop the loop
       if (nextMove === 'stop') {
@@ -309,6 +338,50 @@ Uncertainty is a valid output.
                 type: 'search_completed',
                 queries: completedQueries
               });
+
+              // Track searches in structured memory
+              const [session] = await db
+                .select({ brain: chatSessions.brain })
+                .from(chatSessions)
+                .where(eq(chatSessions.id, chatSessionId));
+
+              let memory = parseResearchMemory(session?.brain || '');
+              if (memory) {
+                // Ensure we have an active cycle
+                if (memory.cycles.length === 0) {
+                  memory = startCycle(memory, 'Initial research exploration');
+                }
+
+                // Add each search result to the current cycle and save to DB
+                for (const sq of completedQueries) {
+                  const searchEntry: SearchResult = {
+                    query: sq.query,
+                    purpose: sq.purpose,
+                    answer: sq.answer,
+                    sources: sq.sources
+                  };
+                  memory = addSearchToMemory(memory, searchEntry);
+
+                  // Save to normalized search_queries table
+                  await db.insert(searchQueries).values({
+                    researchSessionId,
+                    query: sq.query,
+                    queryNormalized: sq.query.toLowerCase().trim(),
+                    purpose: sq.purpose,
+                    answer: sq.answer,
+                    sources: sq.sources,
+                    cycleNumber: cycleCounter
+                  });
+                }
+
+                const serializedBrain = serializeResearchMemory(memory);
+                await db
+                  .update(chatSessions)
+                  .set({ brain: serializedBrain, updatedAt: new Date() })
+                  .where(eq(chatSessions.id, chatSessionId));
+
+                onProgress?.({ type: 'brain_update', brain: serializedBrain });
+              }
             }
           }
         }

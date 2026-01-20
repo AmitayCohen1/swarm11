@@ -1,28 +1,31 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useChatAgent } from '@/hooks/useChatAgent';
 import ReactMarkdown from 'react-markdown';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { 
-  Send, 
-  StopCircle, 
-  Loader2, 
-  Sparkles, 
-  Moon, 
-  Sun, 
-  User, 
-  Search, 
-  Activity, 
-  PenLine, 
-  Check, 
+import SessionsSidebar from './SessionsSidebar';
+import {
+  Send,
+  StopCircle,
+  Loader2,
+  Sparkles,
+  Moon,
+  Sun,
+  User,
+  Search,
+  Activity,
+  PenLine,
+  Check,
   ArrowRight,
   Globe,
   Brain,
   MessageSquare,
-  AlertCircle
+  AlertCircle,
+  PanelLeft
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -425,20 +428,33 @@ function AgentThinking({ msg }: { msg: any }) {
 
 // --- Main Component ---
 
-export default function ChatAgentView() {
+interface ChatAgentViewProps {
+  sessionId?: string;
+}
+
+export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgentViewProps) {
+  const router = useRouter();
   const {
+    sessionId,
     status,
     messages,
     error,
     isResearching,
     researchProgress,
     sendMessage,
-    stopResearch
-  } = useChatAgent();
+    stopResearch,
+    initializeSession
+  } = useChatAgent({ existingSessionId });
 
   const [inputMessage, setInputMessage] = useState('');
   const [isDarkMode, setIsDarkMode] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const handleNewSession = () => {
+    // Navigate to /chat to start fresh
+    router.push('/chat');
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -483,20 +499,30 @@ export default function ChatAgentView() {
 
   return (
     <div className={cn("h-screen w-full flex overflow-hidden font-sans selection:bg-blue-100 dark:selection:bg-blue-500/30", isDarkMode ? 'dark' : '')}>
+      {/* Sessions Sidebar */}
+      <SessionsSidebar
+        currentSessionId={sessionId || undefined}
+        onNewSession={handleNewSession}
+        isCollapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+      />
+
       <div className="flex-1 flex flex-col bg-white dark:bg-[#0a0a0a] transition-colors duration-500">
-        
+
         {/* Header */}
-        <header className="h-14 flex items-center justify-between px-6 border-b border-slate-200/60 dark:border-white/5 bg-white/80 dark:bg-black/40 backdrop-blur-md z-30">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2.5 group">
-              <div className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/20 group-hover:scale-105 transition-transform">
-                <Sparkles className="w-5 h-5 text-white" />
-              </div>
-              <span className="font-extrabold text-lg tracking-tight text-slate-800 dark:text-white">
-                Swarm<span className="text-blue-600">10</span>
-              </span>
-            </div>
-            <div className="h-4 w-px bg-slate-200 dark:bg-white/10 mx-1" />
+        <header className="h-14 flex items-center justify-between px-4 border-b border-slate-200/60 dark:border-white/5 bg-white/80 dark:bg-black/40 backdrop-blur-md z-30">
+          <div className="flex items-center gap-3">
+            {sidebarCollapsed && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="w-9 h-9 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 rounded-xl transition-colors"
+                onClick={() => setSidebarCollapsed(false)}
+                title="Show sidebar"
+              >
+                <PanelLeft className="w-4.5 h-4.5" />
+              </Button>
+            )}
             {getStatusBadge()}
           </div>
 
@@ -506,6 +532,7 @@ export default function ChatAgentView() {
               size="icon"
               className="w-9 h-9 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 rounded-xl transition-colors"
               onClick={() => setIsDarkMode(!isDarkMode)}
+              title={isDarkMode ? "Light mode" : "Dark mode"}
             >
               {isDarkMode ? <Sun className="w-4.5 h-4.5" /> : <Moon className="w-4.5 h-4.5" />}
             </Button>

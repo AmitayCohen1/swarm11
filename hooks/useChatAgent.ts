@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 
 interface Message {
   role: 'user' | 'assistant' | 'system';
@@ -23,7 +24,6 @@ interface ProgressUpdate {
   tokensUsed?: number;
   role?: string;
   metadata?: any;
-  // New fields for detailed progress
   thinking?: string;
   query?: string;
   answer?: string;
@@ -37,15 +37,20 @@ interface ProgressUpdate {
   category?: string;
   findings?: string;
   keyInsights?: string[];
-  // Clarification fields
   question?: string;
   context?: string;
-  // Brain
   brain?: string;
 }
 
-export function useChatAgent() {
-  const [sessionId, setSessionId] = useState<string | null>(null);
+interface UseChatAgentOptions {
+  existingSessionId?: string;
+}
+
+export function useChatAgent(options: UseChatAgentOptions = {}) {
+  const { existingSessionId } = options;
+  const router = useRouter();
+
+  const [sessionId, setSessionId] = useState<string | null>(existingSessionId || null);
   const [status, setStatus] = useState<'idle' | 'initializing' | 'ready' | 'processing' | 'researching' | 'error'>('idle');
   const [messages, setMessages] = useState<Message[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -57,13 +62,45 @@ export function useChatAgent() {
     iteration?: number;
   }>({});
   const [brain, setBrain] = useState<string>('');
-  
+
   const eventSourceRef = useRef<EventSource | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const pendingBatchRef = useRef<any[] | null>(null);
 
-  // Initialize chat session
-  const initializeSession = async () => {
+  // Load existing session
+  const loadExistingSession = useCallback(async (id: string) => {
+    setStatus('initializing');
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/chat/${id}`);
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          // Session not found, redirect to new chat
+          router.replace('/chat');
+          return;
+        }
+        throw new Error('Failed to load session');
+      }
+
+      const data = await response.json();
+      const session = data.session;
+
+      setSessionId(session.id);
+      setMessages(session.messages || []);
+      setBrain(session.brain || '');
+      setIsResearching(session.status === 'researching');
+      setStatus('ready');
+
+    } catch (err: any) {
+      setError(err.message);
+      setStatus('error');
+    }
+  }, [router]);
+
+  // Initialize new chat session
+  const initializeNewSession = useCallback(async () => {
     setStatus('initializing');
     setError(null);
 
@@ -82,6 +119,9 @@ export function useChatAgent() {
       setSessionId(data.sessionId);
       setStatus('ready');
 
+      // Update URL to include session ID (shallow - no remount)
+      window.history.replaceState(window.history.state, '', `/chat/${data.sessionId}`);
+
       // Add welcome message
       setMessages([{
         role: 'assistant',
@@ -93,7 +133,7 @@ export function useChatAgent() {
       setError(err.message);
       setStatus('error');
     }
-  };
+  }, []);
 
   // Send message
   const sendMessage = async (userMessage: string) => {
@@ -116,7 +156,6 @@ export function useChatAgent() {
       abortControllerRef.current?.abort();
       abortControllerRef.current = new AbortController();
 
-      // Use fetch with streaming instead of EventSource (which doesn't support POST)
       const response = await fetch(`/api/chat/${sessionId}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -132,7 +171,6 @@ export function useChatAgent() {
         throw new Error('No response body');
       }
 
-      // Read SSE stream
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -153,7 +191,6 @@ export function useChatAgent() {
             iteration: 0
           });
         } else if (update.type === 'search_started') {
-          // Store pending batch queries in ref (for race condition handling)
           const queries = (update as any).queries.map((q: any) => ({
             query: q.query,
             purpose: q.purpose,
@@ -163,12 +200,9 @@ export function useChatAgent() {
           }));
           pendingBatchRef.current = queries;
 
-          // Create batch message with all queries (only if not already completed)
           setMessages(prev => {
-            // Check if search_completed already added a batch with results
             const lastBatch = prev.findLast(m => m.metadata?.type === 'search_batch');
             if (lastBatch?.metadata?.queries?.[0]?.status === 'complete') {
-              // Results already in, don't add searching state
               return prev;
             }
             return [...prev, {
@@ -182,19 +216,16 @@ export function useChatAgent() {
             }];
           });
         } else if (update.type === 'search_completed') {
-          // All results came back - update or create the batch with complete data
           const completedQueries = (update as any).queries || [];
           pendingBatchRef.current = null;
 
           setMessages(prev => {
-            // Find the last batch that's still searching (not already completed)
             const batchIdx = prev.findLastIndex(m =>
               m.metadata?.type === 'search_batch' &&
               m.metadata?.queries?.[0]?.status === 'searching'
             );
 
             if (batchIdx !== -1) {
-              // Update existing searching batch with results
               const newMessages = [...prev];
               newMessages[batchIdx] = {
                 ...newMessages[batchIdx],
@@ -206,7 +237,6 @@ export function useChatAgent() {
               return newMessages;
             }
 
-            // No searching batch found - create completed one
             return [...prev, {
               role: 'assistant' as const,
               content: '',
@@ -218,7 +248,6 @@ export function useChatAgent() {
             }];
           });
         } else if (update.type === 'ask_user') {
-          // Question with selectable options
           setMessages(prev => [...prev, {
             role: 'assistant',
             content: '',
@@ -230,7 +259,6 @@ export function useChatAgent() {
             }
           }]);
         } else if (update.type === 'multi_choice_select') {
-          // Specific fork with options to pick
           setMessages(prev => [...prev, {
             role: 'assistant',
             content: '',
@@ -243,7 +271,6 @@ export function useChatAgent() {
             }
           }]);
         } else if (update.type === 'reasoning_started') {
-          // Show reasoning indicator
           setMessages(prev => [...prev, {
             role: 'assistant',
             content: '',
@@ -251,7 +278,6 @@ export function useChatAgent() {
             metadata: { type: 'reasoning_started' }
           }]);
         } else if (update.type === 'synthesizing_started') {
-          // Show synthesizing indicator (final answer being generated)
           setMessages(prev => [...prev, {
             role: 'assistant',
             content: '',
@@ -259,7 +285,6 @@ export function useChatAgent() {
             metadata: { type: 'synthesizing_started' }
           }]);
         } else if (update.type === 'agent_thinking') {
-          // Replace reasoning indicator with actual thinking content
           setMessages(prev => {
             const reasoningIdx = prev.findLastIndex(m => m.metadata?.type === 'reasoning_started');
             if (reasoningIdx !== -1) {
@@ -280,7 +305,6 @@ export function useChatAgent() {
             }];
           });
         } else if (update.type === 'research_iteration') {
-          // Treat activity as messages in the stream
           setMessages(prev => [...prev, {
             role: 'assistant',
             content: '',
@@ -295,7 +319,6 @@ export function useChatAgent() {
             iteration: update.iteration
           }));
         } else if (update.type === 'brain_update') {
-          // Update brain content in real-time
           setBrain(update.brain || '');
         } else if (update.type === 'message') {
           const assistantMessage: Message = {
@@ -305,7 +328,6 @@ export function useChatAgent() {
             metadata: update.metadata
           };
           setMessages(prev => [...prev, assistantMessage]);
-          // Don't set isResearching to false here - wait for 'complete' event
         } else if (update.type === 'complete') {
           setStatus('ready');
           setIsResearching(false);
@@ -323,14 +345,13 @@ export function useChatAgent() {
 
         buffer += decoder.decode(value, { stream: true });
 
-        // Process complete SSE messages
         const lines = buffer.split('\n');
-        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+        buffer = lines.pop() || '';
 
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             try {
-              const data = line.substring(6); // Remove 'data: ' prefix
+              const data = line.substring(6);
               const update: ProgressUpdate = JSON.parse(data);
               processUpdate(update);
             } catch (err) {
@@ -342,7 +363,6 @@ export function useChatAgent() {
 
     } catch (err: any) {
       if (err?.name === 'AbortError') {
-        // User stopped the run; do not show as an error.
         setStatus('ready');
         setIsResearching(false);
         return;
@@ -380,12 +400,16 @@ export function useChatAgent() {
     };
   }, []);
 
-  // Auto-initialize on mount
+  // Initialize on mount
   useEffect(() => {
     if (status === 'idle') {
-      initializeSession();
+      if (existingSessionId) {
+        loadExistingSession(existingSessionId);
+      } else {
+        initializeNewSession();
+      }
     }
-  }, []);
+  }, [status, existingSessionId, loadExistingSession, initializeNewSession]);
 
   return {
     sessionId,
@@ -397,6 +421,6 @@ export function useChatAgent() {
     brain,
     sendMessage,
     stopResearch,
-    initializeSession
+    initializeSession: initializeNewSession
   };
 }
