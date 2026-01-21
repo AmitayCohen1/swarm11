@@ -11,7 +11,7 @@ interface Message {
 }
 
 interface ProgressUpdate {
-  type: 'analyzing' | 'decision' | 'research_started' | 'research_iteration' | 'step_complete' | 'research_complete' | 'message' | 'complete' | 'error' | 'agent_thinking' | 'research_query' | 'list_updated' | 'brain_updated' | 'brain_update' | 'summary_created' | 'needs_clarification' | 'search_result' | 'search_completed' | 'ask_user' | 'search_started' | 'multi_choice_select' | 'reasoning_started' | 'synthesizing_started';
+  type: 'analyzing' | 'decision' | 'research_started' | 'research_iteration' | 'step_complete' | 'research_complete' | 'message' | 'complete' | 'error' | 'agent_thinking' | 'research_query' | 'list_updated' | 'brain_updated' | 'brain_update' | 'summary_created' | 'needs_clarification' | 'search_result' | 'search_completed' | 'ask_user' | 'search_started' | 'multi_choice_select' | 'reasoning_started' | 'synthesizing_started' | 'reasoning';
   options?: { label: string; description?: string }[];
   message?: string;
   decision?: string;
@@ -29,7 +29,8 @@ interface ProgressUpdate {
   answer?: string;
   sources?: any[];
   toolName?: string;
-  list?: string[];
+  list?: { item: string; done: boolean }[];
+  learned?: string;
   action?: string;
   category?: string;
   findings?: string;
@@ -59,7 +60,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
     iteration?: number;
   }>({});
   const [brain, setBrain] = useState<string>('');
-  const [explorationList, setExplorationList] = useState<string[] | null>(null);
+  const [explorationList, setExplorationList] = useState<{ item: string; done: boolean }[] | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -321,6 +322,14 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           setBrain(update.brain || '');
         } else if (update.type === 'list_updated') {
           setExplorationList(update.list || null);
+        } else if (update.type === 'reasoning') {
+          // Add reasoning to chat
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: '',
+            timestamp: new Date().toISOString(),
+            metadata: { type: 'reasoning', learned: update.learned }
+          }]);
         } else if (update.type === 'message') {
           const assistantMessage: Message = {
             role: 'assistant',

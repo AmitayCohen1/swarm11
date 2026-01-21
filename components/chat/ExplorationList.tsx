@@ -1,10 +1,15 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import { ListTodo, Circle } from 'lucide-react';
+import { Target, Circle, CheckCircle2 } from 'lucide-react';
+
+interface ExplorationItem {
+  item: string;
+  done: boolean;
+}
 
 interface ExplorationListProps {
-  list: string[] | null;
+  list: ExplorationItem[] | null;
   objective?: string;
   className?: string;
 }
@@ -14,37 +19,69 @@ export default function ExplorationList({ list, objective, className }: Explorat
     return null;
   }
 
+  const pendingCount = list.filter(i => !i.done).length;
+  const doneCount = list.filter(i => i.done).length;
+
   return (
     <div className={cn(
-      "bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm overflow-hidden",
+      "h-full flex flex-col",
       className
     )}>
-      {/* Header */}
-      <div className="px-4 py-3 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
-        <div className="flex items-center gap-2">
-          <ListTodo className="w-4 h-4 text-blue-500" />
-          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-            Exploring
-          </h3>
-        </div>
-        {objective && (
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 line-clamp-2">
+      {/* Objective */}
+      {objective && (
+        <div className="mb-8">
+          <div className="flex items-center gap-2 mb-2">
+            <Target className="w-3.5 h-3.5 text-blue-500/80" />
+            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+              Research Objective
+            </span>
+          </div>
+          <p className="text-sm font-semibold text-slate-900 dark:text-white leading-relaxed">
             {objective}
           </p>
-        )}
+        </div>
+      )}
+
+      {/* Divider */}
+      <div className="h-px bg-slate-200/60 dark:bg-white/5 mb-8" />
+
+      {/* Progress */}
+      <div className="flex items-center justify-between mb-4 px-1">
+        <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+          Research Progress
+        </span>
+        <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400">
+          {doneCount}/{list.length}
+        </span>
       </div>
 
-      {/* List items */}
-      <div className="p-3 space-y-2">
+      {/* List */}
+      <div className="flex-1 space-y-3 overflow-y-auto custom-scrollbar">
         {list.map((item, idx) => (
           <div
             key={idx}
-            className="flex items-start gap-2 group"
+            className={cn(
+              "flex items-start gap-3 p-3 rounded-xl transition-all border",
+              item.done
+                ? "bg-slate-50/50 dark:bg-white/[0.02] border-transparent opacity-50"
+                : "bg-white dark:bg-white/[0.04] border-slate-200/60 dark:border-white/10 shadow-sm"
+            )}
           >
-            <Circle className="w-3 h-3 mt-1 text-slate-300 dark:text-slate-600 shrink-0" />
-            <p className="text-sm text-slate-600 dark:text-slate-300 leading-snug">
-              {item}
-            </p>
+            {item.done ? (
+              <CheckCircle2 className="w-4 h-4 mt-0.5 text-blue-500 shrink-0" />
+            ) : (
+              <div className="w-4 h-4 mt-0.5 rounded-full border-2 border-slate-200 dark:border-white/10 shrink-0 flex items-center justify-center">
+                <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+              </div>
+            )}
+            <span className={cn(
+              "text-sm leading-snug",
+              item.done
+                ? "text-slate-500 dark:text-slate-500 line-through"
+                : "text-slate-700 dark:text-slate-200 font-medium"
+            )}>
+              {item.item}
+            </span>
           </div>
         ))}
       </div>

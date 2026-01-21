@@ -82,7 +82,10 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   const planTool = tool({
     description: 'CALL FIRST before any searches. Set your initial exploration list - what you plan to investigate.',
     inputSchema: z.object({
-      list: z.array(z.string()).describe('Initial exploration list - things you plan to investigate to answer the objective.')
+      list: z.array(z.object({
+        item: z.string().describe('Short description of what to investigate'),
+        done: z.boolean().describe('Whether this item is completed')
+      })).describe('Initial exploration list - things you plan to investigate.')
     }),
     execute: async ({ list }) => {
       // Send list to UI
@@ -128,10 +131,19 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     description: 'MANDATORY after every search. Analyze results, update the exploration list, mark done when finished.',
     inputSchema: z.object({
       learned: z.string().describe('What did we learn from this search? Be specific: names, numbers, facts.'),
-      list: z.array(z.string()).describe('Updated exploration list - things still to investigate. Add new items discovered, remove completed ones.'),
+      list: z.array(z.object({
+        item: z.string().describe('Short description'),
+        done: z.boolean().describe('Mark true when completed')
+      })).describe('Updated exploration list - mark items done when completed, add new discoveries.'),
       done: z.boolean().describe('Set to true when research is complete and you have enough to answer the objective.')
     }),
     execute: async ({ learned, list, done }) => {
+      // Send reasoning to UI
+      onProgress?.({
+        type: 'reasoning',
+        learned
+      });
+
       // Send list update to UI
       onProgress?.({
         type: 'list_updated',
@@ -164,8 +176,9 @@ export async function executeResearch(config: ResearchExecutorConfig) {
       memory.explorationList = list;
 
       // If not done, start a new cycle
-      if (!done && list.length > 0) {
-        memory = startCycle(memory, list[0]); // Next cycle intent = first item
+      const pendingItems = list.filter(i => !i.done);
+      if (!done && pendingItems.length > 0) {
+        memory = startCycle(memory, pendingItems[0].item); // Next cycle intent = first pending item
         cycleCounter++;
       }
 
@@ -221,7 +234,7 @@ ${existingBrain ? `
 PREVIOUS RESEARCH IN THIS SESSION
 ═══════════════════════════════════════════════════════════════
 
-${formatForOrchestrator(parseResearchMemory(existingBrain), 1500)}
+${formatForOrchestrator(parseResearchMemory(existingBrain), 5000)}
 
 Use this context. Don't repeat searches that already ran. Build on existing findings.
 ` : ''}

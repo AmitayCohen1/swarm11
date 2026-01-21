@@ -340,6 +340,30 @@ function ReasoningIndicator() {
 }
 
 /**
+ * Component for displaying agent reasoning/learned content
+ */
+function ReasoningContent({ learned }: { learned: string }) {
+  return (
+    <div className="group relative pl-11 py-2 animate-in fade-in duration-500">
+      <div className="absolute left-3.5 top-0 bottom-0 w-px bg-slate-200 dark:bg-white/10 group-last:bg-transparent" />
+      <div className="absolute left-[9px] top-3 w-2.5 h-2.5 rounded-full border-2 border-purple-300 dark:border-purple-500/40 bg-white dark:bg-[#0a0a0a]" />
+
+      <div className="p-4 rounded-2xl bg-gradient-to-br from-purple-50/50 to-indigo-50/50 dark:from-purple-500/5 dark:to-indigo-500/5 border border-purple-100/50 dark:border-purple-500/10 shadow-sm">
+        <div className="flex items-start gap-3">
+          <div className="w-5 h-5 rounded-md bg-purple-100 dark:bg-purple-500/20 flex items-center justify-center shrink-0 mt-0.5">
+            <Brain className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+          </div>
+          <div className="flex-1">
+            <p className="text-xs font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider mb-1.5">Learned</p>
+            <p className="text-slate-700 dark:text-slate-200 text-base leading-relaxed">{learned}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Component for synthesizing/final answer indicator
  */
 function SynthesizingIndicator() {
@@ -553,37 +577,6 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
           </div>
         </header>
 
-        {/* Research Brief Banner */}
-        {isResearching && researchProgress?.objective && (
-          <div className="px-6 py-4 bg-linear-to-r from-blue-50 to-indigo-50 dark:from-blue-500/10 dark:to-indigo-500/10 border-b border-blue-100 dark:border-blue-500/20 animate-in slide-in-from-top duration-500">
-            <div className="max-w-4xl mx-auto flex items-start gap-4">
-              <div className="w-10 h-10 rounded-2xl bg-white/80 dark:bg-white/5 flex items-center justify-center shrink-0 shadow-sm border border-blue-200/50 dark:border-blue-500/20">
-                <Activity className="w-5 h-5 text-blue-600 dark:text-blue-400 animate-pulse" />
-              </div>
-              <div className="flex-1 space-y-2">
-                <div>
-                  <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-[0.2em]">Objective</p>
-                  <p className="text-base font-semibold text-slate-800 dark:text-slate-100 leading-tight">{researchProgress.objective}</p>
-                </div>
-                <div className="flex gap-6 text-sm">
-                  {researchProgress.stoppingConditions && (
-                    <div>
-                      <span className="text-slate-500 dark:text-slate-400">Stop when: </span>
-                      <span className="text-slate-700 dark:text-slate-200">{researchProgress.stoppingConditions}</span>
-                    </div>
-                  )}
-                  {researchProgress.successCriteria && (
-                    <div>
-                      <span className="text-slate-500 dark:text-slate-400">Success: </span>
-                      <span className="text-slate-700 dark:text-slate-200">{researchProgress.successCriteria}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Chat Content */}
         <main className="flex-1 overflow-hidden relative">
           <ScrollArea className="h-full scroll-smooth">
@@ -623,6 +616,9 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
                 }
                 if (msg.metadata?.type === 'agent_thinking') {
                   return <AgentThinking key={idx} msg={msg} />;
+                }
+                if (msg.metadata?.type === 'reasoning') {
+                  return <ReasoningContent key={idx} learned={msg.metadata.learned || ''} />;
                 }
                 if (msg.metadata?.type === 'ask_user' || msg.metadata?.type === 'multi_choice_select') {
                   return (
@@ -744,7 +740,7 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
 
       {/* Right Column - Exploration List */}
       {isResearching && explorationList && explorationList.length > 0 && (
-        <div className="w-72 border-l border-slate-200/60 dark:border-white/5 bg-slate-50/50 dark:bg-black/20 p-4 overflow-y-auto animate-in slide-in-from-right duration-300">
+        <div className="w-96 border-l border-slate-200/60 dark:border-white/5 bg-white dark:bg-[#0a0a0a] p-6 animate-in slide-in-from-right duration-300">
           <ExplorationList
             list={explorationList}
             objective={researchProgress?.objective}

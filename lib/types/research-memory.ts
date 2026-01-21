@@ -18,11 +18,16 @@ export interface ResearchCycle {
   nextStep: string;         // Freeform - what to do next
 }
 
+export interface ExplorationItem {
+  item: string;
+  done: boolean;
+}
+
 export interface ResearchMemory {
   version: 1;
   objective: string;
   successCriteria?: string;
-  explorationList?: string[];  // Things to investigate (dynamic todo list)
+  explorationList?: ExplorationItem[];  // Things to investigate (dynamic todo list)
   cycles: ResearchCycle[];
   queriesRun: string[];        // Flat list for dedup
   legacyBrain?: string;        // Preserved markdown from old sessions
