@@ -269,6 +269,9 @@ export async function POST(
                       type: 'brain_update',
                       brain: update.brain
                     });
+                  } else if (update.type === 'list_updated') {
+                    // Pass through exploration list updates
+                    sendEvent(update);
                   } else if (update.type === 'research_query' || update.type === 'search_started') {
                     sendEvent(update);
                   } else if (update.type === 'search_completed') {
@@ -276,8 +279,6 @@ export async function POST(
                   } else if (update.type === 'agent_thinking' || update.type === 'reasoning_started' || update.type === 'synthesizing_started') {
                     sendEvent(update);
                   } else if (update.type === 'research_iteration') {
-                    sendEvent(update);
-                  } else if (update.type === 'plan_updated') {
                     sendEvent(update);
                   }
                 }

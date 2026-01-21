@@ -79,11 +79,56 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     }
   });
 
+  const planTool = tool({
+    description: 'CALL FIRST before any searches. Set your initial exploration list - what you plan to investigate.',
+    inputSchema: z.object({
+      list: z.array(z.string()).describe('Initial exploration list - things you plan to investigate to answer the objective.')
+    }),
+    execute: async ({ list }) => {
+      // Send list to UI
+      onProgress?.({
+        type: 'list_updated',
+        list
+      });
+
+      // Load current memory and save list
+      const [session] = await db
+        .select({ brain: chatSessions.brain })
+        .from(chatSessions)
+        .where(eq(chatSessions.id, chatSessionId));
+
+      let memory = parseResearchMemory(session?.brain || '');
+
+      if (!memory) {
+        memory = {
+          version: 1,
+          objective: researchBrief.objective,
+          successCriteria: researchBrief.successCriteria,
+          cycles: [],
+          queriesRun: []
+        };
+      }
+
+      memory.explorationList = list;
+
+      const serializedBrain = serializeResearchMemory(memory);
+
+      await db
+        .update(chatSessions)
+        .set({ brain: serializedBrain, updatedAt: new Date() })
+        .where(eq(chatSessions.id, chatSessionId));
+
+      onProgress?.({ type: 'brain_update', brain: serializedBrain });
+
+      return { acknowledged: true, list };
+    }
+  });
+
   const reflectionTool = tool({
     description: 'MANDATORY after every search. Analyze results, update the exploration list, mark done when finished.',
     inputSchema: z.object({
       learned: z.string().describe('What did we learn from this search? Be specific: names, numbers, facts.'),
-      list: z.array(z.string()).min(0).max(10).describe('Updated exploration list - things still to investigate. Add new items discovered, remove completed ones. Empty list or done=true means research complete.'),
+      list: z.array(z.string()).describe('Updated exploration list - things still to investigate. Add new items discovered, remove completed ones.'),
       done: z.boolean().describe('Set to true when research is complete and you have enough to answer the objective.')
     }),
     execute: async ({ learned, list, done }) => {
@@ -147,6 +192,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   });
 
   const tools = {
+    plan: planTool,
     search,
     reflect: reflectionTool,
     askUser: askUserTool
@@ -201,35 +247,34 @@ You can run hours to find what you need. Don't rush.
 TOOLS
 ═══════════════════════════════════════════════════════════════
 
+plan({list}):
+• CALL FIRST before any searches
+• Set your initial exploration list
+• What do you plan to investigate to answer the objective?
+
 search({queries}):
-• Takes 1-3 queries, runs them in parallel, returns ALL results together
+• Takes 1-3 queries, runs them in parallel
 • Each query: {query: "full question", purpose: "what this tests"}
-• Tool waits for all queries to complete before returning
 
 reflect({learned, list, done}):
 • MANDATORY after each search()
-• learned: What did you learn from this search?
-• list: Your exploration list - things still to investigate
-  - Remove items you've completed
-  - Add new items you discovered
-  - Reorder by priority
-• done: Set true when you have enough to answer the objective
+• learned: What did you learn?
+• list: Updated exploration list (remove done items, add new discoveries)
+• done: Set true when you have enough to answer
 
-CYCLE: search() → reflect(update list) → search() → reflect(update list) → ... → done
+CYCLE: plan() → search() → reflect() → search() → reflect() → ... → done
 
 ═══════════════════════════════════════════════════════════════
 EXPLORATION LIST
 ═══════════════════════════════════════════════════════════════
 
-You maintain a dynamic list of things to investigate. Example:
-  ["Check podcast listener counts", "Verify 2024 activity", "Find host backgrounds"]
+You maintain a dynamic list of things to investigate.
 
-After each search, update the list:
-• Remove completed items
-• Add new leads you discovered
-• Keep it focused (max 10 items)
-
-When the list is empty or you have enough info, set done=true.
+1. Start with plan() - declare what you want to explore
+2. After each search, update via reflect():
+   • Remove completed items
+   • Add new leads discovered
+3. When list is empty or you have enough, set done=true
 
 ═══════════════════════════════════════════════════════════════
 CHANGE & TIMING SIGNALS
@@ -265,8 +310,9 @@ CONSTRAINTS
 • Your success is measured by how clearly a decision can be made from your output
 
 TOOLS:
-• search(queries): 1-3 queries run in parallel. Each needs {query, purpose}.
-• reflect(learned, list, done): MANDATORY after every search. Update exploration list. Set done=true when finished.
+• plan(list): CALL FIRST. Set initial exploration list.
+• search(queries): Run queries in parallel. Each needs {query, purpose}.
+• reflect(learned, list, done): MANDATORY after search. Update list. Set done=true when finished.
 • askUser(question, options): Only if genuinely blocked.
 
 ═══════════════════════════════════════════════════════════════
@@ -417,17 +463,16 @@ Uncertainty is a valid output.
     const result = await agent.generate({
       prompt: `${contextPrompt}Execute the research brief above.
 
-CRITICAL: Use FULL natural language questions.
+START by calling plan() with your initial exploration list.
+
+Then run cycles of: search() → reflect()
+
+CRITICAL: Use FULL natural language questions in search.
 ✅ Good: "What are the most popular finance podcasts in 2024?"
 ❌ Bad: "finance podcasts 2024"
 
-Begin with search() using 1-3 queries. Each query needs {query, purpose}.
-After results, call reflect() with:
-- learned: what you discovered
-- list: things still to investigate (your exploration todo list)
-- done: false (until you have enough to answer the objective)
-
-Keep the list updated each cycle - remove completed items, add new discoveries.`
+Update the list each reflect - remove completed items, add new discoveries.
+Set done=true when you have enough to answer the objective.`
     });
 
     // Structured output from AI SDK 6 - typed by ResearchOutputSchema
