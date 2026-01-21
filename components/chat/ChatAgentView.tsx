@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import SessionsSidebar from './SessionsSidebar';
 import ExplorationList from './ExplorationList';
+import EventLog from './EventLog';
 import {
   Send,
   StopCircle,
@@ -354,6 +355,7 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
     researchProgress,
     explorationList,
     stage,
+    eventLog,
     sendMessage,
     stopResearch,
     initializeSession
@@ -506,7 +508,7 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
                         options={msg.metadata.options || []}
                         reason={msg.metadata.reason}
                         status={status}
-                        onSelect={(value) => sendMessage(value)}
+                        onSelect={(value) => sendMessage(value, { skipUserBubble: true })}
                       />
                     </div>
                   );
@@ -642,13 +644,25 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
         </footer>
       </div>
 
-      {/* Right Column - Exploration List */}
-      {explorationList && explorationList.length > 0 && (
-        <div className="w-[480px] h-full border-l border-slate-200/60 dark:border-white/5 bg-white dark:bg-[#0a0a0a] p-6 flex flex-col overflow-hidden animate-in slide-in-from-right duration-300">
-          <ExplorationList
-            list={explorationList}
-            objective={researchProgress?.objective}
-          />
+      {/* Right Column - Exploration List + Event Log */}
+      {(isResearching || (explorationList && explorationList.length > 0) || eventLog.length > 0) && (
+        <div className="w-[480px] h-full border-l border-slate-200/60 dark:border-white/5 bg-white dark:bg-[#0a0a0a] flex flex-col overflow-hidden animate-in slide-in-from-right duration-300">
+          {/* Exploration List - top section */}
+          {explorationList && explorationList.length > 0 && (
+            <div className="p-6 pb-4 border-b border-slate-100 dark:border-white/5">
+              <ExplorationList
+                list={explorationList}
+                objective={researchProgress?.objective}
+                successCriteria={researchProgress?.successCriteria}
+                outputFormat={researchProgress?.outputFormat}
+              />
+            </div>
+          )}
+
+          {/* Event Log - bottom section (always visible during research) */}
+          <div className="flex-1 min-h-0 p-6 pt-4 flex flex-col">
+            <EventLog events={eventLog} className="flex-1 min-h-0" />
+          </div>
         </div>
       )}
     </div>

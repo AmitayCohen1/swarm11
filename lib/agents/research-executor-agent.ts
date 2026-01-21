@@ -1,4 +1,4 @@
-import { generateText, generateObject, tool } from 'ai';
+import { ToolLoopAgent, stepCountIs, hasToolCall, tool } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { search } from '@/lib/tools/tavily-search';
 import { db } from '@/lib/db';
@@ -17,12 +17,6 @@ import {
 } from '@/lib/utils/research-memory';
 import type { ResearchMemory, SearchResult, ExplorationItem } from '@/lib/types/research-memory';
 // import { deductCredits } from '@/lib/credits'; // POC: Disabled for free usage
-
-// Schema for structured research output
-const ResearchOutputSchema = z.object({
-  confidenceLevel: z.enum(['low', 'medium', 'high']).describe('Confidence in the completeness of findings'),
-  finalAnswer: z.string().describe('Complete answer, concise and actionable')
-});
 
 interface ResearchExecutorConfig {
   chatSessionId: string;
@@ -220,25 +214,33 @@ Start with 1-2 narrow initiatives. Add more via reflect() as you learn.`,
 
 REFLECTION FORMAT:
 **LEARNED:** specific facts, names, numbers found
-**DECISION:** what to do next (keep searching / mark done / add subtask / finish)
+**DECISION:** what to do next
 
-OPERATIONS (optional - modify the initiative list):
-  {action: "done", target: 0}           → mark initiative 0 complete
-  {action: "done", target: "0.1"}       → mark subtask complete
-  {action: "remove", target: 1}         → delete initiative (if not needed)
-  {action: "add", target: "0.0", item: "..."} → add subtask under initiative 0
+TRACK YOUR PROGRESS - use operations array to update the list:
 
-ADDING NEW INITIATIVES - must be SPECIFIC & SINGLE-QUESTION:
-✅ "Find the top 5 podcast networks by revenue"
-✅ "Who is the Head of Content at iHeartMedia?"
-❌ "Research buyer personas and outreach angles" (too broad)
-❌ "Within those companies, identify..." (not standalone)
+LIST STRUCTURE EXAMPLE:
+  0. "Find top podcast networks"           [ACTIVE]
+     0.0 "What are their listener counts?"    [pending]
+     0.1 "Who are the content leads?"         [pending]
+  1. "Find fact-check tool vendors"        [pending]
 
-WHEN TO SET done=true:
-- You have enough to answer the objective (doesn't need to be perfect)
-- Remove initiatives you don't need rather than completing everything`,
+OPERATIONS:
+  Mark done:   {action: "done", target: 0}       → initiative done
+  Mark done:   {action: "done", target: "0.1"}   → subtask done
+  Add subtask: {action: "add", target: "0.2", item: "What's their revenue?"}
+  Remove:      {action: "remove", target: 1}     → delete initiative
+
+USE SUBTASKS when an initiative needs multiple searches to complete.
+Each subtask = one specific question.
+
+New items must be SPECIFIC:
+✅ "Who is Head of Content at iHeartMedia?"
+❌ "Research buyer personas" (too vague)
+
+Set done=true when you have enough to answer the objective.
+When done=true, you'll be told to call finish() with your final answer.`,
     inputSchema: z.object({
-      reflection: z.string().describe('**LEARNED:** facts found. **DECISION:** next action.'),
+      reflection: z.string().describe('**LEARNED:** facts found. **DECISION:** next action. **OPERATIONS:** list of operations to perform on the initiative list.'),
       operations: z.array(z.object({
         action: z.enum(['done', 'remove', 'add']),
         target: z.union([z.number(), z.string()]).describe('0 for main initiative, "0.1" for subtask'),
@@ -363,6 +365,20 @@ WHEN TO SET done=true:
             console.log(`[Research] ADD initiative at ${insertAt}: "${op.item}"`);
           }
         }
+
+        // Emit event showing what operations were performed
+        const opsSummary = [
+          ...removes.map(op => `✓ done: ${typeof op.target === 'number' ? list[op.target]?.item?.substring(0, 30) : op.target}`),
+          ...dones.map(op => `✓ done: ${typeof op.target === 'number' ? list[op.target]?.item?.substring(0, 30) : op.target}`),
+          ...adds.map(op => `+ add: "${op.item?.substring(0, 30)}..."`)
+        ];
+        if (opsSummary.length > 0) {
+          onProgress?.({
+            type: 'list_operations',
+            operations: operations,
+            summary: opsSummary
+          });
+        }
       }
 
       // Send list update to UI
@@ -469,21 +485,19 @@ WHEN TO SET done=true:
       const totalSubtasks = list.reduce((acc, i) => acc + (i.subtasks?.length || 0), 0);
       const doneSubtasks = list.reduce((acc, i) => acc + (i.subtasks?.filter(s => s.done).length || 0), 0);
 
-      // Signal completion to stop the loop (only if truly done AND no pending items)
+      // Tell the model whether research is complete
       if (actualDone && pendingCount === 0) {
-        console.log('[Research] reflect() complete - research done, shouldStop=true');
-        setPhase('synthesizing', null);
+        console.log('[Research] reflect() complete - research done, model should call finish()');
         onProgress?.({
           type: 'reflect_completed',
           decision: 'finishing',
           pendingCount: 0,
           doneCount: list.length
         });
-        onProgress?.({ type: 'synthesizing_started' });
         return {
-          acknowledged: true,
-          shouldStop: true,
-          summary: `Research complete. ${doneCount}/${list.length} initiatives done.`,
+          status: 'complete',
+          instruction: 'Research complete. Call finish() with your final answer.',
+          summary: `All ${doneCount} initiatives done.`,
           currentList: listState
         };
       }
@@ -498,10 +512,65 @@ WHEN TO SET done=true:
         nextInitiative: nextActive
       });
       return {
-        acknowledged: true,
-        summary: `Progress: ${doneCount}/${list.length} initiatives, ${doneSubtasks}/${totalSubtasks} subtasks. Next: "${nextActive}"`,
+        status: 'continue',
+        instruction: `Continue researching. Next: "${nextActive}"`,
+        summary: `Progress: ${doneCount}/${list.length} initiatives, ${doneSubtasks}/${totalSubtasks} subtasks.`,
         currentList: listState
       };
+    }
+  });
+
+  // Finish tool - signals research completion (triggers hasToolCall('finish') stop condition)
+  const finishTool = tool({
+    description: `Call when you have enough information to answer the research objective.
+
+WHEN TO CALL:
+- All initiatives are marked done, OR
+- You have enough data to answer even if some initiatives remain
+- reflect() told you research is complete
+
+DO NOT CALL if you still need more information.
+
+Provide your final synthesized answer addressing the objective.`,
+    inputSchema: z.object({
+      confidenceLevel: z.enum(['low', 'medium', 'high']).describe('How confident are you in the completeness?'),
+      finalAnswer: z.string().describe('Complete answer to the research objective - concise and actionable')
+    }),
+    execute: async ({ confidenceLevel, finalAnswer }) => {
+      console.log(`[Research] FINISH called - confidence: ${confidenceLevel}`);
+      setPhase('synthesizing', null);
+      onProgress?.({ type: 'synthesizing_started' });
+
+      // Auto-complete all remaining initiatives (clears loading state in UI)
+      const [session] = await db
+        .select({ brain: chatSessions.brain })
+        .from(chatSessions)
+        .where(eq(chatSessions.id, chatSessionId));
+
+      let memory = parseResearchMemory(session?.brain || '');
+      if (memory?.explorationList) {
+        for (const item of memory.explorationList) {
+          item.done = true;
+          if (item.subtasks) {
+            for (const sub of item.subtasks) {
+              sub.done = true;
+            }
+          }
+        }
+
+        const serializedBrain = serializeResearchMemory(memory);
+        await db
+          .update(chatSessions)
+          .set({ brain: serializedBrain, updatedAt: new Date() })
+          .where(eq(chatSessions.id, chatSessionId));
+
+        // Send final list state to UI (all done)
+        onProgress?.({ type: 'list_updated', list: memory.explorationList });
+        onProgress?.({ type: 'brain_update', brain: serializedBrain });
+      }
+
+      // Return the answer - loop will stop due to hasToolCall('finish')
+      return { confidenceLevel, finalAnswer };
     }
   });
 
@@ -509,6 +578,7 @@ WHEN TO SET done=true:
     plan: planTool,
     search,
     reflect: reflectionTool,
+    finish: finishTool,
     askUser: askUserTool
   };
 
@@ -524,275 +594,279 @@ PREVIOUS RESEARCH:
 ${formatForOrchestrator(parseResearchMemory(existingBrain), 5000)}
 Build on existing findings. Don't repeat searches.
 ` : ''}
-Use the tools available. Each tool has detailed instructions in its description.
-Call plan() first, then loop search() → reflect() until done.
+WORKFLOW: plan() → search() → reflect() → [repeat or finish()]
+
+When reflect() returns status="complete", call finish() with your final answer.
 `;
 
 
-  // Helper to check if we should stop
-  const checkShouldStop = async () => {
-    if (abortSignal?.aborted) throw new Error('Research aborted');
-
-    const [sessionCheck] = await db
-      .select({ status: chatSessions.status })
-      .from(chatSessions)
-      .where(eq(chatSessions.id, chatSessionId));
-
-    if (sessionCheck?.status !== 'researching') {
-      throw new Error('Research stopped by user');
-    }
-  };
-
-  // Helper to track search results in memory
-  const trackSearchResults = async (searchResult: any) => {
-    const searchResults = searchResult?.results || [];
-    const completedQueries = searchResults.map((sr: any) => ({
-      query: sr.query,
-      purpose: sr.purpose,
-      answer: sr.answer || '',
-      sources: (sr.results || []).map((r: any) => ({
-        title: r.title,
-        url: r.url
-      })),
-      status: sr.status === 'success' ? 'complete' : 'error'
-    }));
-
-    onProgress?.({
-      type: 'search_completed',
-      totalSearches: searchCount,
-      activeInitiative,
-      cycle: cycleCounter,
-      queries: completedQueries
-    });
-
-    // Track in memory
-    const [session] = await db
-      .select({ brain: chatSessions.brain })
-      .from(chatSessions)
-      .where(eq(chatSessions.id, chatSessionId));
-
-    let memory = parseResearchMemory(session?.brain || '');
-    if (memory) {
-      if (memory.cycles.length === 0) {
-        memory = startCycle(memory, 'Initial research exploration');
-      }
-
-      for (const sq of completedQueries) {
-        const searchEntry: SearchResult = {
-          query: sq.query,
-          purpose: sq.purpose,
-          answer: sq.answer,
-          sources: sq.sources
-        };
-        memory = addSearchToMemory(memory, searchEntry);
-
-        await db.insert(searchQueries).values({
-          researchSessionId,
-          query: sq.query,
-          queryNormalized: sq.query.toLowerCase().trim(),
-          purpose: sq.purpose,
-          answer: sq.answer,
-          sources: sq.sources,
-          cycleNumber: cycleCounter
-        });
-      }
-
-      const serializedBrain = serializeResearchMemory(memory);
-      await db
-        .update(chatSessions)
-        .set({ brain: serializedBrain, updatedAt: new Date() })
-        .where(eq(chatSessions.id, chatSessionId));
-
-      onProgress?.({ type: 'brain_update', brain: serializedBrain });
-    }
-
-    return completedQueries;
-  };
+  // Track tool call sequence for logging
+  const toolSequence: string[] = [];
 
   try {
-    console.log('[Research] Starting research execution for objective:', researchBrief.objective.substring(0, 50) + '...');
+    console.log('[Research] Starting ToolLoopAgent for objective:', researchBrief.objective.substring(0, 50) + '...');
 
-    // Build conversation history
-    const messages: any[] = [
-      { role: 'system', content: instructions }
-    ];
+    const agent = new ToolLoopAgent({
+      model: openai('gpt-4.1'),
+      instructions,
+      tools,
+      // No Output.object - answer comes from finish() tool
+      stopWhen: [hasToolCall('finish'), stepCountIs(MAX_STEPS)],
+      abortSignal,
 
-    // Add conversation context if any
-    if (conversationHistory && conversationHistory.length > 0) {
-      const recentMessages = conversationHistory.slice(-5);
-      for (const msg of recentMessages) {
-        messages.push({
-          role: msg.role === 'user' ? 'user' : 'assistant',
-          content: msg.content
+      // Enforce tool ordering: plan → search → reflect → (search or finish)
+      prepareStep: async ({ steps }: { steps: any[] }) => {
+        const allToolCalls = steps.flatMap((s: any) => s.toolCalls || []);
+        const lastTool = allToolCalls.at(-1)?.toolName;
+        const hasPlan = allToolCalls.some((t: any) => t.toolName === 'plan');
+
+        // Step 0 or no plan yet: force plan
+        if (!hasPlan) {
+          console.log('[Research] prepareStep: forcing plan');
+          return {
+            activeTools: ['plan'] as const,
+            toolChoice: { type: 'tool' as const, toolName: 'plan' }
+          };
+        }
+
+        // After search: force reflect
+        if (lastTool === 'search') {
+          console.log('[Research] prepareStep: forcing reflect (after search)');
+          return {
+            activeTools: ['reflect'] as const,
+            toolChoice: { type: 'tool' as const, toolName: 'reflect' }
+          };
+        }
+
+        // After plan: force search
+        if (lastTool === 'plan') {
+          console.log('[Research] prepareStep: forcing search (after plan)');
+          return {
+            activeTools: ['search'] as const,
+            toolChoice: { type: 'tool' as const, toolName: 'search' }
+          };
+        }
+
+        // After reflect: allow search OR finish (model decides based on done flag)
+        if (lastTool === 'reflect') {
+          console.log('[Research] prepareStep: allowing search or finish (after reflect)');
+          return {
+            activeTools: ['search', 'finish'] as const
+          };
+        }
+
+        // Default: all tools available
+        console.log('[Research] prepareStep: default - all tools');
+        return {};
+      },
+
+      onStepFinish: async (step: any) => {
+        const { toolCalls, toolResults, usage } = step || {};
+        stepCounter += 1;
+
+        // Track tool sequence
+        const toolNames = toolCalls?.map((t: any) => t.toolName) || [];
+        toolSequence.push(...toolNames);
+
+        // Log the sequence so far
+        console.log(`[Research] Step ${stepCounter} | Tools: [${toolNames.join(', ')}] | Sequence so far: ${toolSequence.join(' → ')}`);
+
+        // Check if we should stop (user cancelled)
+        const [sessionCheck] = await db
+          .select({ status: chatSessions.status })
+          .from(chatSessions)
+          .where(eq(chatSessions.id, chatSessionId));
+
+        if (sessionCheck?.status !== 'researching') {
+          throw new Error('Research stopped by user');
+        }
+
+        // Track credits
+        const stepCredits = Math.ceil((usage?.totalTokens || 0) / 1000);
+        totalCreditsUsed += stepCredits;
+
+        // Emit progress
+        onProgress?.({
+          type: 'research_iteration',
+          iteration: stepCounter,
+          phase: currentPhase,
+          activeInitiative,
+          cycle: cycleCounter,
+          searchCount,
+          toolSequence: [...toolSequence],
+          creditsUsed: totalCreditsUsed,
+          tokensUsed: usage?.totalTokens || 0
         });
-      }
-    }
 
-    // ═══════════════════════════════════════════════════════════════
-    // PHASE 1: PLANNING
-    // ═══════════════════════════════════════════════════════════════
-    console.log('[Research] Phase 1: Planning');
-    setPhase('planning');
-    onProgress?.({ type: 'research_iteration', iteration: stepCounter, phase: 'planning' });
+        // Process tool calls
+        if (toolCalls) {
+          for (const toolCall of toolCalls) {
+            const toolName = toolCall.toolName;
+            const input = (toolCall as any).input;
 
-    messages.push({ role: 'user', content: 'Create your research plan. Call the plan() tool.' });
-
-    const planResult = await generateText({
-      model: openai('gpt-5.1'),
-      messages,
-      tools: { plan: planTool },
-      toolChoice: 'required',
-      abortSignal
-    });
-
-    // Add response messages to history (AI SDK handles formatting)
-    messages.push(...planResult.response.messages);
-
-    stepCounter++;
-    totalCreditsUsed += Math.ceil((planResult.usage?.totalTokens || 0) / 1000);
-
-    // ═══════════════════════════════════════════════════════════════
-    // PHASE 2: RESEARCH LOOP (search → reflect → repeat)
-    // ═══════════════════════════════════════════════════════════════
-    console.log('[Research] Phase 2: Research Loop');
-    let researchDone = false;
-
-    while (!researchDone && stepCounter < MAX_STEPS) {
-      await checkShouldStop();
-
-      // ─────────────────────────────────────────────────────────────
-      // SEARCH STEP
-      // ─────────────────────────────────────────────────────────────
-      console.log(`[Research] Step ${stepCounter + 1}: Searching`);
-      setPhase('searching', activeInitiative);
-
-      messages.push({
-        role: 'user',
-        content: `Search for information about the active initiative. Call the search() tool with human-readable questions.`
-      });
-
-      onProgress?.({
-        type: 'research_iteration',
-        iteration: stepCounter,
-        phase: 'searching',
-        activeInitiative,
-        cycle: cycleCounter,
-        searchCount
-      });
-
-      const searchStepResult = await generateText({
-        model: openai('gpt-5.1'),
-        messages,
-        tools: { search },
-        toolChoice: 'required',
-        abortSignal
-      });
-
-      // Emit progress and track search results
-      for (const step of searchStepResult.steps) {
-        for (const toolCall of step.toolCalls as any[]) {
-          const queries = toolCall.input?.queries || [];
-          searchCount += queries.length;
-          onProgress?.({
-            type: 'search_started',
-            count: queries.length,
-            totalSearches: searchCount,
-            activeInitiative,
-            cycle: cycleCounter,
-            queries: queries.map((q: any) => ({ query: q.query, purpose: q.purpose }))
-          });
+            if (toolName === 'plan') {
+              setPhase('planning');
+              console.log(`[Research] PLAN called with ${input?.list?.length || 0} initiatives`);
+            } else if (toolName === 'search') {
+              setPhase('searching', activeInitiative);
+              const queries = input?.queries || [];
+              searchCount += queries.length;
+              console.log(`[Research] SEARCH called with ${queries.length} queries (total: ${searchCount})`);
+              onProgress?.({
+                type: 'search_started',
+                count: queries.length,
+                totalSearches: searchCount,
+                activeInitiative,
+                cycle: cycleCounter,
+                queries: queries.map((q: any) => ({ query: q.query, purpose: q.purpose }))
+              });
+            } else if (toolName === 'reflect') {
+              setPhase('reflecting');
+              console.log(`[Research] REFLECT called, done=${input?.done}`);
+              onProgress?.({ type: 'reasoning_started' });
+            }
+          }
         }
-        for (const toolResult of step.toolResults as any[]) {
-          await trackSearchResults(toolResult.output);
-        }
-      }
 
-      // Add response messages to history (AI SDK handles formatting)
-      messages.push(...searchStepResult.response.messages);
+        // Process tool results
+        if (toolResults) {
+          for (const result of toolResults) {
+            const toolName = result.toolName;
+            const toolResult = (result as any).output;
 
-      stepCounter++;
-      totalCreditsUsed += Math.ceil((searchStepResult.usage?.totalTokens || 0) / 1000);
+            if (toolName === 'search') {
+              const searchResults = toolResult?.results || [];
+              const completedQueries = searchResults.map((sr: any) => ({
+                query: sr.query,
+                purpose: sr.purpose,
+                answer: sr.answer || '',
+                sources: (sr.results || []).map((r: any) => ({
+                  title: r.title,
+                  url: r.url
+                })),
+                status: sr.status === 'success' ? 'complete' : 'error'
+              }));
 
-      await checkShouldStop();
+              onProgress?.({
+                type: 'search_completed',
+                totalSearches: searchCount,
+                activeInitiative,
+                cycle: cycleCounter,
+                queries: completedQueries
+              });
 
-      // ─────────────────────────────────────────────────────────────
-      // REFLECT STEP
-      // ─────────────────────────────────────────────────────────────
-      console.log(`[Research] Step ${stepCounter + 1}: Reflecting`);
-      setPhase('reflecting');
+              // Track searches in memory
+              const [session] = await db
+                .select({ brain: chatSessions.brain })
+                .from(chatSessions)
+                .where(eq(chatSessions.id, chatSessionId));
 
-      messages.push({
-        role: 'user',
-        content: `Reflect on what you learned. Call the reflect() tool. Set done=true if you have enough to answer the objective.`
-      });
+              let memory = parseResearchMemory(session?.brain || '');
+              if (memory) {
+                if (memory.cycles.length === 0) {
+                  memory = startCycle(memory, 'Initial research exploration');
+                }
 
-      onProgress?.({
-        type: 'research_iteration',
-        iteration: stepCounter,
-        phase: 'reflecting',
-        activeInitiative,
-        cycle: cycleCounter,
-        searchCount
-      });
-      onProgress?.({ type: 'reasoning_started' });
+                for (const sq of completedQueries) {
+                  const searchEntry: SearchResult = {
+                    query: sq.query,
+                    purpose: sq.purpose,
+                    answer: sq.answer,
+                    sources: sq.sources
+                  };
+                  memory = addSearchToMemory(memory, searchEntry);
 
-      const reflectStepResult = await generateText({
-        model: openai('gpt-5.1'),
-        messages,
-        tools: { reflect: reflectionTool },
-        toolChoice: 'required',
-        abortSignal
-      });
+                  await db.insert(searchQueries).values({
+                    researchSessionId,
+                    query: sq.query,
+                    queryNormalized: sq.query.toLowerCase().trim(),
+                    purpose: sq.purpose,
+                    answer: sq.answer,
+                    sources: sq.sources,
+                    cycleNumber: cycleCounter
+                  });
+                }
 
-      // Check for done flag
-      for (const step of reflectStepResult.steps) {
-        for (const toolResult of step.toolResults as any[]) {
-          if (toolResult.output?.shouldStop) {
-            console.log('[Research] Reflect signaled done - exiting loop');
-            researchDone = true;
+                const serializedBrain = serializeResearchMemory(memory);
+                await db
+                  .update(chatSessions)
+                  .set({ brain: serializedBrain, updatedAt: new Date() })
+                  .where(eq(chatSessions.id, chatSessionId));
+
+                onProgress?.({ type: 'brain_update', brain: serializedBrain });
+              }
+            }
+
+            // Log reflect status
+            if (toolName === 'reflect') {
+              const status = toolResult?.status;
+              console.log(`[Research] onStepFinish: reflect returned status=${status}`);
+            }
+
+            // Log finish tool result
+            if (toolName === 'finish') {
+              console.log(`[Research] onStepFinish: finish called - confidence=${toolResult?.confidenceLevel}`);
+            }
           }
         }
       }
+    } as any);
 
-      // Add response messages to history (AI SDK handles formatting)
-      messages.push(...reflectStepResult.response.messages);
-
-      stepCounter++;
-      totalCreditsUsed += Math.ceil((reflectStepResult.usage?.totalTokens || 0) / 1000);
+    // Build context from conversation history
+    let contextPrompt = '';
+    if (conversationHistory && conversationHistory.length > 0) {
+      const recentMessages = conversationHistory.slice(-5);
+      contextPrompt = '\n\nCONVERSATION CONTEXT:\n';
+      recentMessages.forEach((msg: any) => {
+        contextPrompt += `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}\n`;
+      });
+      contextPrompt += '\n';
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // PHASE 3: SYNTHESIZE FINAL ANSWER
-    // ═══════════════════════════════════════════════════════════════
-    console.log('[Research] Phase 3: Synthesizing final answer');
-    setPhase('synthesizing');
-    onProgress?.({ type: 'synthesizing_started' });
-
-    messages.push({
-      role: 'user',
-      content: `Research complete. Provide your final answer based on everything you learned. Be concise and actionable.`
+    console.log('[Research] Calling agent.generate()...');
+    const result = await agent.generate({
+      prompt: `${contextPrompt}Execute the research. Follow tool descriptions carefully.`
     });
 
-    const synthesizeResult = await generateObject({
-      model: openai('gpt-5.1'),
-      messages,
-      schema: ResearchOutputSchema,
-      abortSignal
+    // Log final tool sequence
+    console.log(`[Research] ═══════════════════════════════════════════════════`);
+    console.log(`[Research] FINAL TOOL SEQUENCE: ${toolSequence.join(' → ')}`);
+    console.log(`[Research] Total steps: ${stepCounter}, Searches: ${searchCount}`);
+    console.log(`[Research] ═══════════════════════════════════════════════════`);
+
+    // Emit final sequence to UI
+    onProgress?.({
+      type: 'research_complete',
+      toolSequence,
+      totalSteps: stepCounter,
+      totalSearches: searchCount
     });
 
-    totalCreditsUsed += Math.ceil((synthesizeResult.usage?.totalTokens || 0) / 1000);
+    // Extract answer from finish() tool call
+    const allSteps = result.steps || [];
+    const finishToolResult = allSteps
+      .flatMap((s: any) => s.toolResults || [])
+      .find((r: any) => r.toolName === 'finish');
 
-    console.log(`[Research] Completed! Steps: ${stepCounter}, Confidence: ${synthesizeResult.object.confidenceLevel}`);
+    // Tool results use .output property (same as in onStepFinish)
+    const output = (finishToolResult as any)?.output || {
+      confidenceLevel: 'low',
+      finalAnswer: result.text || 'Research completed but no answer extracted.'
+    };
+
+    console.log(`[Research] Completed! Confidence: ${output.confidenceLevel}`);
 
     return {
       completed: true,
       iterations: stepCounter,
       creditsUsed: totalCreditsUsed,
-      output: synthesizeResult.object
+      toolSequence,
+      output
     };
 
   } catch (error) {
     console.error('Research execution error:', error);
+    console.log(`[Research] FAILED - Tool sequence before error: ${toolSequence.join(' → ')}`);
     throw error;
   }
 }

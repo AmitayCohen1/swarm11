@@ -11,7 +11,7 @@ interface Message {
 }
 
 interface ProgressUpdate {
-  type: 'analyzing' | 'decision' | 'research_started' | 'research_iteration' | 'step_complete' | 'research_complete' | 'message' | 'complete' | 'error' | 'agent_thinking' | 'research_query' | 'list_updated' | 'brain_updated' | 'brain_update' | 'summary_created' | 'needs_clarification' | 'search_result' | 'search_completed' | 'ask_user' | 'search_started' | 'multi_choice_select' | 'reasoning_started' | 'synthesizing_started' | 'reasoning';
+  type: 'analyzing' | 'decision' | 'research_started' | 'research_iteration' | 'step_complete' | 'research_complete' | 'message' | 'complete' | 'error' | 'agent_thinking' | 'research_query' | 'list_updated' | 'brain_updated' | 'brain_update' | 'summary_created' | 'needs_clarification' | 'search_result' | 'search_completed' | 'ask_user' | 'search_started' | 'multi_choice_select' | 'reasoning_started' | 'synthesizing_started' | 'reasoning' | 'phase_change' | 'plan_started' | 'plan_completed' | 'reflect_completed' | 'list_operations';
   options?: { label: string; description?: string }[];
   message?: string;
   decision?: string;
@@ -38,6 +38,21 @@ interface ProgressUpdate {
   question?: string;
   context?: string;
   brain?: string;
+  phase?: string;
+  activeInitiative?: string;
+  cycle?: number;
+  searchCount?: number;
+  toolSequence?: string[];
+}
+
+// Event log entry for UI display
+export interface EventLogEntry {
+  id: string;
+  type: string;
+  timestamp: string;
+  label: string;
+  detail?: string;
+  icon: 'plan' | 'search' | 'reflect' | 'phase' | 'complete' | 'error' | 'info';
 }
 
 interface UseChatAgentOptions {
@@ -57,15 +72,36 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
     objective?: string;
     stoppingConditions?: string;
     successCriteria?: string;
+    outputFormat?: string;
     iteration?: number;
   }>({});
   const [brain, setBrain] = useState<string>('');
   const [stage, setStage] = useState<'searching' | 'reflecting' | 'synthesizing' | null>(null);
   const [explorationList, setExplorationList] = useState<{ item: string; done: boolean; subtasks?: { item: string; done: boolean }[] }[] | null>(null);
+  const [eventLog, setEventLog] = useState<EventLogEntry[]>([]);
 
   const eventSourceRef = useRef<EventSource | null>(null);
+
+  // Helper to add event to log
+  const addEvent = useCallback((type: string, label: string, detail?: string, icon: EventLogEntry['icon'] = 'info') => {
+    const entry: EventLogEntry = {
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      type,
+      timestamp: new Date().toISOString(),
+      label,
+      detail,
+      icon
+    };
+    setEventLog(prev => [...prev, entry]);
+  }, []);
   const abortControllerRef = useRef<AbortController | null>(null);
   const pendingBatchRef = useRef<any[] | null>(null);
+  const isResearchingRef = useRef(false); // Ref to avoid stale closure in sendMessage
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    isResearchingRef.current = isResearching;
+  }, [isResearching]);
 
   // Load existing session
   const loadExistingSession = useCallback(async (id: string) => {
@@ -136,23 +172,31 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
   }, []);
 
   // Send message
-  const sendMessage = async (userMessage: string) => {
+  // skipUserBubble: when true, don't add user message to chat (used for option selections)
+  const sendMessage = async (userMessage: string, options?: { skipUserBubble?: boolean }) => {
     if (!sessionId || !userMessage.trim()) return;
 
     setStatus('processing');
     setError(null);
-    setIsResearching(false);
-    setResearchProgress({});
-    setExplorationList(null);
+    // Don't clear research state if we're in the middle of research (e.g., answering a clarification)
+    // Only reset when a new research actually starts (handled in research_started event)
+    // Use ref to avoid stale closure issues
+    if (!isResearchingRef.current) {
+      setResearchProgress({});
+      setExplorationList(null);
+      setEventLog([]);
+    }
     setStage(null);
 
-    // Add user message to UI immediately
-    const newUserMessage: Message = {
-      role: 'user',
-      content: userMessage,
-      timestamp: new Date().toISOString()
-    };
-    setMessages(prev => [...prev, newUserMessage]);
+    // Add user message to UI immediately (unless it's an option selection)
+    if (!options?.skipUserBubble) {
+      const newUserMessage: Message = {
+        role: 'user',
+        content: userMessage,
+        timestamp: new Date().toISOString()
+      };
+      setMessages(prev => [...prev, newUserMessage]);
+    }
 
     try {
       abortControllerRef.current?.abort();
@@ -178,11 +222,37 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
       let buffer = '';
 
       const processUpdate = (update: ProgressUpdate) => {
+        // Log all events for visibility
+        if (update.type === 'plan_started') {
+          addEvent('plan_started', 'Planning started', 'Creating research initiatives...', 'plan');
+        } else if (update.type === 'plan_completed') {
+          const count = (update as any).initiativeCount || 0;
+          const active = (update as any).activeInitiative || '';
+          addEvent('plan_completed', `Plan created`, `${count} initiative(s). Active: "${active.substring(0, 40)}..."`, 'plan');
+        } else if (update.type === 'phase_change') {
+          const phase = update.phase || 'unknown';
+          const initiative = update.activeInitiative ? `"${update.activeInitiative.substring(0, 30)}..."` : '';
+          addEvent('phase_change', `Phase: ${phase}`, initiative, 'phase');
+        } else if (update.type === 'reflect_completed') {
+          const decision = (update as any).decision || 'unknown';
+          const pending = (update as any).pendingCount || 0;
+          const done = (update as any).doneCount || 0;
+          addEvent('reflect_completed', `Reflection done`, `${decision} | ${done} done, ${pending} pending`, 'reflect');
+        } else if (update.type === 'research_complete') {
+          const sequence = update.toolSequence || [];
+          addEvent('research_complete', 'Research complete', `Sequence: ${sequence.join(' → ')}`, 'complete');
+        }
+
         if (update.type === 'analyzing') {
           setStatus('processing');
+          addEvent('analyzing', 'Analyzing message', 'Understanding your request...', 'info');
         } else if (update.type === 'decision') {
           console.log('Decision:', update.decision, update.reasoning);
+          addEvent('decision', `Decision: ${update.decision}`, update.reasoning, 'info');
         } else if (update.type === 'research_started') {
+          // Clear event log for new research session
+          setEventLog([]);
+          setExplorationList(null);
           setIsResearching(true);
           setStatus('researching');
           const brief = (update as any).brief;
@@ -190,11 +260,15 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
             objective: update.objective,
             stoppingConditions: brief?.stoppingConditions,
             successCriteria: brief?.successCriteria,
+            outputFormat: brief?.outputFormat,
             iteration: 0
           });
+          addEvent('research_started', 'Research started', update.objective?.substring(0, 50) + '...', 'info');
         } else if (update.type === 'search_started') {
+          const rawQueries = (update as any).queries || [];
+          addEvent('search_started', `Search (${rawQueries.length} queries)`, rawQueries.map((q: any) => q.query).join(' | ').substring(0, 60) + '...', 'search');
           setStage('searching');
-          const queries = (update as any).queries.map((q: any) => ({
+          const queries = rawQueries.map((q: any) => ({
             query: q.query,
             purpose: q.purpose,
             status: 'searching',
@@ -222,6 +296,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           setStage(null);
           const completedQueries = (update as any).queries || [];
           pendingBatchRef.current = null;
+          addEvent('search_completed', `Search complete`, `${completedQueries.length} results received`, 'search');
 
           setMessages(prev => {
             const batchIdx = prev.findLastIndex(m =>
@@ -276,8 +351,10 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           }]);
         } else if (update.type === 'reasoning_started') {
           setStage('reflecting');
+          addEvent('reasoning_started', 'Reflecting', 'Analyzing what was learned...', 'reflect');
         } else if (update.type === 'synthesizing_started') {
           setStage('synthesizing');
+          addEvent('synthesizing_started', 'Synthesizing', 'Writing final answer...', 'complete');
         } else if (update.type === 'research_iteration') {
           setMessages(prev => [...prev, {
             role: 'assistant',
@@ -296,6 +373,11 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           setBrain(update.brain || '');
         } else if (update.type === 'list_updated') {
           setExplorationList(update.list || null);
+        } else if (update.type === 'list_operations') {
+          const summary = (update as any).summary || [];
+          if (summary.length > 0) {
+            addEvent('list_operations', 'List modified', summary.join(' | '), 'plan');
+          }
         } else if (update.type === 'reasoning') {
           setStage(null);
           setMessages(prev => [...prev, {
@@ -407,6 +489,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
     explorationList,
     brain,
     stage,
+    eventLog,
     sendMessage,
     stopResearch,
     initializeSession: initializeNewSession

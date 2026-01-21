@@ -1,357 +1,299 @@
-# Swarm10
+# Swarm11 - Autonomous Research Agent
 
-An autonomous research agent platform that uses Claude Sonnet 4.5 with tool calling to conduct strategic research with tangible results. The agent autonomously searches the web, synthesizes findings, and delivers actionable intelligence.
+An autonomous research agent that uses AI SDK 6's `ToolLoopAgent` with strict tool ordering to conduct strategic research. The agent plans initiatives, searches the web, reflects on findings, and delivers actionable intelligence.
 
-## Features
+## Architecture Overview
 
-- **Orchestrator Agent**: Intelligent agent that decides when to ask clarifying questions, respond directly, or launch research
-- **Autonomous Research**: Multi-step research execution using ToolLoopAgent with adaptive strategy
-- **Smart Decision Making**: Routes between chat responses, clarification questions, and research based on message context
-- **Tavily Integration**: AI-powered web search with quality sources and citations
-- **Knowledge Vault**: Real-time accumulated research findings with timestamps
-- **Clean Chat UX**: Minimal timeline showing research process inline with user-centric results. No more bulky boxes or redundant icons.
-- **Credit System**: Pay-per-use model with Stripe integration (currently disabled for POC - free to use)
+```
+User Message
+    ↓
+Orchestrator Agent (Claude Sonnet 4.5)
+    ├─→ Chat Response (greetings)
+    ├─→ Ask Clarification (vague requests)
+    └─→ Start Research (clear objective)
+            ↓
+        Research Executor (GPT-4.1 + ToolLoopAgent)
+            ↓
+        plan() → search() → reflect() → [loop or finish()]
+            ↓
+        SSE Stream → UI (Event Log + Exploration List)
+```
 
-## Tech Stack
+### Why Two Models?
 
-- **Frontend**: Next.js 16, React 19, TypeScript, Tailwind CSS
-- **Authentication**: Clerk
-- **Database**: Neon PostgreSQL + Drizzle ORM
-- **AI**: Anthropic Claude Sonnet 4.5 with tool calling
-- **Research**: Tavily AI (web search with AI-generated answers)
-- **Payments**: Stripe (currently disabled for POC)
+| Model | Role | Why |
+|-------|------|-----|
+| **Claude Sonnet 4.5** | Orchestrator | Better at understanding intent, asking clarifying questions |
+| **GPT-4.1** | Research Executor | Better at following strict tool workflows, cheaper for loops |
 
-## Setup Instructions
+## Tool Flow (Strict Ordering)
 
-### 1. Clone and Install
+The research executor enforces a strict tool calling sequence using AI SDK 6's `prepareStep`:
+
+```
+┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────────────┐
+│  plan() │ ──→ │ search()│ ──→ │reflect()│ ──→ │ search() or     │
+└─────────┘     └─────────┘     └─────────┘     │ finish()        │
+                                                └─────────────────┘
+                                                        │
+                                                        ↓
+                                               hasToolCall('finish')
+                                                   stops loop
+```
+
+### Tools
+
+| Tool | Purpose | When Called |
+|------|---------|-------------|
+| `plan()` | Create 1-2 research initiatives | First, once |
+| `search()` | Web search via Tavily | After plan or reflect |
+| `reflect()` | Analyze findings, update initiatives | After every search |
+| `finish()` | Deliver final answer | When research complete |
+
+### Why This Flow?
+
+1. **plan()** forces the model to think before searching
+2. **reflect()** after every search prevents aimless searching
+3. **finish()** as explicit tool enables clean `hasToolCall('finish')` termination
+4. No shared mutable state - just tool calls and stop conditions
+
+## AI SDK 6 Patterns Used
+
+### 1. `hasToolCall()` for Clean Termination
+
+```typescript
+import { hasToolCall, stepCountIs } from 'ai';
+
+stopWhen: [hasToolCall('finish'), stepCountIs(100)]
+```
+
+**Why:** No shared mutable state. The `finish` tool is the completion signal.
+**Docs:** [hasToolCall Reference](https://ai-sdk.dev/docs/reference/ai-sdk-core/has-tool-call)
+
+### 2. `prepareStep()` for Tool Ordering
+
+```typescript
+prepareStep: async ({ steps }) => {
+  const lastTool = steps.flatMap(s => s.toolCalls || []).at(-1)?.toolName;
+
+  if (!hasPlan) return { activeTools: ['plan'], toolChoice: { type: 'tool', toolName: 'plan' } };
+  if (lastTool === 'search') return { activeTools: ['reflect'], toolChoice: { type: 'tool', toolName: 'reflect' } };
+  if (lastTool === 'plan') return { activeTools: ['search'], toolChoice: { type: 'tool', toolName: 'search' } };
+  if (lastTool === 'reflect') return { activeTools: ['search', 'finish'] }; // Model decides
+
+  return {};
+}
+```
+
+**Why:** Enforces plan→search→reflect cycle without callback spaghetti.
+**Docs:** [Loop Control](https://ai-sdk.dev/docs/agents/loop-control)
+
+### 3. `onStepFinish()` for Observability Only
+
+```typescript
+onStepFinish: async (step) => {
+  // Logging, persistence, progress events
+  // NOT for control flow
+}
+```
+
+**Why:** Control flow belongs in `prepareStep`. `onStepFinish` is for side effects.
+
+## File Structure
+
+```
+lib/
+├── agents/
+│   ├── orchestrator-chat-agent.ts   # Decision maker (Claude)
+│   └── research-executor-agent.ts   # Research loop (GPT-4.1 + ToolLoopAgent)
+├── tools/
+│   └── tavily-search.ts             # Web search tool
+└── utils/
+    └── research-memory.ts           # Brain/memory serialization
+
+hooks/
+└── useChatAgent.ts                  # React hook for SSE + state
+
+components/chat/
+├── ChatAgentView.tsx                # Main chat UI
+├── ExplorationList.tsx              # Research initiatives panel
+└── EventLog.tsx                     # Real-time event timeline
+
+app/api/chat/
+├── start/route.ts                   # Create session
+├── [id]/message/route.ts            # Send message (SSE)
+└── [id]/stop/route.ts               # Stop research
+```
+
+## Key Files Explained
+
+### `research-executor-agent.ts`
+
+The core research loop. Key sections:
+
+```typescript
+// Line ~586: Stop condition - no shared state needed
+stopWhen: [hasToolCall('finish'), stepCountIs(MAX_STEPS)],
+
+// Line ~590: Tool ordering via prepareStep
+prepareStep: async ({ steps }) => { ... }
+
+// Line ~524: finish() tool - completion signal
+const finishTool = tool({
+  description: 'Call when research is complete',
+  execute: async ({ confidenceLevel, finalAnswer }) => {
+    // Auto-complete remaining initiatives
+    // Emit final list state
+    return { confidenceLevel, finalAnswer };
+  }
+});
+```
+
+### `useChatAgent.ts`
+
+React hook managing:
+- SSE connection for real-time updates
+- Message state
+- Research progress (objective, successCriteria, outputFormat)
+- Exploration list state
+- Event log
+
+### `ExplorationList.tsx`
+
+Shows research brief + initiatives:
+- **Objective:** What we're researching
+- **Success:** What counts as done
+- **Format:** How to present results
+- **Progress:** Visual progress bar
+- **Initiatives:** Task tree with subtasks
+
+### `EventLog.tsx`
+
+Real-time event timeline:
+- Plan started/completed
+- Search queries executed
+- Reflect decisions
+- Phase changes
+
+## SSE Event Types
+
+```typescript
+type EventType =
+  | 'research_started'      // Research kicked off (includes full brief)
+  | 'plan_started'          // Creating initiatives
+  | 'plan_completed'        // Initiatives created
+  | 'search_started'        // Queries being executed
+  | 'search_completed'      // Results received
+  | 'reasoning_started'     // Analyzing findings
+  | 'reflect_completed'     // Decision made (continue/finish)
+  | 'list_updated'          // Exploration list changed
+  | 'list_operations'       // What changed (done, add, remove)
+  | 'synthesizing_started'  // Writing final answer
+  | 'research_complete'     // Done
+  | 'message'               // Chat message
+  | 'brain_update'          // Memory updated
+  | 'error';                // Error occurred
+```
+
+## Setup
+
+### 1. Install Dependencies
 
 ```bash
-cd swarm11
 npm install
 ```
 
-### 2. Set Up Clerk Authentication
+### 2. Environment Variables
 
-1. Go to [clerk.com](https://clerk.com) and create a new application
-2. Copy your publishable and secret keys
-3. Add to `.env.local`:
 ```bash
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
-CLERK_SECRET_KEY=sk_test_...
-```
+# .env.local
 
-### 3. Set Up Neon Database
+# Auth
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_...
+CLERK_SECRET_KEY=sk_...
 
-1. Go to [neon.tech](https://neon.tech) and create a new project
-2. Copy your connection string
-3. Add to `.env.local`:
-```bash
+# Database
 DATABASE_URL=postgresql://...
+
+# AI Models
+ANTHROPIC_API_KEY=sk-ant-...   # For orchestrator
+OPENAI_API_KEY=sk-...          # For research executor
+
+# Search
+TAVILY_API_KEY=tvly-...
 ```
 
-4. Generate and push database schema:
+### 3. Database
+
 ```bash
 npm run db:generate
 npm run db:push
 ```
 
-### 4. Set Up Anthropic API
-
-1. Go to [console.anthropic.com](https://console.anthropic.com)
-2. Create an API key
-3. Add to `.env.local`:
-```bash
-ANTHROPIC_API_KEY=sk-ant-...
-```
-
-### 5. Set Up Tavily AI
-
-1. Go to [tavily.com](https://tavily.com) and create an account
-2. Navigate to API settings and create an API key
-3. Add to `.env.local`:
-```bash
-TAVILY_API_KEY=tvly-...
-```
-
-### 6. Set Up Stripe
-
-1. Go to [stripe.com](https://stripe.com) and create an account
-2. Copy your publishable and secret keys from the dashboard
-3. Add to `.env.local`:
-```bash
-NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
-STRIPE_SECRET_KEY=sk_test_...
-```
-
-4. **Create Products and Prices** in Stripe Dashboard:
-   - Go to Products → Create product
-   - Create three products:
-     - **Starter**: $10 for 1000 credits
-     - **Pro**: $45 for 5000 credits
-     - **Enterprise**: $160 for 20000 credits
-   - Copy each price ID and add to `.env.local`:
-```bash
-STRIPE_PRICE_STARTER=price_...
-STRIPE_PRICE_PRO=price_...
-STRIPE_PRICE_ENTERPRISE=price_...
-```
-
-5. **Set Up Webhook**:
-   - For local testing, install Stripe CLI: `stripe listen --forward-to localhost:3000/api/webhooks/stripe`
-   - Copy the webhook signing secret and add to `.env.local`:
-```bash
-STRIPE_WEBHOOK_SECRET=whsec_...
-```
-   - For production, add webhook endpoint in Stripe Dashboard pointing to: `https://yourdomain.com/api/webhooks/stripe`
-   - Listen for event: `checkout.session.completed`
-
-### 7. Run the App
+### 4. Run
 
 ```bash
 npm run dev
 ```
 
-Visit `http://localhost:3000`
+## Tech Stack
 
-## How It Works
+| Layer | Technology |
+|-------|------------|
+| Framework | Next.js 15, React 19 |
+| AI | AI SDK 6, Claude Sonnet 4.5, GPT-4.1 |
+| Search | Tavily AI |
+| Database | Neon PostgreSQL + Drizzle |
+| Auth | Clerk |
+| Styling | Tailwind CSS |
 
-### Chat Orchestrator Flow
+## Design Decisions
 
-```
-User Message
-    ↓
-Orchestrator Chat Agent (Decision Maker)
-    ├─→ Chat Response (greetings only)
-    ├─→ Ask Clarification (vague requests - "I need customers")
-    └─→ Start Research (clear objective - "Find DevRel candidates")
-            ↓
-        Research Executor Agent (ToolLoopAgent)
-            ├─ Tavily search (natural language queries)
-            ├─ Reflect on results
-            ├─ Save findings to Knowledge Vault
-            └─ Loop up to 30 steps
-            ↓
-        Stream updates to chat (SSE)
-```
+### Why ToolLoopAgent over Custom Loop?
 
-### Orchestrator Decision Types
+We considered a custom loop but chose ToolLoopAgent because:
+1. Built-in streaming support
+2. Type-safe tool definitions
+3. `prepareStep` + `hasToolCall` provide clean control
+4. Less boilerplate for common patterns
 
-1. **`chat_response`**: Greetings only ("hi", "hello")
-2. **`ask_clarification`**: Ask ONE specific question when request is too vague
-   - Example: "I need customers" → "What product or service are you selling?"
-3. **`start_research`**: Confirm understanding and launch autonomous research
-   - Sends confirmation: "I'll research X. Looking for Y, Z, and W."
-   - Then starts research immediately
-   - Example: "Find DevRel candidates" → Confirmation → Research begins
+### Why `finish()` Tool Instead of Return Value?
 
-### Research Executor
-
-- **Autonomous Loop**: Unlimited depth research (up to 500 steps) using ToolLoopAgent - keeps going until truly exhaustive
-- **Tools Available**:
-  - `search(query)`: Natural language web search via Tavily (use full questions like "What are the best X?" NOT keywords like "best X")
-  - `reflect(keyFindings, evaluation, nextMove, reasoning)`: Required after every search - captures findings and decides next move (reasoning: one short sentence about next search, no labels, no repeating findings)
-  - `complete(...)`: Deliver final structured results
-- **Action-Oriented**: Focuses on what user can DO (not just information)
-- **Knowledge Vault**: Accumulates findings with timestamps in real-time
-
-### Architecture
-
-- **Chat Interface** (`/chat`): Clean UI showing only user messages and final answers
-- **Details Panel**: Side panel with Activity (queries/results) and Knowledge Vault tabs
-- **Orchestrator Agent**: Analyzes messages and routes to appropriate handler
-- **Research Executor**: Autonomous ToolLoopAgent that adapts strategy during research
-- **SSE Streaming**: Real-time updates for research progress (activity events)
-- **Tavily Search**: AI-powered web search with quality sources and citations
-
-### Credit System (Currently Disabled for POC)
-
-**All functionality is free during POC phase.** Credits are tracked but NOT deducted.
-
-**Planned costs:**
-- Orchestrator decision: ~20 credits (~1000 tokens)
-- Research per step: ~50-100 credits (varies by response length)
-- Tavily search: ~10 credits per search
-- Total per research: ~200-500 credits depending on complexity
-
-**Re-enable for production:**
-1. Uncomment `deductCredits()` in research-executor-agent.ts
-2. Add preflight credit check in message route
-3. Re-enable credit error handling
-
-Users get 5000 free credits on signup. Can purchase more via Stripe Checkout (when enabled).
-
-## Database Schema
-
-### users
 ```typescript
-{
-  id: uuid
-  clerkId: text
-  email: text
-  credits: integer
-  lifetimeCreditsUsed: integer
-  createdAt: timestamp
-  updatedAt: timestamp
-}
+// ❌ Before: Shared mutable state
+let researchComplete = false;
+onStepFinish: () => { researchComplete = true; }
+stopWhen: () => researchComplete && noToolCalls
+
+// ✅ After: Clean stop condition
+stopWhen: hasToolCall('finish')
 ```
 
-### chat_sessions
-```typescript
-{
-  id: uuid
-  userId: uuid (FK)
-  messages: jsonb (conversation history)
-  brain: text (accumulated research knowledge)
-  status: "active" | "researching" | "completed"
-  creditsUsed: integer
-  currentResearch: jsonb (active research state)
-  createdAt: timestamp
-  updatedAt: timestamp
-}
-```
+The `finish()` tool pattern is documented in AI SDK and avoids callback coordination.
 
-## API Routes
+### Why Strict Tool Ordering?
 
-### Chat
+Without ordering, the model might:
+- Search repeatedly without reflecting
+- Skip planning
+- Never call finish
 
-#### Start New Chat Session
-```
-POST /api/chat/start
-Response: {
-  sessionId: string
-  status: 'created'
-  message: string
-}
-```
+`prepareStep` with `toolChoice` enforcement guarantees the cycle.
 
-#### Send Message (SSE Stream)
-```
-POST /api/chat/[id]/message
-Body: { message: string }
-Response: Server-Sent Events stream with:
-  - type: 'analyzing' - Orchestrator analyzing message
-  - type: 'decision' - Decision made (chat_response/ask_clarification/start_research)
-  - type: 'message' - Chat message or clarification question
-  - type: 'research_started' - Research kicked off
-  - type: 'research_query' - Search query being executed
-  - type: 'search_result' - Results from Tavily with sources
-  - type: 'agent_thinking' - Reflections, findings saved
-  - type: 'brain_update' - Knowledge Vault updated
-  - type: 'complete' - Stream finished
-  - type: 'error' - Error occurred
-```
+### Why Auto-Complete Initiatives on Finish?
 
-#### Stop Research
-```
-POST /api/chat/[id]/stop
-Response: {
-  success: boolean
-}
-```
+The model might call `finish()` before marking all initiatives done. Rather than block this (which could cause loops), we auto-complete remaining items so the UI shows all checkmarks.
 
-### Credits & Billing
-- `GET /api/credits` - Get user credit balance
-- `POST /api/credits/purchase` - Create Stripe Checkout session
-- `POST /api/webhooks/stripe` - Handle Stripe webhooks
+## Links
 
-## Message Flow Examples
-
-### Example 1: Vague Request → Clarification
-```
-User: "I need customers"
-    ↓
-Orchestrator: ask_clarification
-    "I can help you find customers! What product or service are you selling?"
-    ↓
-User: "audio fact-checking platform"
-    ↓
-Orchestrator: start_research
-    researchObjective: "Find customers for audio fact-checking platform"
-    ↓
-Research Executor: [autonomous search loop]
-```
-
-### Example 2: Clear Request → Immediate Research
-```
-User: "Find DevRel candidates with 5+ years experience"
-    ↓
-Orchestrator: start_research
-    researchObjective: "Find Developer Relations candidates with 5+ years experience"
-    ↓
-Research Executor:
-    Step 1: search("Who are the top DevRel professionals in 2026?")
-    Step 2: reflect(evaluation, nextMove: narrow, reasoning)
-    Step 3: search("DevRel candidates available for hire 2026")
-    ...
-    Step N: complete(findings, actions, sources)
-```
-
-### Example 3: Greeting → Chat Response
-```
-User: "hi"
-    ↓
-Orchestrator: chat_response
-    "Hello! What would you like me to research?"
-```
-
-## Development
-
-### Database Commands
-
-```bash
-npm run db:generate  # Generate migrations from schema
-npm run db:push      # Push schema to database
-npm run db:studio    # Open Drizzle Studio
-```
-
-### Environment Variables
-
-All required variables are in `.env.local`:
-
-```bash
-# Clerk
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
-CLERK_SECRET_KEY=
-
-# Neon
-DATABASE_URL=
-
-# Anthropic
-ANTHROPIC_API_KEY=
-
-# Tavily AI
-TAVILY_API_KEY=
-
-# Stripe
-NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
-STRIPE_SECRET_KEY=
-STRIPE_WEBHOOK_SECRET=
-STRIPE_PRICE_STARTER=
-STRIPE_PRICE_PRO=
-STRIPE_PRICE_ENTERPRISE=
-
-# App
-NEXT_PUBLIC_APP_URL=http://localhost:3000
-```
-
-## Key Design Decisions
-
-1. **Separation of Concerns**: Orchestrator = decision maker (WHAT to do), Research Executor = execution engine (HOW to do it)
-2. **ToolLoopAgent**: Uses AI SDK's ToolLoopAgent for autonomous multi-step research
-3. **Action-Oriented Research**: Focuses on what user can DO, not just impressive-sounding info
-4. **Natural Language Queries**: Searches use full questions, not keywords
-5. **Clean Chat UX**: Only shows user messages and final answers; detailed activity in side panel
-6. **Knowledge Vault**: Accumulates findings with timestamps; supports multiple research sessions per chat
-7. **SSE Streaming**: Real-time progress updates without WebSocket complexity
-
-## Design Principles
-
-1. **User-Centric**: Ask clarifying questions when truly needed, focus on actionable results
-2. **Action-Oriented Research**: Research must lead to concrete next steps
-3. **Natural Interaction**: Use natural language queries, show reasoning and reflections
-4. **Transparency**: Make research process visible in Details panel, keep chat clean
+- [AI SDK 6 Docs](https://ai-sdk.dev)
+- [hasToolCall Reference](https://ai-sdk.dev/docs/reference/ai-sdk-core/has-tool-call)
+- [Loop Control](https://ai-sdk.dev/docs/agents/loop-control)
+- [prepareStep](https://ai-sdk.dev/docs/agents/building-agents)
+- [Tavily API](https://tavily.com)
+- [Neon](https://neon.tech)
+- [Clerk](https://clerk.com)
 
 ## License
 
 MIT
-# swarm11

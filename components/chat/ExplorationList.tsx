@@ -18,10 +18,12 @@ interface ExplorationItem {
 interface ExplorationListProps {
   list: ExplorationItem[] | null;
   objective?: string;
+  successCriteria?: string;
+  outputFormat?: string;
   className?: string;
 }
 
-export default function ExplorationList({ list, objective, className }: ExplorationListProps) {
+export default function ExplorationList({ list, objective, successCriteria, outputFormat, className }: ExplorationListProps) {
   if (!list || list.length === 0) {
     return null;
   }
@@ -62,21 +64,36 @@ export default function ExplorationList({ list, objective, className }: Explorat
   const progressPercent = Math.round((doneCount / totalCount) * 100);
 
   return (
-    <div className={cn("h-full flex flex-col", className)}>
+    <div className={cn("flex flex-col max-h-[50vh]", className)}>
       {/* Header */}
-      <div className="shrink-0 mb-6">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">
+      <div className="shrink-0 mb-4">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
           Research Initiatives
         </h2>
         {objective && (
-          <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-2">
-            {objective}
-          </p>
+          <div className="space-y-2 text-sm">
+            <div>
+              <span className="font-medium text-slate-700 dark:text-slate-300">Objective: </span>
+              <span className="text-slate-500 dark:text-slate-400">{objective}</span>
+            </div>
+            {successCriteria && (
+              <div>
+                <span className="font-medium text-slate-700 dark:text-slate-300">Success: </span>
+                <span className="text-slate-500 dark:text-slate-400">{successCriteria}</span>
+              </div>
+            )}
+            {outputFormat && (
+              <div>
+                <span className="font-medium text-slate-700 dark:text-slate-300">Format: </span>
+                <span className="text-slate-500 dark:text-slate-400">{outputFormat}</span>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
       {/* Progress */}
-      <div className="shrink-0 mb-6">
+      <div className="shrink-0 mb-4">
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
             Progress
@@ -203,14 +220,6 @@ export default function ExplorationList({ list, objective, className }: Explorat
         </AnimatePresence>
       </div>
 
-      {/* Footer hint */}
-      {doneCount < totalCount && (
-        <div className="shrink-0 pt-4 mt-4 border-t border-slate-100 dark:border-white/5">
-          <p className="text-xs text-slate-400 dark:text-slate-500 text-center">
-            Initiatives update automatically as research progresses
-          </p>
-        </div>
-      )}
-    </div>
+      </div>
   );
 }
