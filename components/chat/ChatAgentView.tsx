@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import SessionsSidebar from './SessionsSidebar';
+import ExplorationList from './ExplorationList';
 import {
   Send,
   StopCircle,
@@ -441,6 +442,7 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
     error,
     isResearching,
     researchProgress,
+    explorationList,
     sendMessage,
     stopResearch,
     initializeSession
@@ -635,7 +637,6 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
                     </div>
                   );
                 }
-
                 // Default Agent Message
                 return (
                   <div key={idx} className="flex items-start gap-4 animate-in fade-in slide-in-from-left-4 duration-500">
@@ -740,6 +741,16 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
           </p>
         </footer>
       </div>
+
+      {/* Right Column - Exploration List */}
+      {isResearching && explorationList && explorationList.length > 0 && (
+        <div className="w-72 border-l border-slate-200/60 dark:border-white/5 bg-slate-50/50 dark:bg-black/20 p-4 overflow-y-auto animate-in slide-in-from-right duration-300">
+          <ExplorationList
+            list={explorationList}
+            objective={researchProgress?.objective}
+          />
+        </div>
+      )}
     </div>
   );
 }

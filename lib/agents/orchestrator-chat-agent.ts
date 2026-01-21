@@ -7,6 +7,7 @@ export interface ResearchBrief {
   objective: string;
   stoppingConditions: string;
   successCriteria: string;
+  outputFormat?: string; // e.g., "table", "bullet list", "comparison", "summary"
 }
 
 export interface OrchestratorDecision {
@@ -54,7 +55,8 @@ export async function analyzeUserMessage(
       researchBrief: z.object({
         objective: z.string().describe('The core research question - what decision is the user trying to make?'),
         stoppingConditions: z.string().describe('When research is "good enough" (e.g., "3-5 qualified candidates", "clear market leader identified")'),
-        successCriteria: z.string().describe('What a good answer enables the user to DO (e.g., "send personalized outreach to top 3 candidates")')
+        successCriteria: z.string().describe('What a good answer enables the user to DO (e.g., "send personalized outreach to top 3 candidates")'),
+        outputFormat: z.string().optional().describe('Preferred format for the final answer. Infer from user request: "table"/"comparison table" for comparisons, "bullet list" for lists, "summary" for overviews, "detailed" for in-depth analysis. If not specified, leave empty.')
       }).optional().describe('Required for start_research. The structured brief for the research agent.'),
 
       reasoning: z.string().describe('Brief reasoning for your decision')
@@ -65,6 +67,7 @@ export async function analyzeUserMessage(
 You are the Orchestrator Agent.
 
 Your job is to gather all the information required for a research agent to act.
+We want to equip the research agent with information, so when he needs to make a decision during the research, he understand the essance of the goal, so he can make the best decision autonomously.
 You are not a researcher, strategist, or intake form.
 
 CORE RESPONSIBILITY:
@@ -73,9 +76,10 @@ If something is unclear, ask the user for clarification.
 and translate it into a clear research task and expected output.
 
 WHAT YOU MUST INFER (SILENTLY):
-- The user’s intent: why they want this researched?
+- The user's intent: why they want this researched?
 - The goal: what decision or action the research should support?
 - The expected output: what a useful result looks like (e.g. list, shortlist, comparison)
+- The preferred format: detect hints like "give me a table", "list", "compare", "summarize", "detailed breakdown"
 
 
 CORE PRINCIPLE: Resolve ambiguity once, then proceed.

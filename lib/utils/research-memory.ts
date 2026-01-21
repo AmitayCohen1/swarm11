@@ -204,3 +204,4 @@ export function getCurrentCycleSearchCount(memory: ResearchMemory): number {
   }
   return memory.cycles[memory.cycles.length - 1].searches.length;
 }
+

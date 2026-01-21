@@ -260,6 +260,7 @@ export async function POST(
                 userId: user.id,
                 researchBrief,
                 conversationHistory,
+                existingBrain: currentBrain,
                 onProgress: (update) => {
                   // Stream progress as structured events (UI can show/hide details)
                   if (update.type === 'brain_update') {
@@ -275,6 +276,8 @@ export async function POST(
                   } else if (update.type === 'agent_thinking' || update.type === 'reasoning_started' || update.type === 'synthesizing_started') {
                     sendEvent(update);
                   } else if (update.type === 'research_iteration') {
+                    sendEvent(update);
+                  } else if (update.type === 'plan_updated') {
                     sendEvent(update);
                   }
                 }

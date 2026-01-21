@@ -12,7 +12,8 @@ import {
   addSearchToMemory,
   completeCycle,
   startCycle,
-  hasQueryBeenRun
+  hasQueryBeenRun,
+  formatForOrchestrator
 } from '@/lib/utils/research-memory';
 import type { ResearchMemory, SearchResult } from '@/lib/types/research-memory';
 // import { deductCredits } from '@/lib/credits'; // POC: Disabled for free usage
@@ -29,6 +30,7 @@ interface ResearchExecutorConfig {
   userId: string;
   researchBrief: ResearchBrief;
   conversationHistory?: any[];
+  existingBrain?: string;
   onProgress?: (update: any) => void;
   abortSignal?: AbortSignal;
 }
@@ -44,6 +46,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     userId,
     researchBrief,
     conversationHistory = [],
+    existingBrain = '',
     onProgress,
     abortSignal
   } = config;
@@ -77,21 +80,17 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   });
 
   const reflectionTool = tool({
-    description: 'MANDATORY after every search. Synthesize results, update hypotheses, decide next action.',
+    description: 'MANDATORY after every search. Analyze results, update the exploration list, mark done when finished.',
     inputSchema: z.object({
-      materialChange: z.string().describe('What materially changed in your understanding from this batch?'),
-      hypotheses: z.string().describe('Which hypotheses were strengthened, weakened, or discarded?'),
-      keyFindings: z.string().describe('Concrete discoveries: names, companies, numbers, contacts (be specific)'),
-      nextMove: z.enum(['narrow', 'pivot', 'stop']).describe('narrow: focus on strongest signals. pivot: change direction. stop: sufficient confidence reached.'),
-      nextAction: z.string().describe('If not stopping, what specific queries will you run next and why?')
+      learned: z.string().describe('What did we learn from this search? Be specific: names, numbers, facts.'),
+      list: z.array(z.string()).min(0).max(10).describe('Updated exploration list - things still to investigate. Add new items discovered, remove completed ones. Empty list or done=true means research complete.'),
+      done: z.boolean().describe('Set to true when research is complete and you have enough to answer the objective.')
     }),
-    execute: async ({ materialChange, hypotheses, keyFindings, nextMove, nextAction }) => {
-      // Send synthesis to UI
+    execute: async ({ learned, list, done }) => {
+      // Send list update to UI
       onProgress?.({
-        type: 'agent_thinking',
-        materialChange,
-        hypotheses,
-        nextAction
+        type: 'list_updated',
+        list
       });
 
       // Load current memory from brain
@@ -114,16 +113,14 @@ export async function executeResearch(config: ResearchExecutorConfig) {
       }
 
       // Complete the current cycle with learnings
-      // learned = material change + key findings
-      // nextStep = nextAction (what to do next)
-      const learned = `${materialChange}\n\nKey findings: ${keyFindings}`;
-      const nextStep = nextMove === 'stop' ? 'stop' : nextAction;
+      memory = completeCycle(memory, learned, done ? 'done' : 'continue');
 
-      memory = completeCycle(memory, learned, nextStep);
+      // Save current exploration list
+      memory.explorationList = list;
 
-      // If not stopping, start a new cycle for the next round
-      if (nextMove !== 'stop') {
-        memory = startCycle(memory, nextAction);
+      // If not done, start a new cycle
+      if (!done && list.length > 0) {
+        memory = startCycle(memory, list[0]); // Next cycle intent = first item
         cycleCounter++;
       }
 
@@ -137,16 +134,15 @@ export async function executeResearch(config: ResearchExecutorConfig) {
       onProgress?.({ type: 'brain_update', brain: serializedBrain });
 
       // Signal completion to stop the loop
-      if (nextMove === 'stop') {
+      if (done || list.length === 0) {
         onProgress?.({ type: 'synthesizing_started' });
         return {
           acknowledged: true,
-          direction: nextMove,
           shouldStop: true
         };
       }
 
-      return { acknowledged: true, direction: nextMove };
+      return { acknowledged: true };
     }
   });
 
@@ -173,7 +169,16 @@ ${researchBrief.stoppingConditions}
 
 SUCCESS CRITERIA:
 ${researchBrief.successCriteria}
+${researchBrief.outputFormat ? `\nPREFERRED OUTPUT FORMAT:\n${researchBrief.outputFormat}` : ''}
+${existingBrain ? `
+═══════════════════════════════════════════════════════════════
+PREVIOUS RESEARCH IN THIS SESSION
+═══════════════════════════════════════════════════════════════
 
+${formatForOrchestrator(parseResearchMemory(existingBrain), 1500)}
+
+Use this context. Don't repeat searches that already ran. Build on existing findings.
+` : ''}
 ═══════════════════════════════════════════════════════════════
 OPERATING PRINCIPLES
 ═══════════════════════════════════════════════════════════════
@@ -201,22 +206,30 @@ search({queries}):
 • Each query: {query: "full question", purpose: "what this tests"}
 • Tool waits for all queries to complete before returning
 
-reflect({...}):
-• Call after each search() to analyze results
-• Decide: narrow (focus), pivot (change direction), or stop
+reflect({learned, list, done}):
+• MANDATORY after each search()
+• learned: What did you learn from this search?
+• list: Your exploration list - things still to investigate
+  - Remove items you've completed
+  - Add new items you discovered
+  - Reorder by priority
+• done: Set true when you have enough to answer the objective
 
-CYCLE: search() → reflect() → search() → reflect() → ... → stop
+CYCLE: search() → reflect(update list) → search() → reflect(update list) → ... → done
 
 ═══════════════════════════════════════════════════════════════
-MANDATORY SYNTHESIS (after every batch)
+EXPLORATION LIST
 ═══════════════════════════════════════════════════════════════
 
-After each batch, you MUST call reflect() with:
-• materialChange: What materially changed in your understanding?
-• hypotheses: Which hypotheses were strengthened, weakened, or discarded?
-• keyFindings: Concrete discoveries - put ALL findings here
-• nextMove: narrow | pivot | stop
-• nextAction: What specific queries will you run next and why? (if not stopping)
+You maintain a dynamic list of things to investigate. Example:
+  ["Check podcast listener counts", "Verify 2024 activity", "Find host backgrounds"]
+
+After each search, update the list:
+• Remove completed items
+• Add new leads you discovered
+• Keep it focused (max 10 items)
+
+When the list is empty or you have enough info, set done=true.
 
 ═══════════════════════════════════════════════════════════════
 CHANGE & TIMING SIGNALS
@@ -241,6 +254,8 @@ OUTPUT REQUIREMENTS
 • Explain why each finding matters
 • Explicitly flag weak signals, assumptions, and contradictions
 • If the brief cannot be satisfied, specify exactly which signal is missing
+• If a preferred format was specified, use it (table, bullet list, etc.)
+• Default: use the format that best fits the data (tables for comparisons, lists for options)
 
 ═══════════════════════════════════════════════════════════════
 CONSTRAINTS
@@ -250,8 +265,8 @@ CONSTRAINTS
 • Your success is measured by how clearly a decision can be made from your output
 
 TOOLS:
-• search(queries): 1-5 queries run in parallel. Each needs {query, purpose}.
-• reflect(...): MANDATORY after every search. Synthesize and decide: narrow | pivot | stop.
+• search(queries): 1-3 queries run in parallel. Each needs {query, purpose}.
+• reflect(learned, list, done): MANDATORY after every search. Update exploration list. Set done=true when finished.
 • askUser(question, options): Only if genuinely blocked.
 
 ═══════════════════════════════════════════════════════════════
@@ -406,7 +421,13 @@ CRITICAL: Use FULL natural language questions.
 ✅ Good: "What are the most popular finance podcasts in 2024?"
 ❌ Bad: "finance podcasts 2024"
 
-Begin with search() using 1 query. Each query needs {query, purpose}. After results, call reflect() to reason about findings before searching again.`
+Begin with search() using 1-3 queries. Each query needs {query, purpose}.
+After results, call reflect() with:
+- learned: what you discovered
+- list: things still to investigate (your exploration todo list)
+- done: false (until you have enough to answer the objective)
+
+Keep the list updated each cycle - remove completed items, add new discoveries.`
     });
 
     // Structured output from AI SDK 6 - typed by ResearchOutputSchema
