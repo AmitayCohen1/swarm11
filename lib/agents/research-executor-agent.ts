@@ -123,31 +123,41 @@ export async function executeResearch(config: ResearchExecutorConfig) {
 
       onProgress?.({ type: 'brain_update', brain: serializedBrain });
 
-      return { acknowledged: true, list };
+      // Return numbered list for agent context (first pending = ACTIVE)
+      let firstPendingFound = false;
+      const lines: string[] = [];
+      for (let idx = 0; idx < list.length; idx++) {
+        const item = list[idx];
+        let status = item.done ? 'done' : (!firstPendingFound ? (firstPendingFound = true, 'ACTIVE') : 'pending');
+        lines.push(`${idx}. ${item.item} [${status}]`);
+        if (item.subtasks) {
+          for (let subIdx = 0; subIdx < item.subtasks.length; subIdx++) {
+            const sub = item.subtasks[subIdx];
+            let subStatus = sub.done ? 'done' : (!firstPendingFound ? (firstPendingFound = true, 'ACTIVE') : 'pending');
+            lines.push(`   ${idx}.${subIdx} ${sub.item} [${subStatus}]`);
+          }
+        }
+      }
+      return { acknowledged: true, currentList: lines.join('\n') };
     }
   });
 
   const reflectionTool = tool({
-    description: 'MANDATORY after every search. Analyze results, update the exploration list, mark done when finished.',
+    description: 'MANDATORY after every search. Analyze results, update the exploration list. Use dot notation for subtasks (e.g., "0.1").',
     inputSchema: z.object({
       learned: z.string().describe('What did we learn from this search? Be specific: names, numbers, facts.'),
-      list: z.array(z.object({
-        item: z.string().describe('Short description'),
-        done: z.boolean().describe('Mark true when completed')
-      })).describe('Updated exploration list - mark items done when completed, add new discoveries.'),
+      operations: z.array(z.object({
+        action: z.enum(['done', 'remove', 'add']).describe('What to do'),
+        target: z.union([z.number(), z.string()]).describe('Index: number for top-level (0, 1), string for subtask ("0.0", "0.1")'),
+        item: z.string().optional().describe('Required for "add" action - the item text')
+      })).optional().describe('List operations. Examples: {action:"done",target:0}, {action:"add",target:"0.1",item:"New subtask"}'),
       done: z.boolean().describe('Set to true when research is complete and you have enough to answer the objective.')
     }),
-    execute: async ({ learned, list, done }) => {
+    execute: async ({ learned, operations, done }) => {
       // Send reasoning to UI
       onProgress?.({
         type: 'reasoning',
         learned
-      });
-
-      // Send list update to UI
-      onProgress?.({
-        type: 'list_updated',
-        list
       });
 
       // Load current memory from brain
@@ -169,6 +179,86 @@ export async function executeResearch(config: ResearchExecutorConfig) {
         };
       }
 
+      // Deep clone to avoid mutation issues
+      let list = JSON.parse(JSON.stringify(memory.explorationList || []));
+
+      // Helper to parse target (number or "0.1" string)
+      const parseTarget = (target: number | string): { parent: number; sub?: number } => {
+        if (typeof target === 'number') return { parent: target };
+        const parts = String(target).split('.');
+        return { parent: parseInt(parts[0]), sub: parts[1] !== undefined ? parseInt(parts[1]) : undefined };
+      };
+
+      // Process operations in order (agent controls the sequence)
+      if (operations && operations.length > 0) {
+        // Group by action type and process: remove first, then done, then add
+        const removes = operations.filter(op => op.action === 'remove');
+        const dones = operations.filter(op => op.action === 'done');
+        const adds = operations.filter(op => op.action === 'add');
+
+        // Process removes (reverse order to preserve indices)
+        const sortedRemoves = [...removes].sort((a, b) => {
+          const pa = parseTarget(a.target);
+          const pb = parseTarget(b.target);
+          if (pa.parent !== pb.parent) return pb.parent - pa.parent;
+          return (pb.sub ?? -1) - (pa.sub ?? -1);
+        });
+        for (const op of sortedRemoves) {
+          const { parent, sub } = parseTarget(op.target);
+          if (sub !== undefined) {
+            // Remove subtask
+            if (list[parent]?.subtasks && sub >= 0 && sub < list[parent].subtasks.length) {
+              list[parent].subtasks.splice(sub, 1);
+            }
+          } else {
+            // Remove top-level
+            if (parent >= 0 && parent < list.length) {
+              list.splice(parent, 1);
+            }
+          }
+        }
+
+        // Process dones
+        for (const op of dones) {
+          const { parent, sub } = parseTarget(op.target);
+          if (sub !== undefined) {
+            // Mark subtask done
+            if (list[parent]?.subtasks?.[sub]) {
+              list[parent].subtasks[sub].done = true;
+            }
+          } else {
+            // Mark top-level done
+            if (list[parent]) {
+              list[parent].done = true;
+            }
+          }
+        }
+
+        // Process adds
+        for (const op of adds) {
+          if (!op.item) continue;
+          const { parent, sub } = parseTarget(op.target);
+          if (sub !== undefined) {
+            // Add subtask
+            if (list[parent]) {
+              if (!list[parent].subtasks) list[parent].subtasks = [];
+              const insertAt = Math.min(Math.max(0, sub), list[parent].subtasks.length);
+              list[parent].subtasks.splice(insertAt, 0, { item: op.item, done: false });
+            }
+          } else {
+            // Add top-level
+            const insertAt = Math.min(Math.max(0, parent), list.length);
+            list.splice(insertAt, 0, { item: op.item, done: false });
+          }
+        }
+      }
+
+      // Send list update to UI
+      onProgress?.({
+        type: 'list_updated',
+        list
+      });
+
       // Complete the current cycle with learnings
       memory = completeCycle(memory, learned, done ? 'done' : 'continue');
 
@@ -178,7 +268,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
       // If not done, start a new cycle
       const pendingItems = list.filter(i => !i.done);
       if (!done && pendingItems.length > 0) {
-        memory = startCycle(memory, pendingItems[0].item); // Next cycle intent = first pending item
+        memory = startCycle(memory, pendingItems[0].item);
         cycleCounter++;
       }
 
@@ -191,16 +281,58 @@ export async function executeResearch(config: ResearchExecutorConfig) {
 
       onProgress?.({ type: 'brain_update', brain: serializedBrain });
 
+      // Return current list state for agent context (numbered, with active marker and subtasks)
+      let firstPendingFound = false;
+      const lines: string[] = [];
+
+      for (let idx = 0; idx < list.length; idx++) {
+        const item = list[idx];
+        let status = 'pending';
+        if (item.done) {
+          status = 'done';
+        } else if (!firstPendingFound) {
+          // Check if there's a pending subtask first
+          const hasPendingSubtask = item.subtasks?.some((s: any) => !s.done);
+          if (!hasPendingSubtask) {
+            firstPendingFound = true;
+            status = 'ACTIVE';
+          } else {
+            status = 'pending';
+          }
+        }
+        lines.push(`${idx}. ${item.item} [${status}]`);
+
+        // Add subtasks
+        if (item.subtasks && item.subtasks.length > 0) {
+          for (let subIdx = 0; subIdx < item.subtasks.length; subIdx++) {
+            const sub = item.subtasks[subIdx];
+            let subStatus = 'pending';
+            if (sub.done) {
+              subStatus = 'done';
+            } else if (!firstPendingFound) {
+              firstPendingFound = true;
+              subStatus = 'ACTIVE';
+            }
+            lines.push(`   ${idx}.${subIdx} ${sub.item} [${subStatus}]`);
+          }
+        }
+      }
+      const listState = lines.join('\n');
+
       // Signal completion to stop the loop
-      if (done || list.length === 0) {
+      if (done || pendingItems.length === 0) {
         onProgress?.({ type: 'synthesizing_started' });
         return {
           acknowledged: true,
-          shouldStop: true
+          shouldStop: true,
+          currentList: listState
         };
       }
 
-      return { acknowledged: true };
+      return {
+        acknowledged: true,
+        currentList: listState
+      };
     }
   });
 
@@ -262,32 +394,47 @@ TOOLS
 
 plan({list}):
 • CALL FIRST before any searches
-• Set your initial exploration list
-• What do you plan to investigate to answer the objective?
+• Start with just 1-2 items - you're autonomous, add more as you discover
+• Don't try to plan everything upfront - the list grows organically
 
 search({queries}):
 • Takes 1-3 queries, runs them in parallel
 • Each query: {query: "full question", purpose: "what this tests"}
 
-reflect({learned, list, done}):
+reflect({learned, operations?, done}):
 • MANDATORY after each search()
-• learned: What did you learn?
-• list: Updated exploration list (remove done items, add new discoveries)
+• learned: What did you learn? Be specific.
+• operations: Array of {action, target, item?} - see below
 • done: Set true when you have enough to answer
 
 CYCLE: plan() → search() → reflect() → search() → reflect() → ... → done
 
 ═══════════════════════════════════════════════════════════════
-EXPLORATION LIST
+EXPLORATION LIST (WITH SUBTASKS)
 ═══════════════════════════════════════════════════════════════
 
-You maintain a dynamic list of things to investigate.
+You are AUTONOMOUS. Start small, discover as you go.
 
-1. Start with plan() - declare what you want to explore
-2. After each search, update via reflect():
-   • Remove completed items
-   • Add new leads discovered
-3. When list is empty or you have enough, set done=true
+• Start with 1-2 items max - don't front-load the list
+• Each search reveals new leads - add them then
+• Use subtasks to group related explorations under a theme
+• First pending item/subtask = ACTIVE
+
+STRUCTURE:
+  0. Pain points [pending]
+     0.0 Media landscape [ACTIVE]
+     0.1 Podcasts [pending]
+  1. Solutions [pending]
+
+OPERATIONS (unified format):
+  {action: "done", target: 0}           → mark item 0 done
+  {action: "done", target: "0.1"}       → mark subtask 0.1 done
+  {action: "remove", target: 1}         → remove item 1
+  {action: "remove", target: "0.0"}     → remove subtask 0.0
+  {action: "add", target: 2, item: "X"} → add item at position 2
+  {action: "add", target: "0.2", item: "X"} → add subtask under item 0
+
+Operations apply in order: remove → done → add
 
 ═══════════════════════════════════════════════════════════════
 CHANGE & TIMING SIGNALS
@@ -323,9 +470,9 @@ CONSTRAINTS
 • Your success is measured by how clearly a decision can be made from your output
 
 TOOLS:
-• plan(list): CALL FIRST. Set initial exploration list.
+• plan(list): CALL FIRST. Set initial exploration list (1-2 items).
 • search(queries): Run queries in parallel. Each needs {query, purpose}.
-• reflect(learned, list, done): MANDATORY after search. Update list. Set done=true when finished.
+• reflect(learned, operations?, done): MANDATORY after search. Use operations array for list changes.
 • askUser(question, options): Only if genuinely blocked.
 
 ═══════════════════════════════════════════════════════════════
@@ -476,7 +623,7 @@ Uncertainty is a valid output.
     const result = await agent.generate({
       prompt: `${contextPrompt}Execute the research brief above.
 
-START by calling plan() with your initial exploration list.
+START by calling plan() with just 1-2 items. You're autonomous - add more as you discover.
 
 Then run cycles of: search() → reflect()
 
@@ -484,7 +631,10 @@ CRITICAL: Use FULL natural language questions in search.
 ✅ Good: "What are the most popular finance podcasts in 2024?"
 ❌ Bad: "finance podcasts 2024"
 
-Update the list each reflect - remove completed items, add new discoveries.
+In reflect, use operations array:
+  {action: "done", target: 0}              → mark item done
+  {action: "add", target: "0.0", item: "X"} → add subtask
+
 Set done=true when you have enough to answer the objective.`
     });
 

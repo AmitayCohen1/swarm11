@@ -60,6 +60,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
     iteration?: number;
   }>({});
   const [brain, setBrain] = useState<string>('');
+  const [stage, setStage] = useState<'searching' | 'reflecting' | 'synthesizing' | null>(null);
   const [explorationList, setExplorationList] = useState<{ item: string; done: boolean }[] | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -143,6 +144,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
     setIsResearching(false);
     setResearchProgress({});
     setExplorationList(null);
+    setStage(null);
 
     // Add user message to UI immediately
     const newUserMessage: Message = {
@@ -191,6 +193,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
             iteration: 0
           });
         } else if (update.type === 'search_started') {
+          setStage('searching');
           const queries = (update as any).queries.map((q: any) => ({
             query: q.query,
             purpose: q.purpose,
@@ -216,6 +219,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
             }];
           });
         } else if (update.type === 'search_completed') {
+          setStage(null);
           const completedQueries = (update as any).queries || [];
           pendingBatchRef.current = null;
 
@@ -271,39 +275,9 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
             }
           }]);
         } else if (update.type === 'reasoning_started') {
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: '',
-            timestamp: new Date().toISOString(),
-            metadata: { type: 'reasoning_started' }
-          }]);
+          setStage('reflecting');
         } else if (update.type === 'synthesizing_started') {
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: '',
-            timestamp: new Date().toISOString(),
-            metadata: { type: 'synthesizing_started' }
-          }]);
-        } else if (update.type === 'agent_thinking') {
-          setMessages(prev => {
-            const reasoningIdx = prev.findLastIndex(m => m.metadata?.type === 'reasoning_started');
-            if (reasoningIdx !== -1) {
-              const newMessages = [...prev];
-              newMessages[reasoningIdx] = {
-                role: 'assistant',
-                content: '',
-                timestamp: new Date().toISOString(),
-                metadata: { ...update }
-              };
-              return newMessages;
-            }
-            return [...prev, {
-              role: 'assistant',
-              content: '',
-              timestamp: new Date().toISOString(),
-              metadata: { ...update }
-            }];
-          });
+          setStage('synthesizing');
         } else if (update.type === 'research_iteration') {
           setMessages(prev => [...prev, {
             role: 'assistant',
@@ -323,7 +297,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
         } else if (update.type === 'list_updated') {
           setExplorationList(update.list || null);
         } else if (update.type === 'reasoning') {
-          // Add reasoning to chat
+          setStage(null);
           setMessages(prev => [...prev, {
             role: 'assistant',
             content: '',
@@ -341,10 +315,12 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
         } else if (update.type === 'complete') {
           setStatus('ready');
           setIsResearching(false);
+          setStage(null);
         } else if (update.type === 'error') {
           setError(update.message || 'An error occurred');
           setStatus('error');
           setIsResearching(false);
+          setStage(null);
         }
       };
 
@@ -430,6 +406,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
     researchProgress,
     explorationList,
     brain,
+    stage,
     sendMessage,
     stopResearch,
     initializeSession: initializeNewSession

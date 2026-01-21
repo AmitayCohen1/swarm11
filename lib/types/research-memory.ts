@@ -21,6 +21,7 @@ export interface ResearchCycle {
 export interface ExplorationItem {
   item: string;
   done: boolean;
+  subtasks?: { item: string; done: boolean }[];
 }
 
 export interface ResearchMemory {

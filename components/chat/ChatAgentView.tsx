@@ -18,10 +18,8 @@ import {
   Sun,
   User,
   Search,
-  Activity,
   PenLine,
   Check,
-  ArrowRight,
   Globe,
   Brain,
   MessageSquare,
@@ -312,34 +310,6 @@ function ResearchQuery({ msg }: { msg: any }) {
 }
 
 /**
- * Component for reasoning/thinking indicator
- */
-function ReasoningIndicator() {
-  return (
-    <div className="group relative pl-11 py-2 animate-in fade-in duration-300">
-      <div className="absolute left-3.5 top-0 bottom-0 w-px bg-slate-200 dark:bg-white/10 group-last:bg-transparent" />
-      <div className="absolute left-[9px] top-3 w-2.5 h-2.5 rounded-full border-2 border-purple-300 dark:border-purple-500/40 bg-white dark:bg-[#0a0a0a] animate-pulse" />
-
-      <div className="p-4 rounded-2xl bg-gradient-to-br from-purple-50/50 to-indigo-50/50 dark:from-purple-500/5 dark:to-indigo-500/5 border border-purple-100/50 dark:border-purple-500/10 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="w-5 h-5 rounded-md bg-purple-100 dark:bg-purple-500/20 flex items-center justify-center shrink-0">
-            <Brain className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 animate-pulse" />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-purple-700 dark:text-purple-300 text-base font-medium">Reasoning</span>
-            <span className="flex gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-purple-400 dark:bg-purple-500 animate-bounce" style={{ animationDelay: '0ms' }} />
-              <span className="w-1.5 h-1.5 rounded-full bg-purple-400 dark:bg-purple-500 animate-bounce" style={{ animationDelay: '150ms' }} />
-              <span className="w-1.5 h-1.5 rounded-full bg-purple-400 dark:bg-purple-500 animate-bounce" style={{ animationDelay: '300ms' }} />
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
  * Component for displaying agent reasoning/learned content
  */
 function ReasoningContent({ learned }: { learned: string }) {
@@ -363,93 +333,7 @@ function ReasoningContent({ learned }: { learned: string }) {
   );
 }
 
-/**
- * Component for synthesizing/final answer indicator
- */
-function SynthesizingIndicator() {
-  return (
-    <div className="group relative pl-11 py-2 animate-in fade-in duration-300">
-      <div className="absolute left-3.5 top-0 bottom-0 w-px bg-slate-200 dark:bg-white/10 group-last:bg-transparent" />
-      <div className="absolute left-[9px] top-3 w-2.5 h-2.5 rounded-full border-2 border-emerald-300 dark:border-emerald-500/40 bg-white dark:bg-[#0a0a0a] animate-pulse" />
 
-      <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-50/50 to-teal-50/50 dark:from-emerald-500/5 dark:to-teal-500/5 border border-emerald-100/50 dark:border-emerald-500/10 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="w-5 h-5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center shrink-0">
-            <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 animate-pulse" />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-emerald-700 dark:text-emerald-300 text-base font-medium">Synthesizing findings</span>
-            <span className="flex gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 dark:bg-emerald-500 animate-bounce" style={{ animationDelay: '0ms' }} />
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 dark:bg-emerald-500 animate-bounce" style={{ animationDelay: '150ms' }} />
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 dark:bg-emerald-500 animate-bounce" style={{ animationDelay: '300ms' }} />
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Component for agent thinking steps
- */
-function AgentThinking({ msg }: { msg: any }) {
-  const hasContent = msg.metadata.review || msg.metadata.next || msg.metadata.thinking ||
-                     msg.metadata.materialChange || msg.metadata.keyFindings;
-
-  if (!hasContent) return null;
-
-  return (
-    <div className="group relative pl-11 py-2 animate-in fade-in duration-500">
-      <div className="absolute left-3.5 top-0 bottom-0 w-px bg-slate-200 dark:bg-white/10 group-last:bg-transparent" />
-      <div className="absolute left-[9px] top-3 w-2.5 h-2.5 rounded-full border-2 border-blue-300 dark:border-blue-500/40 bg-white dark:bg-[#0a0a0a]" />
-
-      <div className="p-4 rounded-2xl bg-linear-to-br from-blue-50/50 to-indigo-50/50 dark:from-blue-500/5 dark:to-indigo-500/5 border border-blue-100/50 dark:border-blue-500/10 shadow-sm space-y-3">
-        {msg.metadata.materialChange && (
-          <div className="flex items-start gap-3">
-            <div className="w-5 h-5 rounded-md bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center shrink-0 mt-0.5">
-              <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-            </div>
-            <p className="text-slate-700 dark:text-slate-200 text-base leading-relaxed">{msg.metadata.materialChange}</p>
-          </div>
-        )}
-        {msg.metadata.keyFindings && (
-          <div className="flex items-start gap-3">
-            <div className="w-5 h-5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
-              <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-            </div>
-            <p className="text-slate-700 dark:text-slate-200 text-base leading-relaxed">{msg.metadata.keyFindings}</p>
-          </div>
-        )}
-        {msg.metadata.review && (
-          <div className="flex items-start gap-3">
-            <div className="w-5 h-5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
-              <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-            </div>
-            <p className="text-slate-700 dark:text-slate-200 text-base leading-relaxed">{msg.metadata.review}</p>
-          </div>
-        )}
-        {msg.metadata.next && (
-          <div className="flex items-start gap-3">
-            <div className="w-5 h-5 rounded-md bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
-              <ArrowRight className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-            </div>
-            <p className="text-slate-500 dark:text-slate-400 text-base leading-relaxed italic">{msg.metadata.next}</p>
-          </div>
-        )}
-        {msg.metadata.thinking && !msg.metadata.review && (
-          <div className="flex items-start gap-3">
-            <div className="w-5 h-5 rounded-md bg-slate-100 dark:bg-white/10 flex items-center justify-center shrink-0 mt-0.5">
-              <Brain className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-            </div>
-            <p className="text-slate-700 dark:text-slate-200 text-base leading-relaxed">{msg.metadata.thinking}</p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // --- Main Component ---
 
@@ -467,6 +351,7 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
     isResearching,
     researchProgress,
     explorationList,
+    stage,
     sendMessage,
     stopResearch,
     initializeSession
@@ -608,16 +493,7 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
                 if (msg.metadata?.type === 'research_query') {
                   return <ResearchQuery key={idx} msg={msg} />;
                 }
-                if (msg.metadata?.type === 'reasoning_started') {
-                  return <ReasoningIndicator key={idx} />;
-                }
-                if (msg.metadata?.type === 'synthesizing_started') {
-                  return <SynthesizingIndicator key={idx} />;
-                }
-                if (msg.metadata?.type === 'agent_thinking') {
-                  return <AgentThinking key={idx} msg={msg} />;
-                }
-                if (msg.metadata?.type === 'reasoning') {
+                                if (msg.metadata?.type === 'reasoning') {
                   return <ReasoningContent key={idx} learned={msg.metadata.learned || ''} />;
                 }
                 if (msg.metadata?.type === 'ask_user' || msg.metadata?.type === 'multi_choice_select') {
@@ -685,6 +561,32 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
                     <div className="h-4 bg-slate-100 dark:bg-white/5 rounded-full w-24 mb-2" />
                     <div className="h-3 bg-slate-100 dark:bg-white/5 rounded-full w-48 opacity-50" />
                   </div>
+                </div>
+              )}
+
+              {/* Stage Indicator */}
+              {stage && (
+                <div className="flex items-center gap-3 py-3 animate-in fade-in duration-300">
+                  <div className={cn(
+                    "w-8 h-8 rounded-xl flex items-center justify-center shrink-0",
+                    stage === 'searching' && "bg-blue-100 dark:bg-blue-500/20",
+                    stage === 'reflecting' && "bg-purple-100 dark:bg-purple-500/20",
+                    stage === 'synthesizing' && "bg-emerald-100 dark:bg-emerald-500/20"
+                  )}>
+                    {stage === 'searching' && <Search className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-pulse" />}
+                    {stage === 'reflecting' && <Brain className="w-4 h-4 text-purple-600 dark:text-purple-400 animate-pulse" />}
+                    {stage === 'synthesizing' && <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 animate-pulse" />}
+                  </div>
+                  <span className={cn(
+                    "text-sm font-medium",
+                    stage === 'searching' && "text-blue-600 dark:text-blue-400",
+                    stage === 'reflecting' && "text-purple-600 dark:text-purple-400",
+                    stage === 'synthesizing' && "text-emerald-600 dark:text-emerald-400"
+                  )}>
+                    {stage === 'searching' && "Searching..."}
+                    {stage === 'reflecting' && "Reflecting..."}
+                    {stage === 'synthesizing' && "Writing answer..."}
+                  </span>
                 </div>
               )}
 
