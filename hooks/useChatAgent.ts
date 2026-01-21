@@ -29,8 +29,8 @@ interface ProgressUpdate {
   answer?: string;
   sources?: any[];
   toolName?: string;
-  list?: { item: string; done: boolean }[];
-  learned?: string;
+  list?: { item: string; done: boolean; subtasks?: { item: string; done: boolean }[] }[];
+  reflection?: string;
   action?: string;
   category?: string;
   findings?: string;
@@ -61,7 +61,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
   }>({});
   const [brain, setBrain] = useState<string>('');
   const [stage, setStage] = useState<'searching' | 'reflecting' | 'synthesizing' | null>(null);
-  const [explorationList, setExplorationList] = useState<{ item: string; done: boolean }[] | null>(null);
+  const [explorationList, setExplorationList] = useState<{ item: string; done: boolean; subtasks?: { item: string; done: boolean }[] }[] | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -302,7 +302,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
             role: 'assistant',
             content: '',
             timestamp: new Date().toISOString(),
-            metadata: { type: 'reasoning', learned: update.learned }
+            metadata: { type: 'reasoning', reflection: update.reflection }
           }]);
         } else if (update.type === 'message') {
           const assistantMessage: Message = {

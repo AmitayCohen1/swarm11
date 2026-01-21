@@ -310,9 +310,9 @@ function ResearchQuery({ msg }: { msg: any }) {
 }
 
 /**
- * Component for displaying agent reasoning/learned content
+ * Component for displaying agent reflection (what we learned + what to do next)
  */
-function ReasoningContent({ learned }: { learned: string }) {
+function ReasoningContent({ reflection }: { reflection: string }) {
   return (
     <div className="group relative pl-11 py-2 animate-in fade-in duration-500">
       <div className="absolute left-3.5 top-0 bottom-0 w-px bg-slate-200 dark:bg-white/10 group-last:bg-transparent" />
@@ -324,8 +324,10 @@ function ReasoningContent({ learned }: { learned: string }) {
             <Brain className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
           </div>
           <div className="flex-1">
-            <p className="text-xs font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider mb-1.5">Learned</p>
-            <p className="text-slate-700 dark:text-slate-200 text-base leading-relaxed">{learned}</p>
+            <p className="text-xs font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider mb-2">Reflection</p>
+            <div className="text-slate-700 dark:text-slate-200 text-sm leading-relaxed prose prose-sm dark:prose-invert prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-strong:text-purple-700 dark:prose-strong:text-purple-300 max-w-none">
+              <ReactMarkdown>{reflection}</ReactMarkdown>
+            </div>
           </div>
         </div>
       </div>
@@ -494,7 +496,7 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
                   return <ResearchQuery key={idx} msg={msg} />;
                 }
                                 if (msg.metadata?.type === 'reasoning') {
-                  return <ReasoningContent key={idx} learned={msg.metadata.learned || ''} />;
+                  return <ReasoningContent key={idx} reflection={msg.metadata.reflection || ''} />;
                 }
                 if (msg.metadata?.type === 'ask_user' || msg.metadata?.type === 'multi_choice_select') {
                   return (
@@ -641,8 +643,8 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
       </div>
 
       {/* Right Column - Exploration List */}
-      {isResearching && explorationList && explorationList.length > 0 && (
-        <div className="w-96 border-l border-slate-200/60 dark:border-white/5 bg-white dark:bg-[#0a0a0a] p-6 animate-in slide-in-from-right duration-300">
+      {explorationList && explorationList.length > 0 && (
+        <div className="w-[480px] h-full border-l border-slate-200/60 dark:border-white/5 bg-white dark:bg-[#0a0a0a] p-6 flex flex-col overflow-hidden animate-in slide-in-from-right duration-300">
           <ExplorationList
             list={explorationList}
             objective={researchProgress?.objective}

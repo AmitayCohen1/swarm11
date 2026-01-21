@@ -15,7 +15,7 @@ import {
   hasQueryBeenRun,
   formatForOrchestrator
 } from '@/lib/utils/research-memory';
-import type { ResearchMemory, SearchResult } from '@/lib/types/research-memory';
+import type { ResearchMemory, SearchResult, ExplorationItem } from '@/lib/types/research-memory';
 // import { deductCredits } from '@/lib/credits'; // POC: Disabled for free usage
 
 // Schema for structured research output
@@ -84,7 +84,11 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     inputSchema: z.object({
       list: z.array(z.object({
         item: z.string().describe('Short description of what to investigate'),
-        done: z.boolean().describe('Whether this item is completed')
+        done: z.boolean().describe('Whether this item is completed'),
+        subtasks: z.array(z.object({
+          item: z.string(),
+          done: z.boolean()
+        })).optional().describe('Optional subtasks under this item')
       })).describe('Initial exploration list - things you plan to investigate.')
     }),
     execute: async ({ list }) => {
@@ -145,19 +149,21 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   const reflectionTool = tool({
     description: 'MANDATORY after every search. Analyze results, update the exploration list. Use dot notation for subtasks (e.g., "0.1").',
     inputSchema: z.object({
-      learned: z.string().describe('What did we learn from this search? Be specific: names, numbers, facts.'),
+      reflection: z.string().describe('Markdown formatted. Two sections: **Learned:** specific facts, names, numbers. **Next:** where to drill deeper. Use bullet points for clarity.'),
       operations: z.array(z.object({
         action: z.enum(['done', 'remove', 'add']).describe('What to do'),
         target: z.union([z.number(), z.string()]).describe('Index: number for top-level (0, 1), string for subtask ("0.0", "0.1")'),
         item: z.string().optional().describe('Required for "add" action - the item text')
       })).optional().describe('List operations. Examples: {action:"done",target:0}, {action:"add",target:"0.1",item:"New subtask"}'),
-      done: z.boolean().describe('Set to true when research is complete and you have enough to answer the objective.')
+      done: z.boolean().describe('ONLY set true when ALL list items are done AND you can answer the objective. If items remain pending, must be false.')
     }),
-    execute: async ({ learned, operations, done }) => {
+    execute: async ({ reflection, operations, done }) => {
+      console.log(`[Research] reflect() called - reflection: ${reflection.substring(0, 50)}..., ops: ${operations?.length || 0}, done: ${done}`);
+
       // Send reasoning to UI
       onProgress?.({
         type: 'reasoning',
-        learned
+        reflection
       });
 
       // Load current memory from brain
@@ -180,7 +186,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
       }
 
       // Deep clone to avoid mutation issues
-      let list = JSON.parse(JSON.stringify(memory.explorationList || []));
+      let list: ExplorationItem[] = JSON.parse(JSON.stringify(memory.explorationList || []));
 
       // Helper to parse target (number or "0.1" string)
       const parseTarget = (target: number | string): { parent: number; sub?: number } => {
@@ -260,14 +266,32 @@ export async function executeResearch(config: ResearchExecutorConfig) {
       });
 
       // Complete the current cycle with learnings
-      memory = completeCycle(memory, learned, done ? 'done' : 'continue');
+      memory = completeCycle(memory, reflection, done ? 'done' : 'continue');
 
       // Save current exploration list
       memory.explorationList = list;
 
+      // Count pending items (including subtasks)
+      let pendingCount = 0;
+      for (const item of list) {
+        if (!item.done) pendingCount++;
+        if (item.subtasks) {
+          for (const sub of item.subtasks) {
+            if (!sub.done) pendingCount++;
+          }
+        }
+      }
+
+      // Safeguard: if done=true but items are pending, override to false
+      let actualDone = done;
+      if (done && pendingCount > 0) {
+        console.log(`[Research] WARNING: Agent tried to finish with ${pendingCount} pending items. Overriding done=false.`);
+        actualDone = false;
+      }
+
       // If not done, start a new cycle
       const pendingItems = list.filter(i => !i.done);
-      if (!done && pendingItems.length > 0) {
+      if (!actualDone && pendingItems.length > 0) {
         memory = startCycle(memory, pendingItems[0].item);
         cycleCounter++;
       }
@@ -319,8 +343,9 @@ export async function executeResearch(config: ResearchExecutorConfig) {
       }
       const listState = lines.join('\n');
 
-      // Signal completion to stop the loop
-      if (done || pendingItems.length === 0) {
+      // Signal completion to stop the loop (only if truly done AND no pending items)
+      if (actualDone && pendingCount === 0) {
+        console.log('[Research] reflect() complete - research done, shouldStop=true');
         onProgress?.({ type: 'synthesizing_started' });
         return {
           acknowledged: true,
@@ -329,6 +354,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
         };
       }
 
+      console.log('[Research] reflect() complete - continuing research');
       return {
         acknowledged: true,
         currentList: listState
@@ -401,38 +427,59 @@ search({queries}):
 • Takes 1-3 queries, runs them in parallel
 • Each query: {query: "full question", purpose: "what this tests"}
 
-reflect({learned, operations?, done}):
+reflect({reflection, operations?, done}):
 • MANDATORY after each search()
-• learned: What did you learn? Be specific.
+• reflection: Markdown formatted with two sections:
+  **Learned:** - bullet points of facts, names, numbers
+  **Next:** - where to drill deeper
 • operations: Array of {action, target, item?} - see below
 • done: Set true when you have enough to answer
 
 CYCLE: plan() → search() → reflect() → search() → reflect() → ... → done
 
 ═══════════════════════════════════════════════════════════════
-EXPLORATION LIST (WITH SUBTASKS)
+EXPLORATION LIST - DRILL DOWN STRATEGY
 ═══════════════════════════════════════════════════════════════
 
-You are AUTONOMOUS. Start small, discover as you go.
+START BROAD, DRILL DOWN:
+1. Begin with 2-3 main questions (high-level themes to explore)
+2. Search each main question broadly
+3. Based on findings, ADD SUBTASKS to drill deeper into specific areas
+4. Mark items done as you complete them
+5. First pending item/subtask = ACTIVE (what you work on next)
 
-• Start with 1-2 items max - don't front-load the list
-• Each search reveals new leads - add them then
-• Use subtasks to group related explorations under a theme
-• First pending item/subtask = ACTIVE
+IMPORTANT: Do NOT include indices in item text. Just the description.
+  ❌ Bad: "0.1 Find podcasts..."
+  ✅ Good: "Find podcasts..."
+  The system tracks indices automatically.
 
-STRUCTURE:
-  0. Pain points [pending]
-     0.0 Media landscape [ACTIVE]
-     0.1 Podcasts [pending]
-  1. Solutions [pending]
+EXAMPLE FLOW:
+  Start: "Find leads for podcast fact-checking tool"
 
-OPERATIONS (unified format):
-  {action: "done", target: 0}           → mark item 0 done
-  {action: "done", target: "0.1"}       → mark subtask 0.1 done
-  {action: "remove", target: 1}         → remove item 1
-  {action: "remove", target: "0.0"}     → remove subtask 0.0
-  {action: "add", target: 2, item: "X"} → add item at position 2
-  {action: "add", target: "0.2", item: "X"} → add subtask under item 0
+  Initial plan:
+    0. Who has misinformation problems? [ACTIVE]
+    1. Who would pay for solutions?
+
+  After first search, add subtasks:
+    0. Who has misinformation problems? [done]
+       0.0 News/politics podcasts [ACTIVE]
+       0.1 Health/finance podcasts [pending]
+    1. Who would pay for solutions?
+
+  Continue drilling:
+    0. Who has misinformation problems? [done]
+       0.0 News/politics podcasts [done]
+       0.1 Health/finance podcasts [ACTIVE]
+    1. Who would pay for solutions?
+       1.0 Media organizations [pending]
+       1.1 Podcast networks [pending]
+
+OPERATIONS:
+  {action: "done", target: 0}              → mark main item done
+  {action: "done", target: "0.1"}          → mark subtask done
+  {action: "add", target: "0.0", item: "X"} → add subtask under item 0
+  {action: "add", target: 2, item: "X"}    → add new main item
+  {action: "remove", target: "0.1"}        → remove subtask (if irrelevant)
 
 Operations apply in order: remove → done → add
 
@@ -444,12 +491,15 @@ CHANGE & TIMING SIGNALS
 • Treat recent changes as higher-weight signals
 
 ═══════════════════════════════════════════════════════════════
-STOPPING CONDITIONS
+STOPPING CONDITIONS (IMPORTANT!)
 ═══════════════════════════════════════════════════════════════
 
-Stop when:
-• Additional queries are unlikely to materially reduce uncertainty, OR
-• The brief's confidence threshold has been met
+You may ONLY set done=true when BOTH conditions are met:
+1. ALL exploration list items are marked done (no pending items/subtasks)
+2. You have gathered enough information to answer the objective
+
+If items remain pending → keep researching, do NOT set done=true
+If you need to skip an item → remove it with {action:"remove"}, don't just ignore it
 
 ═══════════════════════════════════════════════════════════════
 OUTPUT REQUIREMENTS
@@ -486,6 +536,7 @@ Uncertainty is a valid output.
 
 
   try {
+    console.log('[Research] Starting research execution for objective:', researchBrief.objective.substring(0, 50) + '...');
     const agent = new ToolLoopAgent({
       model: openai('gpt-5.1'),
       instructions,
@@ -496,6 +547,8 @@ Uncertainty is a valid output.
       onStepFinish: async (step: any) => {
         const { toolCalls, toolResults, usage } = step || {};
         stepCounter += 1;
+
+        console.log(`[Research] Step ${stepCounter} finished. Tools called:`, toolCalls?.map((t: any) => t.toolName) || 'none');
 
         const [sessionCheck] = await db
           .select({ status: chatSessions.status })
@@ -521,14 +574,17 @@ Uncertainty is a valid output.
             const toolName = toolCall.toolName;
             const input = (toolCall as any).input;
 
+            console.log(`[Research] Tool call: ${toolName}`);
             if (toolName === 'search') {
               const queries = input?.queries || [];
+              console.log(`[Research] search() starting with ${queries.length} queries`);
               onProgress?.({
                 type: 'search_started',
                 count: queries.length,
                 queries: queries.map((q: any) => ({ query: q.query, purpose: q.purpose }))
               });
             } else if (toolName === 'reflect') {
+              console.log('[Research] reflect() starting');
               onProgress?.({
                 type: 'reasoning_started'
               });
@@ -542,6 +598,7 @@ Uncertainty is a valid output.
             const toolResult = (result as any).output;
 
             if (toolName === 'search') {
+              console.log('[Research] search() results received');
               // Emit all results at once to avoid race conditions
               const searchResults = toolResult?.results || [];
               const completedQueries = searchResults.map((sr: any) => ({
@@ -620,12 +677,23 @@ Uncertainty is a valid output.
       contextPrompt += '\n';
     }
 
+    console.log('[Research] Calling agent.generate()...');
     const result = await agent.generate({
       prompt: `${contextPrompt}Execute the research brief above.
 
-START by calling plan() with just 1-2 items. You're autonomous - add more as you discover.
+STRATEGY: Start broad, drill down with subtasks.
 
-Then run cycles of: search() → reflect()
+1. plan() - Start with 2-3 MAIN QUESTIONS (broad themes)
+2. search() - Explore each main question
+3. reflect() - Add SUBTASKS to drill deeper into what you found
+
+Example flow:
+  plan: ["Who needs this?", "Who would pay?"]
+  → search main question
+  → reflect: add subtasks like "0.0 Media orgs", "0.1 Podcast networks"
+  → search subtask
+  → reflect: mark done, move to next
+  → continue until objective met
 
 CRITICAL: Use FULL natural language questions in search.
 ✅ Good: "What are the most popular finance podcasts in 2024?"
@@ -635,11 +703,12 @@ In reflect, use operations array:
   {action: "done", target: 0}              → mark item done
   {action: "add", target: "0.0", item: "X"} → add subtask
 
-Set done=true when you have enough to answer the objective.`
+IMPORTANT: Keep done=false until ALL list items are completed. Work through every item.`
     });
 
     // Structured output from AI SDK 6 - typed by ResearchOutputSchema
     const output = result.output;
+    console.log(`[Research] Completed! Steps: ${result.steps?.length || 0}, Output confidence: ${(output as any)?.confidenceLevel}`);
 
     return {
       completed: true,

@@ -77,7 +77,7 @@ and translate it into a clear research task and expected output.
 
 WHAT YOU MUST INFER (SILENTLY):
 - The user's intent: why they want this researched?
-- The goal: what decision or action the research should support?
+- The goal: what exactly the user wants to achieve with the research? (e.g. decision or action the research should support?)
 - The expected output: what a useful result looks like (e.g. list, shortlist, comparison)
 - The preferred format: detect hints like "give me a table", "list", "compare", "summarize", "detailed breakdown"
 
