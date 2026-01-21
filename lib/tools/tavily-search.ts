@@ -6,12 +6,24 @@ import { z } from 'zod';
 const client = tavily({ apiKey: process.env.TAVILY_API_KEY! });
 
 export const search = tool({
-  description: 'Search the web. Accepts a single query OR multiple queries (run in parallel via Promise.all). Each query should be a FULL NATURAL LANGUAGE QUESTION.',
+  description: `Search the web. Write HUMAN-READABLE questions.
+
+Your queries should sound like asking a knowledgeable friend:
+✅ "What are the biggest challenges podcast producers face with fact-checking?"
+✅ "Which media companies have been criticized for spreading misinformation?"
+❌ "podcast fact-check challenges 2024" (keyword soup)
+❌ "misinformation media companies list" (not a question)
+
+Each query needs:
+- query: The human-readable question
+- purpose: What you're trying to learn (1 sentence)
+
+Run 1-2 queries at a time. Focused beats broad.`,
   inputSchema: z.object({
     queries: z.array(z.object({
-      query: z.string().describe('FULL NATURAL LANGUAGE QUESTION'),
-      purpose: z.string().describe('What uncertainty does this test?')
-    })).min(1).max(3).describe('1-3 queries. Prefer 1 query at a time. Use 2-3 only when exploring multiple independent directions.')
+      query: z.string(),
+      purpose: z.string()
+    })).min(1).max(3)
   }),
   execute: async ({ queries }) => {
     const results = await Promise.all(
