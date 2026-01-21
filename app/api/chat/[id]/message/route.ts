@@ -205,6 +205,7 @@ export async function POST(
             const [researchSession] = await db
               .insert(researchSessions)
               .values({
+                userId: user.id,
                 chatSessionId,
                 objective: researchBrief.objective,
                 successCriteria: researchBrief.successCriteria,
