@@ -366,6 +366,13 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Check if there's a pending multi-select (last assistant message is multi_choice_select)
+  const hasPendingMultiSelect = (() => {
+    const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant');
+    return lastAssistantMsg?.metadata?.type === 'multi_choice_select' ||
+           lastAssistantMsg?.metadata?.type === 'ask_user';
+  })();
+
   const handleNewSession = () => {
     // Navigate to /chat to start fresh
     router.push('/chat');
@@ -619,13 +626,13 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
                 type="text"
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
-                placeholder={status === 'ready' ? "Ask anything..." : "System busy..."}
-                disabled={status !== 'ready'}
+                placeholder={hasPendingMultiSelect ? "Please select an option above..." : status === 'ready' ? "Ask anything..." : "System busy..."}
+                disabled={status !== 'ready' || hasPendingMultiSelect}
                 className="flex-1 bg-transparent border-none h-12 px-4 text-base md:text-lg focus-visible:ring-0 placeholder:text-slate-400 dark:placeholder:text-slate-600"
               />
               <Button
                 type="submit"
-                disabled={!inputMessage.trim() || status !== 'ready'}
+                disabled={!inputMessage.trim() || status !== 'ready' || hasPendingMultiSelect}
                 className={cn(
                   "h-12 w-12 rounded-2xl transition-all duration-300 shadow-lg",
                   inputMessage.trim() && status === 'ready'
