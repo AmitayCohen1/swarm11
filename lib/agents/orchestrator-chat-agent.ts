@@ -97,8 +97,7 @@ export async function analyzeUserMessage(
   
   RULES:
   - If you don't udnrestand something, ask the user to clarify.
-  - Ask only one question at a time.
-  - Keep your questions very short and specific and to the point. 
+  - Ask only one question at a time - very short and specific.
   - Cut to the chase. Ask the most important question.
   
   WHEN STARTING RESEARCH:
