@@ -189,17 +189,11 @@ export async function POST(
             // POC: Credit checks disabled - free to use
             // TODO: Enable credit checks before production launch
 
-            // Initialize V3 research document
-            const [currentSession] = await db
-              .select({ brain: chatSessions.brain })
-              .from(chatSessions)
-              .where(eq(chatSessions.id, chatSessionId));
-
-            const currentBrain = currentSession?.brain || '';
+            // Initialize research document with initial strategy from orchestrator
             const newDoc = createResearchDoc(
-              researchBrief.objective, // northStar
-              researchBrief.objective, // currentObjective
-              researchBrief.doneWhen
+              researchBrief.objective,
+              researchBrief.doneWhen,
+              researchBrief.initialStrategy
             );
             const serializedBrain = serializeDoc(newDoc);
 
@@ -269,7 +263,7 @@ export async function POST(
                 userId: user.id,
                 researchBrief,
                 conversationHistory,
-                existingBrain: currentBrain,
+                existingBrain: serializedBrain,
                 onProgress: (update) => {
                   // Forward all progress events to frontend
                   sendEvent(update);

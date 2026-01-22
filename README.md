@@ -12,7 +12,7 @@ Orchestrator Agent (Claude Sonnet 4.5)
     ├─→ Ask Clarification (vague requests)
     └─→ Start Research (clear objective)
             ↓
-        Research Executor (GPT-4.1 + ToolLoopAgent)
+        Research Executor (gpt-5.1 + ToolLoopAgent)
             ↓
         plan() → search() → reflect() → [loop or finish()]
             ↓
@@ -24,7 +24,7 @@ Orchestrator Agent (Claude Sonnet 4.5)
 | Model | Role | Why |
 |-------|------|-----|
 | **Claude Sonnet 4.5** | Orchestrator | Better at understanding intent, asking clarifying questions |
-| **GPT-4.1** | Research Executor | Better at following strict tool workflows, cheaper for loops |
+| **gpt-5.1** | Research Executor | Better at following strict tool workflows, cheaper for loops |
 
 ## Tool Flow (Strict Ordering)
 
@@ -105,7 +105,7 @@ onStepFinish: async (step) => {
 lib/
 ├── agents/
 │   ├── orchestrator-chat-agent.ts   # Decision maker (Claude)
-│   └── research-executor-agent.ts   # Research loop (GPT-4.1 + ToolLoopAgent)
+│   └── research-executor-agent.ts   # Research loop (gpt-5.1 + ToolLoopAgent)
 ├── tools/
 │   └── tavily-search.ts             # Web search tool
 └── utils/
@@ -241,7 +241,7 @@ npm run dev
 | Layer | Technology |
 |-------|------------|
 | Framework | Next.js 15, React 19 |
-| AI | AI SDK 6, Claude Sonnet 4.5, GPT-4.1 |
+| AI | AI SDK 6, Claude Sonnet 4.5, gpt-5.1 |
 | Search | Tavily AI |
 | Database | Neon PostgreSQL + Drizzle |
 | Auth | Clerk |

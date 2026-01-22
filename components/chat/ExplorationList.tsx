@@ -1,21 +1,75 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import { Clock, Target, ArrowRight } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence, type Variants } from 'framer-motion';
+import ReactMarkdown from 'react-markdown';
 
-// V3 Document-centric types
+// Animation variants for sections
+const sectionVariants: Variants = {
+  hidden: {
+    opacity: 0,
+    y: 20,
+    filter: 'blur(10px)',
+    scale: 0.95
+  },
+  visible: {
+    opacity: 1,
+    y: 0,
+    filter: 'blur(0px)',
+    scale: 1,
+    transition: {
+      duration: 0.4,
+      ease: 'easeOut',
+      staggerChildren: 0.08
+    }
+  }
+};
+
+// Animation variants for items within sections
+const itemVariants: Variants = {
+  hidden: {
+    opacity: 0,
+    x: -10,
+    filter: 'blur(4px)'
+  },
+  visible: {
+    opacity: 1,
+    x: 0,
+    filter: 'blur(0px)',
+    transition: {
+      duration: 0.3,
+      ease: 'easeOut'
+    }
+  }
+};
+
+// Animation for section title
+const titleVariants: Variants = {
+  hidden: {
+    opacity: 0,
+    y: -10
+  },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      duration: 0.3,
+      ease: 'easeOut'
+    }
+  }
+};
+
+// V4 Document-centric types - Item-based sections
 interface SectionItem {
   id: string;
-  text: string;
-  sources?: { url: string; title: string }[];
+  content: string;
+  sources: { url: string; title: string }[];
 }
 
 interface Section {
   id: string;
   title: string;
   items: SectionItem[];
-  lastUpdated: string;
 }
 
 interface Strategy {
@@ -25,236 +79,189 @@ interface Strategy {
 }
 
 interface ResearchDoc {
-  northStar: string;
-  currentObjective: string;
+  objective: string;
   doneWhen: string;
   sections: Section[];
   strategy: Strategy;
 }
 
-// Legacy V2 types for backwards compatibility
-interface LogEntry {
-  id: string;
-  timestamp: string;
-  method: string;
-  signal: string;
-  insight: string;
-  progressTowardObjective: string;
-  mood: 'exploring' | 'promising' | 'dead_end' | 'breakthrough';
-  sources: { url: string; title: string }[];
-}
-
-interface WorkingMemory {
-  bullets: string[];
-  lastUpdated: string;
-}
-
 interface ResearchLogProps {
   doc?: ResearchDoc | null;
-  log?: LogEntry[];
-  objective?: string;
-  doneWhen?: string;
-  workingMemory?: WorkingMemory;
   className?: string;
 }
 
-function formatTimeAgo(date: Date): string {
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffSec = Math.floor(diffMs / 1000);
-  const diffMin = Math.floor(diffSec / 60);
-  const diffHour = Math.floor(diffMin / 60);
-
-  if (diffMin < 1) return 'just now';
-  if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffHour < 24) return `${diffHour}h ago`;
-  return date.toLocaleDateString();
-}
-
 /**
- * Research Document - Live updating markdown document
+ * Research Document - Live updating document view
  */
 export default function ResearchLog({
   doc,
-  log,
-  objective,
-  doneWhen,
-  workingMemory,
   className
 }: ResearchLogProps) {
 
-  // V3: Document-centric rendering - clean doc style
-  if (doc) {
-    return (
-      <div className={cn("flex flex-col prose prose-slate dark:prose-invert max-w-none", className)}>
-        {/* Document Header - Objective */}
-        <div className="not-prose mb-10 pb-6 border-b border-slate-200 dark:border-white/10">
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
-            {doc.currentObjective}
-          </h1>
-          {doc.doneWhen && (
-            <p className="text-slate-500 dark:text-slate-400">
-              <span className="font-medium">Done when:</span> {doc.doneWhen}
-            </p>
-          )}
-        </div>
-
-        {/* Strategy - subtle callout */}
-        {doc.strategy && (
-          <div className="not-prose mb-8 pl-4 border-l-2 border-indigo-300 dark:border-indigo-500/50">
-            <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400 mb-1">Strategy</p>
-            <p className="text-slate-700 dark:text-slate-300">{doc.strategy.approach}</p>
-            {doc.strategy.nextActions.length > 0 && (
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
-                → {doc.strategy.nextActions[0]}
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* Sections - clean document flow */}
-        {doc.sections.map((section, idx) => {
-          const hasItems = section.items && section.items.length > 0;
-
-          // Skip empty sections except Key Findings
-          if (!hasItems && !section.title.includes('Key Findings')) {
-            return null;
-          }
-
-          return (
-            <motion.div
-              key={section.id}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: idx * 0.03 }}
-              className="mb-10"
-            >
-              <h2 className="text-xl font-semibold text-slate-900 dark:text-white mb-4">
-                {section.title}
-              </h2>
-
-              {hasItems ? (
-                <div className="space-y-0">
-                  {section.items.map((item, itemIdx) => (
-                    <div
-                      key={item.id}
-                      className="py-4 border-b border-slate-100 dark:border-white/5 last:border-0"
-                    >
-                      <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
-                        {item.text}
-                      </p>
-                      {item.sources && item.sources.length > 0 && (
-                        <div className="flex flex-wrap gap-2 mt-2">
-                          {item.sources.map((source, i) => {
-                            const domain = (() => {
-                              try {
-                                return new URL(source.url).hostname.replace('www.', '');
-                              } catch {
-                                return source.url;
-                              }
-                            })();
-                            return (
-                              <a
-                                key={i}
-                                href={source.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs text-slate-400 hover:text-blue-500"
-                              >
-                                {domain}
-                              </a>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-slate-400 dark:text-slate-500 italic">
-                  Nothing yet...
-                </p>
-              )}
-            </motion.div>
-          );
-        })}
-      </div>
-    );
+  if (!doc) {
+    return null;
   }
-
-  // V2: Legacy log-based rendering (backwards compatibility)
-  if (!log || log.length === 0) {
-    if (!objective && !doneWhen) {
-      return null;
-    }
-  }
-
-  const moodConfig = {
-    exploring: { label: 'Exploring', color: 'text-amber-500 bg-amber-500/10' },
-    promising: { label: 'Promising', color: 'text-blue-500 bg-blue-500/10' },
-    dead_end: { label: 'Dead end', color: 'text-slate-400 bg-slate-400/10' },
-    breakthrough: { label: 'Breakthrough', color: 'text-emerald-500 bg-emerald-500/10' }
-  };
 
   return (
-    <div className={cn("flex flex-col max-h-[50vh]", className)}>
-      <div className="shrink-0 mb-4">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">
-          Research Log
-        </h2>
-        {objective && (
-          <div className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300 mb-2 p-2.5 rounded-lg bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20">
-            <Target className="w-4 h-4 shrink-0 mt-0.5 text-blue-500" />
-            <span>{objective}</span>
-          </div>
-        )}
-        {doneWhen && (
-          <div className="flex items-start gap-2 text-xs text-slate-500 dark:text-slate-400 p-2 rounded-lg bg-slate-50 dark:bg-white/3">
-            <ArrowRight className="w-3.5 h-3.5 shrink-0 mt-0.5 text-emerald-500" />
-            <span><strong className="text-emerald-600 dark:text-emerald-400">Done when:</strong> {doneWhen}</span>
-          </div>
+    <div className={cn("flex flex-col", className)}>
+      {/* Document Header - Objective */}
+      <div className="mb-10 pb-6 border-b border-slate-200 dark:border-white/10">
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
+          {doc.objective}
+        </h1>
+        {doc.doneWhen && (
+          <p className="text-slate-500 dark:text-slate-400">
+            <span className="font-medium">Done when:</span> {doc.doneWhen}
+          </p>
         )}
       </div>
 
-      {workingMemory && workingMemory.bullets && workingMemory.bullets.length > 0 && (
-        <div className="shrink-0 mb-4 p-3 rounded-xl bg-violet-50 dark:bg-violet-500/10 border border-violet-100 dark:border-violet-500/20">
-          <h3 className="text-sm font-semibold text-violet-700 dark:text-violet-300 mb-2">
-            Key Findings
-          </h3>
-          <ul className="space-y-1.5">
-            {workingMemory.bullets.map((bullet, idx) => (
-              <li key={idx} className="flex items-start gap-2 text-sm text-violet-800 dark:text-violet-200">
-                <span className="text-violet-400 dark:text-violet-500 mt-0.5">•</span>
-                <span>{bullet}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
+      {/* Strategy - subtle callout with animation */}
+      {doc.strategy && (
+        <motion.div
+          key={doc.strategy.approach}
+          initial={{ opacity: 0, x: -10 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.3, ease: 'easeOut' }}
+          className="mb-8 pl-4 border-l-2 border-indigo-300 dark:border-indigo-500/50"
+        >
+          <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400 mb-1">Strategy</p>
+          <p className="text-slate-700 dark:text-slate-300">{doc.strategy.approach}</p>
+          {doc.strategy.nextActions.length > 0 && (
+            <motion.p
+              key={doc.strategy.nextActions[0]}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.15 }}
+              className="text-sm text-slate-500 dark:text-slate-400 mt-2"
+            >
+              → {doc.strategy.nextActions[0]}
+            </motion.p>
+          )}
+        </motion.div>
       )}
 
-      <div className="flex-1 overflow-y-auto space-y-3">
-        {log && log.map((entry, idx) => {
-          const mood = moodConfig[entry.mood] || moodConfig.exploring;
-          return (
-            <div key={entry.id} className="p-3 rounded-xl border border-slate-200/60 dark:border-white/5 bg-white/50 dark:bg-white/2">
-              <div className="flex items-center gap-2 mb-2">
-                <div className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold uppercase", mood.color)}>
-                  {mood.label}
-                </div>
-                <span className="text-[10px] text-slate-400">#{idx + 1}</span>
-              </div>
-              <p className="text-sm text-slate-600 dark:text-slate-300 mb-1">
-                <span className="font-medium text-slate-500">Tried:</span> {entry.method}
-              </p>
-              {entry.insight && (
-                <p className="text-sm text-slate-800 dark:text-slate-200 font-medium">
-                  {entry.insight}
-                </p>
+      {/* Sections - clean document flow with animations */}
+      {doc.sections.length === 0 ? (
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="text-slate-400 dark:text-slate-500 italic"
+        >
+          Researching...
+        </motion.p>
+      ) : (
+        <AnimatePresence mode="popLayout">
+          {doc.sections.map((section, idx) => (
+            <motion.div
+              key={section.id}
+              layout
+              variants={sectionVariants}
+              initial="hidden"
+              animate="visible"
+              exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
+              className="mb-10"
+              style={{ willChange: 'transform, opacity, filter' }}
+            >
+              <motion.h2
+                variants={titleVariants}
+                className="text-xl font-semibold text-slate-900 dark:text-white mb-4"
+              >
+                {section.title}
+              </motion.h2>
+
+              {/* Items - render each item with staggered animation */}
+              {section.items.length === 0 ? (
+                <motion.p
+                  variants={itemVariants}
+                  className="text-slate-400 dark:text-slate-500 italic text-sm"
+                >
+                  (no items yet)
+                </motion.p>
+              ) : (
+                <motion.ul className="space-y-3">
+                  <AnimatePresence mode="popLayout">
+                    {section.items.map((item, itemIdx) => (
+                      <motion.li
+                        key={item.id}
+                        layout
+                        variants={itemVariants}
+                        initial="hidden"
+                        animate="visible"
+                        exit={{ opacity: 0, x: -10, transition: { duration: 0.15 } }}
+                        className="group"
+                        style={{ willChange: 'transform, opacity, filter' }}
+                      >
+                        <div className="prose prose-slate dark:prose-invert max-w-none">
+                          <ReactMarkdown
+                            components={{
+                              p: ({ children }) => (
+                                <p className="text-slate-700 dark:text-slate-300 leading-relaxed mb-0">
+                                  {children}
+                                </p>
+                              ),
+                              strong: ({ children }) => (
+                                <strong className="font-semibold text-slate-900 dark:text-white">{children}</strong>
+                              ),
+                              a: ({ href, children }) => (
+                                <a
+                                  href={href}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 dark:text-blue-400 hover:underline"
+                                >
+                                  {children}
+                                </a>
+                              ),
+                              code: ({ children }) => (
+                                <code className="px-1.5 py-0.5 bg-slate-100 dark:bg-white/10 rounded text-sm font-mono text-slate-800 dark:text-slate-200">
+                                  {children}
+                                </code>
+                              ),
+                            }}
+                          >
+                            {item.content}
+                          </ReactMarkdown>
+                        </div>
+                        {/* Item sources */}
+                        {item.sources && item.sources.length > 0 && (
+                          <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ delay: 0.1 }}
+                            className="flex flex-wrap gap-2 mt-1"
+                          >
+                            {item.sources.map((source, i) => {
+                              const domain = (() => {
+                                try {
+                                  return new URL(source.url).hostname.replace('www.', '');
+                                } catch {
+                                  return source.url;
+                                }
+                              })();
+                              return (
+                                <a
+                                  key={i}
+                                  href={source.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs text-slate-400 hover:text-blue-500 transition-colors"
+                                >
+                                  {domain}
+                                </a>
+                              );
+                            })}
+                          </motion.div>
+                        )}
+                      </motion.li>
+                    ))}
+                  </AnimatePresence>
+                </motion.ul>
               )}
-            </div>
-          );
-        })}
-      </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      )}
     </div>
   );
 }

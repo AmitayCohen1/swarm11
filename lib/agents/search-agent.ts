@@ -30,7 +30,7 @@ interface SearchAgentResult {
  */
 export async function executeSearch(config: SearchAgentConfig): Promise<SearchAgentResult> {
   const { task, abortSignal, onProgress } = config;
-  const model = openai('gpt-4.1');
+  const model = openai('gpt-5.1');
 
   let creditsUsed = 0;
   const queriesExecuted: string[] = [];

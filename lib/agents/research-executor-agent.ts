@@ -1,11 +1,11 @@
 /**
- * Research Executor Agent - Document-Centric Architecture (v3)
+ * Research Executor Agent - Document-Centric Architecture (v4)
  *
  * Orchestrates the research loop:
  * 1. PLAN: Read doc.strategy.nextActions[0]
  * 2. SEARCH: Search Agent executes searches, returns raw findings
- * 3. REFLECT: Reflection Agent analyzes findings, produces edits
- * 4. UPDATE: Apply edits to document (deterministic)
+ * 3. REFLECT: Reflection Agent analyzes findings, produces section updates
+ * 4. UPDATE: Apply updates to document (deterministic)
  * 5. CHECK: Is doneWhen satisfied? If no, loop back to step 1
  *
  * The Research Document is the single source of truth.
@@ -109,29 +109,28 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   const existingDoc = parseBrainToDoc(existingBrain);
 
   if (existingDoc) {
-    console.log('[Research] Continuing with existing document (v3)');
+    console.log('[Research] Continuing with existing document (v4)');
     doc = existingDoc;
   } else {
     console.log('[Research] Creating new research document');
     doc = createResearchDoc(
-      researchBrief.objective, // northStar
-      researchBrief.objective, // currentObjective
-      researchBrief.doneWhen
+      researchBrief.objective,
+      researchBrief.doneWhen,
+      researchBrief.initialStrategy
     );
   }
 
   await saveDocToDb(doc);
 
   emitProgress('research_initialized', {
-    objective: doc.currentObjective,
+    objective: doc.objective,
     doneWhen: doc.doneWhen,
-    version: 3
+    version: 4
   });
 
   emitProgress('doc_updated', {
     doc: {
-      northStar: doc.northStar,
-      currentObjective: doc.currentObjective,
+      objective: doc.objective,
       doneWhen: doc.doneWhen,
       sections: doc.sections,
       strategy: doc.strategy
@@ -174,7 +173,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     const searchTask = createSearchTask(
       nextAction,
       getDocSummary(doc),
-      doc.currentObjective,
+      doc.objective,
       doc.doneWhen,
       doc.queriesRun
     );
@@ -212,7 +211,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     console.log(`[Research] Search complete: ${searchResult.queriesExecuted.length} queries`);
 
     // ──────────────────────────────────────────────────────────
-    // STEP 3: REFLECT - Analyze and produce edits
+    // STEP 3: REFLECT - Analyze and produce section updates
     // ──────────────────────────────────────────────────────────
 
     await checkAborted();
@@ -223,7 +222,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     const reflectionResult = await analyzeAndReflect({
       currentDoc: formatDocForAgent(doc),
       rawFindings: searchResult.findings,
-      objective: doc.currentObjective,
+      objective: doc.objective,
       doneWhen: doc.doneWhen,
       abortSignal,
       onProgress: (update) => {
@@ -233,27 +232,26 @@ export async function executeResearch(config: ResearchExecutorConfig) {
 
     totalCreditsUsed += reflectionResult.creditsUsed;
 
-    console.log(`[Research] Reflection complete: ${reflectionResult.output.documentEdits.length} edits, shouldContinue=${reflectionResult.output.shouldContinue}`);
-    console.log(`[Research] Edits:`, JSON.stringify(reflectionResult.output.documentEdits, null, 2));
+    console.log(`[Research] Reflection complete: ${reflectionResult.output.edits.length} edits, shouldContinue=${reflectionResult.output.shouldContinue}`);
+    console.log(`[Research] Edits:`, JSON.stringify(reflectionResult.output.edits, null, 2));
     console.log(`[Research] Reasoning:`, reflectionResult.output.reasoning?.substring(0, 200));
 
     // ──────────────────────────────────────────────────────────
-    // STEP 4: UPDATE - Apply edits to document
+    // STEP 4: UPDATE - Apply section updates to document
     // ──────────────────────────────────────────────────────────
 
     console.log(`[Research] STEP 4: UPDATE DOCUMENT`);
 
-    const previousDoc = doc;
     doc = applyReflectionOutput(doc, reflectionResult.output);
     await saveDocToDb(doc);
 
-    // Emit section updates for UI
-    for (const edit of reflectionResult.output.documentEdits) {
-      const section = doc.sections.find(s => s.title === edit.sectionTitle);
+    // Emit section updates for UI based on edits
+    const editedSections = new Set(reflectionResult.output.edits.map(e => e.sectionTitle));
+    for (const sectionTitle of editedSections) {
+      const section = doc.sections.find(s => s.title === sectionTitle);
       if (section) {
         emitProgress('section_updated', {
-          sectionTitle: edit.sectionTitle,
-          action: edit.action,
+          sectionTitle,
           section
         });
       }
@@ -261,13 +259,12 @@ export async function executeResearch(config: ResearchExecutorConfig) {
 
     emitProgress('doc_updated', {
       doc: {
-        northStar: doc.northStar,
-        currentObjective: doc.currentObjective,
+        objective: doc.objective,
         doneWhen: doc.doneWhen,
         sections: doc.sections,
         strategy: doc.strategy
       },
-      editsApplied: reflectionResult.output.documentEdits.length,
+      editsApplied: reflectionResult.output.edits.length,
       reasoning: reflectionResult.output.reasoning
     });
 
@@ -301,7 +298,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   await checkAborted();
   emitProgress('review_started');
 
-  const model = openai('gpt-4.1');
+  const model = openai('gpt-5.1');
 
   const reviewTool = tool({
     description: 'Deliver your adversarial review verdict',
@@ -319,8 +316,9 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     model,
     system: `You are a hostile reviewer. Your job is to block weak conclusions.
 Assume the researcher is wrong unless proven otherwise.
+Golden word is: relevance. How "relevant" is the output we provide to the user?
 
-OBJECTIVE: ${doc.currentObjective}
+OBJECTIVE: ${doc.objective}
 DONE_WHEN: ${doc.doneWhen}
 
 RESEARCH DOCUMENT:
@@ -336,7 +334,7 @@ Evaluate harshly. Is DONE_WHEN actually satisfied?
   });
 
   const reviewToolCall = reviewResult.toolCalls?.[0] as any;
-  const reviewVerdict = reviewToolCall?.args || { verdict: 'pass', critique: '', missing: [] };
+  const reviewVerdict = reviewToolCall?.input || reviewToolCall?.args || { verdict: 'pass', critique: '', missing: [] };
 
   emitProgress('review_completed', {
     verdict: reviewVerdict.verdict,
@@ -375,7 +373,7 @@ Evaluate harshly. Is DONE_WHEN actually satisfied?
     const gapSearchTask = createSearchTask(
       doc.strategy.nextActions[0],
       getDocSummary(doc),
-      doc.currentObjective,
+      doc.objective,
       doc.doneWhen,
       doc.queriesRun
     );
@@ -392,7 +390,7 @@ Evaluate harshly. Is DONE_WHEN actually satisfied?
     const gapReflectionResult = await analyzeAndReflect({
       currentDoc: formatDocForAgent(doc),
       rawFindings: gapSearchResult.findings,
-      objective: doc.currentObjective,
+      objective: doc.objective,
       doneWhen: doc.doneWhen,
       abortSignal,
       onProgress: (update) => emitProgress(update.type, update)
@@ -404,13 +402,12 @@ Evaluate harshly. Is DONE_WHEN actually satisfied?
 
     emitProgress('doc_updated', {
       doc: {
-        northStar: doc.northStar,
-        currentObjective: doc.currentObjective,
+        objective: doc.objective,
         doneWhen: doc.doneWhen,
         sections: doc.sections,
         strategy: doc.strategy
       },
-      editsApplied: gapReflectionResult.output.documentEdits.length,
+      editsApplied: gapReflectionResult.output.edits.length,
       reasoning: 'Addressing reviewer gaps'
     });
   }
@@ -442,7 +439,7 @@ Evaluate harshly. Is DONE_WHEN actually satisfied?
     model,
     system: `You are synthesizing the final research answer.
 
-OBJECTIVE: ${doc.currentObjective}
+OBJECTIVE: ${doc.objective}
 DONE_WHEN: ${doc.doneWhen}
 
 RESEARCH DOCUMENT:
@@ -458,7 +455,7 @@ Synthesize a comprehensive final answer based on the document.`,
   });
 
   const finishToolCall = finishResult.toolCalls?.[0] as any;
-  const output = finishToolCall?.args || {
+  const output = finishToolCall?.input || finishToolCall?.args || {
     confidenceLevel: 'low',
     finalAnswer: 'Research completed but no answer extracted.',
     doneWhenStatus: 'Unknown'

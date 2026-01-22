@@ -1,52 +1,38 @@
 /**
- * Document Edit Types
- * Schema for edit operations on ResearchDoc sections
+ * Document Edit Types - Version 4
+ * Item-based operations: add, remove, edit
  */
 
 import { z } from 'zod';
-import { SourceSchema, StrategySchema, SectionItemSchema } from './research-doc';
+import { SourceSchema, StrategySchema } from './research-doc';
 
 /**
- * Edit action types
- * - add_items: Add new items to a section
- * - remove_items: Remove items by id
- * - replace_all: Replace all items in section (for consolidation)
- */
-export const EditActionSchema = z.enum(['add_items', 'remove_items', 'replace_all']);
-
-export type EditAction = z.infer<typeof EditActionSchema>;
-
-/**
- * Single edit operation on a document section
+ * Single edit operation on a section
  */
 export const DocEditSchema = z.object({
-  action: EditActionSchema,
-  sectionTitle: z.string(),
-  items: z.array(z.object({
-    text: z.string(),
-    sources: z.array(SourceSchema).optional(),
-  })).optional(),  // For add_items and replace_all
-  itemIds: z.array(z.string()).optional(),  // For remove_items
+  action: z.enum(['add_item', 'remove_item', 'edit_item']),
+  sectionTitle: z.string(),      // Section to operate on (created if doesn't exist)
+  itemId: z.string().optional(), // Required for remove/edit
+  content: z.string().optional(), // Required for add/edit
+  sources: z.array(SourceSchema).optional(), // For add/edit
 });
 
 export type DocEdit = z.infer<typeof DocEditSchema>;
 
 /**
  * Output from the Reflection Agent
- * Contains edit operations, strategy updates, and continuation decision
  */
 export const ReflectionOutputSchema = z.object({
-  documentEdits: z.array(DocEditSchema),
+  edits: z.array(DocEditSchema),
   strategyUpdate: StrategySchema.optional(),
   shouldContinue: z.boolean(),
-  reasoning: z.string(),       // Why these edits
+  reasoning: z.string(),
 });
 
 export type ReflectionOutput = z.infer<typeof ReflectionOutputSchema>;
 
 /**
  * Raw findings from the Search Agent
- * These are disposable - not persisted directly to the document
  */
 export const SearchFindingsSchema = z.object({
   queries: z.array(z.object({
@@ -65,11 +51,11 @@ export type SearchFindings = z.infer<typeof SearchFindingsSchema>;
  * Input for the Search Agent
  */
 export const SearchTaskSchema = z.object({
-  task: z.string(),           // What to search for (from strategy.nextActions)
-  context: z.string(),        // Current document state for context
-  objective: z.string(),      // The research objective
-  doneWhen: z.string(),       // The stopping condition
-  previousQueries: z.array(z.string()), // For deduplication
+  task: z.string(),
+  context: z.string(),
+  objective: z.string(),
+  doneWhen: z.string(),
+  previousQueries: z.array(z.string()),
 });
 
 export type SearchTask = z.infer<typeof SearchTaskSchema>;
@@ -78,7 +64,7 @@ export type SearchTask = z.infer<typeof SearchTaskSchema>;
  * Input for the Reflection Agent
  */
 export const ReflectionInputSchema = z.object({
-  currentDoc: z.string(),     // Formatted document for context
+  currentDoc: z.string(),
   rawFindings: SearchFindingsSchema,
   objective: z.string(),
   doneWhen: z.string(),

@@ -1,21 +1,16 @@
 /**
- * Reflection Agent
- *
- * Analyzes search findings and produces edit operations for the document.
- * Does NOT execute searches - that's the Search Agent's job.
- *
- * Single responsibility: Analyze findings, produce document edits.
+ * Reflection Agent - Version 4
+ * Analyzes findings and produces item-based edits (add/remove/edit)
  */
 
 import { generateText, tool } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import type { ReflectionOutput, SearchFindings } from '@/lib/types/doc-edit';
-import { DEFAULT_SECTION_TITLES } from '@/lib/types/research-doc';
 
 interface ReflectionAgentConfig {
-  currentDoc: string;           // Formatted document content
-  rawFindings: SearchFindings;  // Raw findings from Search Agent
+  currentDoc: string;
+  rawFindings: SearchFindings;
   objective: string;
   doneWhen: string;
   abortSignal?: AbortSignal;
@@ -27,53 +22,44 @@ interface ReflectionAgentResult {
   creditsUsed: number;
 }
 
-/**
- * Analyze findings and produce document edits
- */
 export async function analyzeAndReflect(config: ReflectionAgentConfig): Promise<ReflectionAgentResult> {
   const { currentDoc, rawFindings, objective, doneWhen, abortSignal, onProgress } = config;
-  const model = openai('gpt-4.1');
+  const model = openai('gpt-5.1');
 
   let creditsUsed = 0;
 
   const trackUsage = (usage: any) => {
-    const credits = Math.ceil((usage?.totalTokens || 0) / 1000);
-    creditsUsed += credits;
+    creditsUsed += Math.ceil((usage?.totalTokens || 0) / 1000);
   };
 
-  // Tool to output reflection results
   const reflectTool = tool({
-    description: 'Output your analysis and document edit operations',
+    description: 'Output your analysis and document edits',
     inputSchema: z.object({
-      reasoning: z.string().describe('Explain your analysis: what did you learn? how does it relate to the objective?'),
+      reasoning: z.string().describe('Brief analysis: what did you learn from these findings?'),
 
-      documentEdits: z.array(z.object({
-        action: z.enum(['add_items', 'remove_items', 'replace_all']).describe('add_items=add new items, remove_items=remove by id, replace_all=replace entire section'),
-        sectionTitle: z.string().describe(`Section: "${DEFAULT_SECTION_TITLES.KEY_FINDINGS}", "${DEFAULT_SECTION_TITLES.OPEN_QUESTIONS}", "${DEFAULT_SECTION_TITLES.DEAD_ENDS}", or "${DEFAULT_SECTION_TITLES.RAW_NOTES}"`),
-        items: z.array(z.object({
-          text: z.string().describe('The item content - one finding, question, or note per item'),
-          sources: z.array(z.object({
-            url: z.string(),
-            title: z.string()
-          })).optional().describe('Sources for this specific item')
-        })).optional().describe('Items to add (for add_items or replace_all)'),
-        itemIds: z.array(z.string()).optional().describe('Item IDs to remove (for remove_items)')
-      })).describe('Edit operations - each item is ONE finding/question/note'),
+      edits: z.array(z.object({
+        action: z.enum(['add_item', 'remove_item', 'edit_item']),
+        sectionTitle: z.string().describe('Section name (created if new)'),
+        itemId: z.string().optional().describe('Required for remove_item/edit_item - use ID from document'),
+        content: z.string().optional().describe('Required for add_item/edit_item - markdown content'),
+        sources: z.array(z.object({
+          url: z.string(),
+          title: z.string()
+        })).optional().describe('Sources for this item')
+      })).describe('List of edit operations to apply'),
 
       strategyUpdate: z.object({
-        approach: z.string().describe('Updated research approach based on findings'),
-        rationale: z.string().describe('Why this approach makes sense now'),
-        nextActions: z.array(z.string()).describe('Specific next actions to take (1-3 items)')
-      }).optional().describe('Update the research strategy if needed'),
+        approach: z.string().describe('Current research approach'),
+        rationale: z.string().describe('Why this approach'),
+        nextActions: z.array(z.string()).describe('1-3 next steps')
+      }).optional().describe('Update strategy if direction changes'),
 
-      shouldContinue: z.boolean().describe('Should research continue? false = DONE_WHEN is satisfied or proven impossible'),
-
-      doneWhenAssessment: z.string().describe('Explicit assessment: How close are we to satisfying DONE_WHEN? What remains?')
+      shouldContinue: z.boolean().describe('false = DONE_WHEN satisfied or impossible'),
     }),
     execute: async (params) => params
   });
 
-  const systemPrompt = `You are a Reflection Agent analyzing research findings.
+  const systemPrompt = `You are a Reflection Agent. Analyze search findings and edit the research document.
 
 OBJECTIVE: ${objective}
 DONE_WHEN: ${doneWhen}
@@ -81,51 +67,48 @@ DONE_WHEN: ${doneWhen}
 CURRENT DOCUMENT:
 ${currentDoc}
 
-RAW FINDINGS FROM SEARCH:
+RAW FINDINGS:
 ${formatFindings(rawFindings)}
 
 YOUR JOB:
-1. Analyze what was found
-2. Decide what's worth adding to the document
-3. Decide if strategy needs to change
-4. Assess progress toward DONE_WHEN
-5. Output structured edit operations
+1. Extract useful facts from findings
+2. Add them to appropriate sections
+3. Remove outdated/incorrect items if needed
+4. Edit items that need updating
 
-SECTIONS (each contains a list of items):
-- "${DEFAULT_SECTION_TITLES.KEY_FINDINGS}" - Core discoveries, facts (one finding per item)
-- "${DEFAULT_SECTION_TITLES.OPEN_QUESTIONS}" - Unanswered questions (one question per item)
-- "${DEFAULT_SECTION_TITLES.DEAD_ENDS}" - Failed approaches (one dead end per item)
-- "${DEFAULT_SECTION_TITLES.RAW_NOTES}" - Observations, quotes (one note per item)
+EDIT OPERATIONS:
+- **add_item**: Add a new fact to a section (creates section if needed)
+- **remove_item**: Remove an item by its ID (use [item_xxx] from document)
+- **edit_item**: Update an existing item's content
 
-EDIT ACTIONS:
-- add_items: Add new items to a section
-- remove_items: Remove items by their ID (use when question answered or note promoted)
-- replace_all: Replace all items in section (use to consolidate/deduplicate)
+CONTENT STYLE:
+Write clean, factual items. Each item should be a discrete fact or finding.
 
-ITEM FORMAT:
-Each item has: text (the content) and optional sources [{url, title}]
-One fact/question/note per item. Keep items focused and concise.
+GOOD items:
+- "**NPR** - Collin Campbell (Podcast Chief) - linkedin.com/in/..."
+- "Pricing: $49/mo (Starter), $99/mo (Pro), $249/mo (Enterprise)"
+- "Key competitor: Acme Corp - offers similar features at 20% lower price"
 
-RULES:
-- Be selective - not everything is worth documenting
-- When a question gets answered, use remove_items on Open Questions
-- When promoting Raw Notes to Key Findings, remove from Raw Notes
-- Use replace_all to consolidate when items are redundant
+BAD items:
+- "Recent research suggests that..." (meta-commentary)
+- "We found that there might be..." (hedging)
+- "Further investigation needed for..." (process notes)
 
-STOP CRITERIA (shouldContinue = false):
+WHEN TO EDIT vs ADD:
+- If new info updates/corrects existing item → edit_item
+- If new info is distinct/separate → add_item
+- If info is wrong/outdated → remove_item
+
+STOP (shouldContinue = false) when:
 - DONE_WHEN is clearly satisfied, OR
-- DONE_WHEN is proven impossible to satisfy
+- DONE_WHEN is proven impossible`;
 
-If neither, set shouldContinue = true.`;
-
-  onProgress?.({
-    type: 'reflection_started'
-  });
+  onProgress?.({ type: 'reflection_started' });
 
   const result = await generateText({
     model,
     system: systemPrompt,
-    prompt: 'Analyze the findings and produce document edits using the reflect tool.',
+    prompt: 'Analyze findings and output edits using the reflect tool.',
     tools: { reflect: reflectTool },
     toolChoice: { type: 'tool', toolName: 'reflect' },
     abortSignal
@@ -133,65 +116,47 @@ If neither, set shouldContinue = true.`;
 
   trackUsage(result.usage);
 
-  // Extract the reflection output
   const toolCall = result.toolCalls?.[0] as any;
-  console.log('[Reflection] Tool call:', toolCall?.toolName);
-  console.log('[Reflection] Has input:', !!toolCall?.input, 'Has args:', !!toolCall?.args);
 
-  if (toolCall && toolCall.toolName === 'reflect') {
+  if (toolCall?.toolName === 'reflect') {
     const args = toolCall.input || toolCall.args || {};
-    console.log('[Reflection] documentEdits count:', args.documentEdits?.length);
-    console.log('[Reflection] shouldContinue:', args.shouldContinue);
 
     const output: ReflectionOutput = {
-      documentEdits: args.documentEdits || [],
+      edits: args.edits || [],
       strategyUpdate: args.strategyUpdate,
       shouldContinue: args.shouldContinue ?? true,
-      reasoning: args.reasoning || 'No reasoning provided'
+      reasoning: args.reasoning || ''
     };
 
     onProgress?.({
       type: 'reflection_completed',
-      editsApplied: output.documentEdits.length,
+      editsCount: output.edits.length,
       shouldContinue: output.shouldContinue,
-      reasoning: output.reasoning,
-      doneWhenAssessment: args.doneWhenAssessment
+      reasoning: output.reasoning
     });
 
-    return {
-      output,
-      creditsUsed
-    };
+    return { output, creditsUsed };
   }
 
-  // Fallback if no tool call
   return {
     output: {
-      documentEdits: [],
+      edits: [],
       shouldContinue: true,
-      reasoning: 'Reflection agent did not produce output'
+      reasoning: 'No output from reflection'
     },
     creditsUsed
   };
 }
 
-/**
- * Format search findings for the reflection prompt
- */
 function formatFindings(findings: SearchFindings): string {
-  if (!findings.queries || findings.queries.length === 0) {
-    return '(No search results)';
-  }
+  if (!findings.queries?.length) return '(No results)';
 
   const parts: string[] = [];
 
   for (const q of findings.queries) {
     parts.push(`**Query:** ${q.query}`);
     parts.push(`**Purpose:** ${q.purpose}`);
-    parts.push(`**Status:** ${q.status}`);
-    if (q.answer) {
-      parts.push(`**Answer:** ${q.answer}`);
-    }
+    if (q.answer) parts.push(`**Answer:** ${q.answer}`);
     if (q.sources.length > 0) {
       parts.push('**Sources:**');
       for (const s of q.sources.slice(0, 5)) {
@@ -201,57 +166,5 @@ function formatFindings(findings: SearchFindings): string {
     parts.push('---');
   }
 
-  if (findings.summary) {
-    parts.push(`\n**Search Summary:** ${findings.summary}`);
-  }
-
   return parts.join('\n');
-}
-
-/**
- * Quick check if findings suggest we're done
- * Used for early termination detection
- */
-export function quickDoneCheck(
-  findings: SearchFindings,
-  doneWhen: string
-): { likelyDone: boolean; confidence: 'low' | 'medium' | 'high'; reason: string } {
-  // Simple heuristics - the full reflection will make the final call
-  const allAnswers = findings.queries.map(q => q.answer).join(' ').toLowerCase();
-  const doneWhenLower = doneWhen.toLowerCase();
-
-  // Check for explicit signals
-  const hasNotFound = allAnswers.includes('not found') || allAnswers.includes('no results');
-  const hasFound = allAnswers.includes('found') || allAnswers.includes('identified');
-
-  // Check for quantity indicators in doneWhen
-  const quantityMatch = doneWhenLower.match(/(\d+)\s*(leads?|prospects?|items?|results?)/);
-  if (quantityMatch) {
-    const targetCount = parseInt(quantityMatch[1]);
-    // Count how many sources we have
-    const totalSources = findings.queries.reduce((acc, q) => acc + q.sources.length, 0);
-
-    if (totalSources >= targetCount) {
-      return {
-        likelyDone: true,
-        confidence: 'medium',
-        reason: `Found ${totalSources} sources, target was ${targetCount}`
-      };
-    }
-  }
-
-  // Check for "impossible" signals
-  if (hasNotFound && findings.queries.length >= 3) {
-    return {
-      likelyDone: false,
-      confidence: 'low',
-      reason: 'Multiple searches returned no results - may be impossible'
-    };
-  }
-
-  return {
-    likelyDone: false,
-    confidence: 'low',
-    reason: 'No clear completion signal detected'
-  };
 }

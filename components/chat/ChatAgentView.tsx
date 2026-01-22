@@ -547,12 +547,7 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
     error,
     isResearching,
     researchProgress,
-    // V3: Document-centric
     researchDoc,
-    // Legacy V2
-    researchLog,
-    doneWhen,
-    workingMemory,
     stage,
     eventLog,
     sendMessage,
@@ -618,7 +613,7 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
     );
   };
 
-  const showDocument = isResearching || researchDoc || (researchLog && researchLog.length > 0) || doneWhen;
+  const showDocument = isResearching || researchDoc;
 
   return (
     <div className={cn("h-screen w-full flex overflow-hidden font-sans selection:bg-blue-100 dark:selection:bg-blue-500/30", isDarkMode ? 'dark' : '')}>
@@ -862,13 +857,7 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
           {/* Document Content - like a doc editor */}
           <div className="flex-1 overflow-y-auto">
             <div className="max-w-3xl mx-auto px-8 py-12">
-              <ResearchLog
-                doc={researchDoc || undefined}
-                log={researchLog}
-                objective={researchProgress?.objective}
-                doneWhen={doneWhen || researchProgress?.doneWhen}
-                workingMemory={workingMemory || undefined}
-              />
+              <ResearchLog doc={researchDoc || undefined} />
             </div>
           </div>
 
