@@ -80,14 +80,15 @@ export async function analyzeUserMessage(
   
   DECISION TYPES:
   1. multi_choice_select  
-  Use when a single constraint must be chosen. Good to reslove a fork in the conversation.
+  - Use when you want to ask the user to choose from a few options.
   - Present 2–4 options
   - After selection, proceed immediately to start_research
+  - Good to resolve a fork in the conversation.
   
   2. text_input  
   Use only for:
   - Greetings
-  - Open-ended clarification when options are insufficient.
+  - Open-ended questions, when you need broad information from the user.
   
   3. start_research  
   Use when you can clearly specify:
@@ -99,27 +100,47 @@ export async function analyzeUserMessage(
   - If you don't udnrestand something, ask the user to clarify.
   - Ask only one question at a time - very short and specific.
   - Cut to the chase. Ask the most important question.
+  - If you give the user a few opitons to choose from, use multi_choice_select. If it's open ended, use text_input.
+
   
   WHEN STARTING RESEARCH:
-  - Provide a concise and specific research brief. Communicate what the user told you.
-  - Make the goal and expected output explicit
-  - Optimize for action, not completeness
-  - If you give the user a few opitons to choose from, use multi_choice_select. If it's open ended, use text_input.
-  
-  CONVERSATION HISTORY:
-  ${conversationHistory.map((msg: any) => `${msg.role}: ${msg.content}`).join('\n')}
-  
-  ${brain ? `\nPREVIOUS RESEARCH:\n${formatForOrchestrator(parseResearchMemory(brain), 1500)}` : ''}
+  - Provide the research objective to the research agent.
+  - Explain his success criteria to the research agent.
+  - Explain what a useful output looks like to the research agent.
   `;
   
-  
+
+  // Build messages array from conversation history (AI SDK pattern)
+  const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+
+  // Add recent conversation history
+  const recentHistory = conversationHistory.slice(-10);
+  for (const m of recentHistory) {
+    if (m.role === 'user') {
+      // Include selection context for multi-choice responses
+      const content = m.metadata?.type === 'option_selected'
+        ? `${m.content} (I selected this from: ${m.metadata.offeredOptions?.map((o: any) => o.label).join(', ')})`
+        : m.content;
+      messages.push({ role: 'user', content });
+    } else if (m.role === 'assistant' && m.content) {
+      messages.push({ role: 'assistant', content: m.content });
+    }
+  }
+
+  // Add the current user message with instruction
+  messages.push({
+    role: 'user',
+    content: `${userMessage}
+
+---
+If you now have enough context to construct a complete research brief (objective + what they'll do with results), start the research.
+If you need ONE more piece of info, ask ONE focused question.`
+  });
 
   const result = await generateText({
     model: anthropic('claude-sonnet-4-20250514'),
     system: systemPrompt,
-    prompt: `User message: "${userMessage}"
-
-Analyze this message. If you can construct a complete research brief, do so. If you need clarification to define success criteria, ask ONE focused question.`,
+    messages,
     tools: { decisionTool },
     toolChoice: 'required'
   });

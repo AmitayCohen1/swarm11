@@ -270,6 +270,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   // ============================================================
 
   const systemPrompt = `You are an autonomous research agent.
+  
 
 OBJECTIVE: ${researchBrief.objective}
 
@@ -304,8 +305,9 @@ Research relentlessly until you have either a really good result or you've looke
     system: systemPrompt,
     prompt: `${conversationContext}
 
-Create a research plan with 1-5 specific initiatives. Each initiative should be a specific question you need to answer.
-
+Create a research plan with 2-4 specific initiatives.
+Each initiative should be a specific question you need to answer.
+Initatives msut be standalone, and spesific.
 Good: "Which podcast networks have 10M+ listeners?"
 Bad: "Research the podcast industry"
 
@@ -381,17 +383,17 @@ Search for information about this initiative. Use natural language questions, no
 
     // Process search results
     const searchToolCall = searchResult.toolCalls?.[0];
-    const searchQueries = (searchToolCall as any)?.args?.queries || [];
+    const queryArgs = (searchToolCall as any)?.args?.queries || [];
 
     emitProgress('search_started', {
-      count: searchQueries.length,
+      count: queryArgs.length,
       totalSearches: searchCount,
       activeInitiative,
-      queries: searchQueries
+      queries: queryArgs
     });
 
     const searchOutput = searchResult.toolResults?.[0];
-    const searchResultData = (searchOutput as any)?.result?.results || [];
+    const searchResultData = (searchOutput as any)?.output?.results || [];
 
     const completedQueries = searchResultData.map((sr: any) => ({
       query: sr.query,
@@ -507,7 +509,7 @@ Use operations to update the list:
     toolSequence.push('reflect');
 
     const reflectOutput = reflectResult.toolResults?.[0];
-    const reflectData = (reflectOutput as any)?.result || {};
+    const reflectData = (reflectOutput as any)?.output || {};
 
     console.log(`[Research] Reflect: done=${reflectData.done}, pending=${reflectData.pendingCount}`);
 
@@ -568,7 +570,7 @@ Provide a comprehensive, actionable answer.`,
   toolSequence.push('finish');
 
   const finishOutput = finishResult.toolResults?.[0];
-  const output = (finishOutput as any)?.result || {
+  const output = (finishOutput as any)?.output || {
     confidenceLevel: 'low',
     finalAnswer: 'Research completed but no answer extracted.'
   };
