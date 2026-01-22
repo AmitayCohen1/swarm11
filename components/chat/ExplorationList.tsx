@@ -18,12 +18,10 @@ interface ExplorationItem {
 interface ExplorationListProps {
   list: ExplorationItem[] | null;
   objective?: string;
-  successCriteria?: string;
-  outputFormat?: string;
   className?: string;
 }
 
-export default function ExplorationList({ list, objective, successCriteria, outputFormat, className }: ExplorationListProps) {
+export default function ExplorationList({ list, objective, className }: ExplorationListProps) {
   if (!list || list.length === 0) {
     return null;
   }
@@ -71,24 +69,7 @@ export default function ExplorationList({ list, objective, successCriteria, outp
           Research Initiatives
         </h2>
         {objective && (
-          <div className="space-y-2 text-sm">
-            <div>
-              <span className="font-medium text-slate-700 dark:text-slate-300">Objective: </span>
-              <span className="text-slate-500 dark:text-slate-400">{objective}</span>
-            </div>
-            {successCriteria && (
-              <div>
-                <span className="font-medium text-slate-700 dark:text-slate-300">Success: </span>
-                <span className="text-slate-500 dark:text-slate-400">{successCriteria}</span>
-              </div>
-            )}
-            {outputFormat && (
-              <div>
-                <span className="font-medium text-slate-700 dark:text-slate-300">Format: </span>
-                <span className="text-slate-500 dark:text-slate-400">{outputFormat}</span>
-              </div>
-            )}
-          </div>
+          <p className="text-sm text-slate-500 dark:text-slate-400">{objective}</p>
         )}
       </div>
 

@@ -44,13 +44,12 @@ export function serializeResearchMemory(memory: ResearchMemory): string {
 }
 
 /**
- * Create a new research memory with objective and optional success criteria
+ * Create a new research memory with objective
  */
-export function createResearchMemory(objective: string, successCriteria?: string): ResearchMemory {
+export function createResearchMemory(objective: string): ResearchMemory {
   return {
     version: 1,
     objective,
-    successCriteria,
     cycles: [],
     queriesRun: []
   };
@@ -142,10 +141,6 @@ export function formatForOrchestrator(memory: ResearchMemory | null, maxChars: n
 
   // Objective
   parts.push(`**Objective:** ${memory.objective}`);
-
-  if (memory.successCriteria) {
-    parts.push(`**Success Criteria:** ${memory.successCriteria}`);
-  }
 
   // Legacy brain content (if present)
   if (memory.legacyBrain) {

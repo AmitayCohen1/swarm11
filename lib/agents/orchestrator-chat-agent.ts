@@ -3,11 +3,14 @@ import { anthropic } from '@ai-sdk/anthropic';
 import { z } from 'zod';
 import { parseResearchMemory, formatForOrchestrator } from '@/lib/utils/research-memory';
 
+export interface ResearchInitiative {
+  question: string;
+  doneWhen: string;
+}
+
 export interface ResearchBrief {
   objective: string;
-  stoppingConditions: string;
-  successCriteria: string;
-  outputFormat?: string; // e.g., "table", "bullet list", "comparison", "summary"
+  initiatives: ResearchInitiative[];
 }
 
 export interface OrchestratorDecision {
@@ -16,7 +19,6 @@ export interface OrchestratorDecision {
   reasoning: string;
   // multi_choice_select & text_input (when asking)
   reason?: string; // Why this question is being asked - shown to user
-  blockedField?: 'objective' | 'successCriteria';
   options?: { label: string }[];
   // start_research
   researchBrief?: ResearchBrief;
@@ -43,70 +45,66 @@ export async function analyzeUserMessage(
       message: z.string().describe('Your response or question text.'),
 
       // For questions (multi_choice_select or text_input when asking)
-      reason: z.string().optional().describe('REQUIRED when using text_input or multi_choice_select. Brief explanation of WHY you need this info to proceed. Shown to user. For multi_choice_select, reason is shown to user as the options.'),
-      blockedField: z.enum(['objective', 'successCriteria'])
-        .optional()
-        .describe('For multi_choice_select: which research brief field is blocked'),
+      reason: z.string().optional().describe('REQUIRED when using text_input or multi_choice_select. Brief explanation of WHY you need this info to proceed. Shown to user.'),
       options: z.array(z.object({
         label: z.string().describe('2-4 word option')
       })).min(2).max(4).optional().describe('REQUIRED for multi_choice_select: 2-4 concrete options'),
 
       // start_research fields
       researchBrief: z.object({
-        objective: z.string().describe('The core research question - what decision is the user trying to make?'),
-        stoppingConditions: z.string().describe('When research is "good enough" (e.g., "3-5 qualified candidates", "clear market leader identified")'),
-        successCriteria: z.string().describe('What a good answer enables the user to DO (e.g., "send personalized outreach to top 3 candidates")'),
-        outputFormat: z.string().optional().describe('Preferred format for the final answer. Infer from user request: "table"/"comparison table" for comparisons, "bullet list" for lists, "summary" for overviews, "detailed" for in-depth analysis. If not specified, leave empty.')
-      }).optional().describe('Required for start_research. The structured brief for the research agent.'),
+        objective: z.string().describe("Clear, specific research objective. Include what to find and what the user will do with it."),
+        initiatives: z.array(z.object({
+          question: z.string().describe("Specific question to answer. Must be standalone and searchable."),
+          doneWhen: z.string().describe("Concrete criteria for when this is DONE. Not generic - specific. e.g. '3+ company names with decision-maker emails' or 'Pricing for at least 2 competitors'")
+        })).min(1).max(3).describe("1-3 research initiatives. Each must have clear done criteria.")
+      }).optional().describe('Required for start_research.'),
 
       reasoning: z.string().describe('Brief reasoning for your decision')
     }),
     execute: async (params: any) => params
   };
 
-  const systemPrompt = `You are the Research Assistant Agent. 
-  Meaning - you gather inforamtion from the user, then pass that inforamtion to the Autonomous Research Agent.
-  Your role is to ensure there is sufficient clarity about what  research the user want's us to perform, why, and what a useful output looks like.
-  Once you have this information, you pass it to the Research Agent, who will conduct the research autonomously and effectively.
-  
-  You turn vague intent into a clear research brief.
-  
+  const systemPrompt = `You are the Research Assistant Agent.
+  You gather information from the user, then pass it to the Autonomous Research Agent.
+  Your role is to ensure clarity about what research the user wants.
+
   Make sure you understand:
-  1. What exactly do we need to research? What is the research objective? Make sure it's clear and specific.
-  2. What is he planning to do with the result of the research? What is the success criteria? 
-  3. What a useful output looks like? How does successful output of this research look like? 
+  1. What exactly do we need to research? What type of results are they interested in?
+  2. What will they do with the results? This tells us what level of detail is needed.
+  3. What does useful output look like? Make it tangible and actionable.
 
-  These answers help a lot to the autonomous research agent perform the research autonomously and effectively.
-  
   DECISION TYPES:
-  1. multi_choice_select  
-  - Use when you want to ask the user to choose from a few options.
-  - Present 2–4 options
-  - After selection, proceed immediately to start_research
-  - Good to resolve a fork in the conversation.
-  
-  2. text_input  
-  Use only for:
-  - Greetings
-  - Open-ended questions, when you need broad information from the user.
-  
-  3. start_research  
-  Use when you can clearly specify:
-  - The research goal
-  - What the researcher should look for
-  - What “useful output” means
-  
-  RULES:
-  - If you don't udnrestand something, ask the user to clarify.
-  - Ask only one question at a time - very short and specific.
-  - Cut to the chase. Ask the most important question.
-  - If you give the user a few opitons to choose from, use multi_choice_select. If it's open ended, use text_input.
+  1. multi_choice_select - Use to choose between options. Present 2-4 options.
+  2. text_input - Use for greetings or open-ended questions.
+  3. start_research - Use when you have a clear, specific objective.
 
-  
+  RULES:
+  - Ask only ONE question at a time - short and specific.
+  - If you give options, use multi_choice_select.
+  - Don't invent information or assume.
+
   WHEN STARTING RESEARCH:
-  - Provide the research objective to the research agent.
-  - Explain his success criteria to the research agent.
-  - Explain what a useful output looks like to the research agent.
+  Create 1-3 initiatives with CONCRETE done criteria.
+
+  The research agent is NOT Google. It should find things the user CAN'T easily Google themselves.
+  Generic results like "Spotify, NPR, iHeartMedia" are WORTHLESS - anyone can Google that.
+
+  GOOD initiatives have specific doneWhen criteria:
+  ✅ question: "Which mid-size podcast networks focus on news/politics?"
+     doneWhen: "5+ networks with <1M but >100K listeners, NOT the obvious big names"
+
+  ✅ question: "Who are the content decision-makers at these networks?"
+     doneWhen: "Actual names and titles for 3+ companies, ideally with LinkedIn or email"
+
+  ✅ question: "What fact-checking tools do media companies currently use?"
+     doneWhen: "2+ specific tools with pricing, not just 'they use various tools'"
+
+  BAD initiatives (too vague):
+  ❌ doneWhen: "Find relevant companies" (what makes them relevant?)
+  ❌ doneWhen: "Get contact info" (how many? what kind?)
+  ❌ doneWhen: "Research the market" (what specifically?)
+
+  The doneWhen criteria tell the research agent EXACTLY when to stop digging.
   `;
   
 
@@ -133,7 +131,7 @@ export async function analyzeUserMessage(
     content: `${userMessage}
 
 ---
-If you now have enough context to construct a complete research brief (objective + what they'll do with results), start the research.
+If you have a clear objective (what to find + what they'll do with it), start the research.
 If you need ONE more piece of info, ask ONE focused question.`
   });
 
@@ -154,7 +152,6 @@ If you need ONE more piece of info, ask ONE focused question.`
       message: args.message,
       reasoning: args.reasoning,
       reason: args.reason,
-      blockedField: args.blockedField,
       options: args.options,
       researchBrief: args.researchBrief
     };

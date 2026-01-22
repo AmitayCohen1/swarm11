@@ -21,13 +21,13 @@ export interface ResearchCycle {
 export interface ExplorationItem {
   item: string;
   done: boolean;
+  doneWhen?: string;  // Criteria for when this is complete
   subtasks?: { item: string; done: boolean }[];
 }
 
 export interface ResearchMemory {
   version: 1;
   objective: string;
-  successCriteria?: string;
   explorationList?: ExplorationItem[];  // Things to investigate (dynamic todo list)
   cycles: ResearchCycle[];
   queriesRun: string[];        // Flat list for dedup

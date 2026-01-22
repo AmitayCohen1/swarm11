@@ -25,7 +25,8 @@ import {
   Brain,
   MessageSquare,
   AlertCircle,
-  PanelLeft
+  PanelLeft,
+  FileText
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -249,6 +250,105 @@ function SearchBatch({ queries }: { queries: any[] }) {
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Helper: Strip markdown images from content
+ */
+function stripMarkdownImages(content: string): string {
+  // Remove markdown images: ![alt](url) and ![alt]
+  let cleaned = content.replace(/!\[[^\]]*\]\([^)]*\)/g, '');
+  // Remove HTML img tags
+  cleaned = cleaned.replace(/<img[^>]*>/gi, '');
+  // Remove leftover empty lines
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+  return cleaned.trim();
+}
+
+/**
+ * Helper: Extract domain from URL
+ */
+function getDomain(url: string): string {
+  try {
+    return new URL(url).hostname.replace('www.', '');
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Component for extract results (URL scraping)
+ */
+function ExtractBatch({ purpose, status, results, failed }: {
+  purpose?: string;
+  status: string;
+  results: { url: string; content: string }[];
+  failed: { url: string; error: string }[];
+}) {
+  return (
+    <div className="space-y-4 animate-in fade-in duration-500">
+      {/* Purpose header */}
+      {purpose && (
+        <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+          <FileText className="w-4 h-4" />
+          <span className="font-medium">Extracting:</span>
+          <span className="italic">{purpose}</span>
+        </div>
+      )}
+
+      {/* Loading state */}
+      {status === 'extracting' && (
+        <div className="flex items-center gap-3 py-4 px-4 rounded-2xl bg-slate-50 dark:bg-white/3 border border-slate-200/60 dark:border-white/6">
+          <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
+          <span className="text-slate-600 dark:text-slate-400">Extracting page content...</span>
+        </div>
+      )}
+
+      {/* Results */}
+      {status === 'complete' && results.map((result, i) => (
+        <div key={i} className="rounded-2xl border border-slate-200/60 dark:border-white/6 bg-white/50 dark:bg-white/2 overflow-hidden">
+          {/* URL header */}
+          <div className="px-4 py-3 bg-slate-50/80 dark:bg-white/3 border-b border-slate-200/60 dark:border-white/5">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-lg bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center shrink-0">
+                <FileText className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <a
+                href={result.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:underline truncate"
+              >
+                {getDomain(result.url)}
+              </a>
+            </div>
+          </div>
+
+          {/* Content - stripped of images */}
+          <div className="px-4 py-3">
+            <div className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed max-h-48 overflow-y-auto">
+              <pre className="whitespace-pre-wrap font-sans">
+                {stripMarkdownImages(result.content).substring(0, 1500)}
+                {result.content.length > 1500 && '...'}
+              </pre>
+            </div>
+          </div>
+        </div>
+      ))}
+
+      {/* Failed extractions */}
+      {failed && failed.length > 0 && (
+        <div className="px-4 py-2 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20">
+          <p className="text-xs font-medium text-red-600 dark:text-red-400 mb-1">Failed to extract:</p>
+          {failed.map((f, i) => (
+            <p key={i} className="text-xs text-red-500 dark:text-red-400 truncate">
+              {getDomain(f.url)}: {f.error}
+            </p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -501,6 +601,17 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
                 if (msg.metadata?.type === 'search_batch') {
                   return <SearchBatch key={idx} queries={msg.metadata.queries || []} />;
                 }
+                if (msg.metadata?.type === 'extract_batch') {
+                  return (
+                    <ExtractBatch
+                      key={idx}
+                      purpose={msg.metadata.purpose}
+                      status={msg.metadata.status}
+                      results={msg.metadata.results || []}
+                      failed={msg.metadata.failed || []}
+                    />
+                  );
+                }
                 if (msg.metadata?.type === 'research_query') {
                   return <ResearchQuery key={idx} msg={msg} />;
                 }
@@ -660,8 +771,6 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
               <ExplorationList
                 list={explorationList}
                 objective={researchProgress?.objective}
-                successCriteria={researchProgress?.successCriteria}
-                outputFormat={researchProgress?.outputFormat}
               />
             </div>
           )}

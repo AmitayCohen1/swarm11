@@ -1,6 +1,6 @@
 import { generateText, tool } from 'ai';
 import { openai } from '@ai-sdk/openai';
-import { search } from '@/lib/tools/tavily-search';
+import { search, extract } from '@/lib/tools/tavily-search';
 import { db } from '@/lib/db';
 import { chatSessions, searchQueries } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -86,26 +86,29 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   // TOOL DEFINITIONS
   // ============================================================
 
+  // Convert brief initiatives to exploration list format
+  const briefInitiatives: ExplorationItem[] = (researchBrief.initiatives || []).map(init => ({
+    item: init.question,
+    done: false,
+    doneWhen: init.doneWhen
+  }));
+
   const planTool = tool({
-    description: `Create your research plan with 1-5 specific initiatives.`,
+    description: `Initialize the research plan. Called once at the start.`,
     inputSchema: z.object({
-      list: z.array(z.object({
-        item: z.string(),
-        done: z.boolean().default(false),
-        subtasks: z.array(z.object({
-          item: z.string(),
-          done: z.boolean().default(false)
-        })).optional()
-      })).min(1).max(5)
+      acknowledged: z.boolean().describe('Set to true to start research')
     }),
-    execute: async ({ list }) => {
+    execute: async () => {
       emitProgress('plan_started');
 
-      // Initialize memory
-      let memory: ResearchMemory = {
+      const list = briefInitiatives.length > 0 ? briefInitiatives : [{
+        item: researchBrief.objective,
+        done: false
+      }];
+
+      const memory: ResearchMemory = {
         version: 1,
         objective: researchBrief.objective,
-        successCriteria: researchBrief.successCriteria,
         cycles: [],
         queriesRun: [],
         explorationList: list
@@ -119,22 +122,35 @@ export async function executeResearch(config: ResearchExecutorConfig) {
 
       emitProgress('list_updated', { list });
       emitProgress('brain_update', { brain: serializedBrain });
-
-      const firstActive = list.find(i => !i.done)?.item || list[0]?.item;
-      emitProgress('plan_completed', { initiativeCount: list.length, activeInitiative: firstActive });
+      emitProgress('plan_completed', { initiativeCount: list.length });
 
       return { acknowledged: true, initiatives: list.map(i => i.item) };
     }
   });
 
   const reflectTool = tool({
-    description: `Analyze what you learned and decide next steps.`,
+    description: `Analyze search results. 
+    Write what you learned, and what you plan to do next, and if there are any operations you need to perform.
+
+    These are the current initiatives:
+    ${briefInitiatives.map(i => `- ${i.item} [${i.done ? 'done' : 'pending'}]`).join('\n')}
+
+    You can add new initiatives, add subtasks to existing initiatives, or remove ones that are no longer needed.
+    Types of operations: "done", "add", "remove".
+
+    Operations:
+    - {action: "done", target: 0, note: "why this is useful"}
+    - {action: "add", target: "0", item: "Drill-down question", note: "why needed"}
+    - {action: "remove", target: 0, note: "why this is no longer needed"}
+
+    Set done=true ONLY when you have actionable, specific information.`,
     inputSchema: z.object({
       reflection: z.string(),
       operations: z.array(z.object({
         action: z.enum(['done', 'remove', 'add']),
         target: z.union([z.number(), z.string()]),
-        item: z.string().optional()
+        item: z.string().optional(),
+        note: z.string().optional().describe('Brief reason for this operation, e.g. "Found 3 companies matching criteria"')
       })).optional(),
       done: z.boolean()
     }),
@@ -152,7 +168,6 @@ export async function executeResearch(config: ResearchExecutorConfig) {
         memory = {
           version: 1,
           objective: researchBrief.objective,
-          successCriteria: researchBrief.successCriteria,
           cycles: [],
           queriesRun: []
         };
@@ -201,6 +216,18 @@ export async function executeResearch(config: ResearchExecutorConfig) {
         .update(chatSessions)
         .set({ brain: serializedBrain, updatedAt: new Date() })
         .where(eq(chatSessions.id, chatSessionId));
+
+      // Emit operations with notes for UI popups
+      if (operations && operations.length > 0) {
+        emitProgress('list_operations', {
+          operations: operations.map(op => ({
+            action: op.action,
+            target: op.target,
+            item: op.item,
+            note: op.note
+          }))
+        });
+      }
 
       emitProgress('list_updated', { list });
       emitProgress('brain_update', { brain: serializedBrain });
@@ -270,17 +297,17 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   // ============================================================
 
   const systemPrompt = `You are an autonomous research agent.
-  
 
 OBJECTIVE: ${researchBrief.objective}
 
-SUCCESS CRITERIA: ${researchBrief.successCriteria}
-
-OUTPUT FORMAT: ${researchBrief.outputFormat || 'Whatever fits the data best'}
+RULES:
+  - Be smart and creative. Look for signals. Start broad, then narrow down.
+  - Work systematically. Understand the best ways to tackle the objective.
+  - Explore different directions. Then double down or pivot.
 
 ${existingBrain ? `PREVIOUS RESEARCH:\n${formatForOrchestrator(parseResearchMemory(existingBrain), 3000)}` : ''}
 
-Research relentlessly until you have either a really good result or you've looked everywhere.`;
+Research until you have actionable, specific information that fulfills the objective.`;
 
   let conversationContext = '';
   if (conversationHistory.length > 0) {
@@ -327,6 +354,10 @@ Call the plan tool now.`,
 
   let researchDone = false;
 
+  // Conversation memory - accumulates throughout the session
+  const researchMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  const foundUrls: string[] = []; // Track URLs found for potential extraction
+
   while (!researchDone && iterationCount < MAX_ITERATIONS) {
     iterationCount++;
     await checkAborted();
@@ -358,42 +389,100 @@ Call the plan tool now.`,
     }).join('\n');
 
     // ──────────────────────────────────────────────────────────
-    // SEARCH
+    // SEARCH OR EXTRACT
     // ──────────────────────────────────────────────────────────
 
     emitProgress('phase_change', { phase: 'searching', activeInitiative });
 
-    const searchResult = await generateText({
-      model,
-      system: systemPrompt,
-      prompt: `Current initiatives:
+    // Build the search prompt with context
+    const searchPrompt = `Current initiatives:
 ${listContext}
 
 Active: "${activeInitiative}"
 
-Search for information about this initiative. Use natural language questions, not keywords.`,
-      tools: { search },
-      toolChoice: { type: 'tool', toolName: 'search' },
+${foundUrls.length > 0 ? `URLs found in previous searches (can extract for details):\n${foundUrls.slice(-10).join('\n')}\n` : ''}
+
+Choose the right tool:
+- search: Find NEW information (don't repeat previous queries!)
+- extract: Scrape specific URLs for detailed content (contacts, team pages, pricing)
+
+If previous searches were too generic, try a MORE SPECIFIC query or extract URLs for details.`;
+
+    // Add search request to conversation
+    researchMessages.push({ role: 'user', content: searchPrompt });
+
+    const gatherResult = await generateText({
+      model,
+      system: systemPrompt,
+      messages: researchMessages,
+      tools: { search, extract },
+      toolChoice: 'required',
       abortSignal
     });
 
-    trackUsage(searchResult.usage);
-    toolSequence.push('search');
+    trackUsage(gatherResult.usage);
+    const gatherToolCall = gatherResult.toolCalls?.[0];
+    const toolUsed = (gatherToolCall as any)?.toolName || 'search';
+    toolSequence.push(toolUsed);
     searchCount++;
 
-    // Process search results
-    const searchToolCall = searchResult.toolCalls?.[0];
-    const queryArgs = (searchToolCall as any)?.args?.queries || [];
+    // Process results based on which tool was used
+    let searchResultData: any[] = [];
+    let queryArgs: any[] = [];
 
-    emitProgress('search_started', {
-      count: queryArgs.length,
-      totalSearches: searchCount,
-      activeInitiative,
-      queries: queryArgs
-    });
+    let isExtract = false;
 
-    const searchOutput = searchResult.toolResults?.[0];
-    const searchResultData = (searchOutput as any)?.output?.results || [];
+    if (toolUsed === 'search') {
+      queryArgs = (gatherToolCall as any)?.args?.queries || [];
+      emitProgress('search_started', {
+        count: queryArgs.length,
+        totalSearches: searchCount,
+        activeInitiative,
+        queries: queryArgs
+      });
+
+      const searchOutput = gatherResult.toolResults?.[0];
+      searchResultData = (searchOutput as any)?.output?.results || [];
+    } else if (toolUsed === 'extract') {
+      isExtract = true;
+      const extractArgs = (gatherToolCall as any)?.args || {};
+      const urls = extractArgs.urls || [];
+
+      emitProgress('extract_started', {
+        count: urls.length,
+        totalSearches: searchCount,
+        activeInitiative,
+        urls,
+        purpose: extractArgs.purpose
+      });
+
+      const extractOutput = gatherResult.toolResults?.[0];
+      const extractResults = (extractOutput as any)?.output?.results || [];
+      const failedResults = (extractOutput as any)?.output?.failed || [];
+
+      // Emit extract_completed with dedicated format
+      emitProgress('extract_completed', {
+        totalSearches: searchCount,
+        activeInitiative,
+        results: extractResults.map((r: any) => ({
+          url: r.url,
+          content: r.content || 'No content extracted',
+          status: 'success'
+        })),
+        failed: failedResults,
+        purpose: extractArgs.purpose
+      });
+
+      // Convert extract results to search-like format for memory/downstream processing
+      searchResultData = extractResults.map((r: any) => ({
+        query: `Extracted from ${r.url}`,
+        purpose: extractArgs.purpose,
+        answer: r.content?.substring(0, 1000) || 'No content',
+        results: [{ title: r.url, url: r.url, content: r.content }],
+        status: 'success'
+      }));
+      queryArgs = [{ query: `Extract: ${urls.join(', ')}`, purpose: extractArgs.purpose }];
+    }
 
     const completedQueries = searchResultData.map((sr: any) => ({
       query: sr.query,
@@ -403,11 +492,29 @@ Search for information about this initiative. Use natural language questions, no
       status: sr.status === 'success' ? 'complete' : 'error'
     }));
 
-    emitProgress('search_completed', {
-      totalSearches: searchCount,
-      activeInitiative,
-      queries: completedQueries
-    });
+    // Track URLs found for potential extraction
+    for (const sq of completedQueries) {
+      for (const source of sq.sources || []) {
+        if (source.url && !foundUrls.includes(source.url)) {
+          foundUrls.push(source.url);
+        }
+      }
+    }
+
+    // Add search results to conversation memory
+    const searchResultsSummary = completedQueries.map((q: any) =>
+      `Query: ${q.query}\nAnswer: ${q.answer?.substring(0, 300) || 'No answer'}\nSources: ${q.sources?.map((s: any) => s.url).join(', ') || 'none'}`
+    ).join('\n\n');
+    researchMessages.push({ role: 'assistant', content: `Search results:\n${searchResultsSummary}` });
+
+    // Only emit search_completed for search (extract has its own event)
+    if (!isExtract) {
+      emitProgress('search_completed', {
+        totalSearches: searchCount,
+        activeInitiative,
+        queries: completedQueries
+      });
+    }
 
     // Save searches to memory
     if (memory) {
@@ -474,32 +581,32 @@ Search for information about this initiative. Use natural language questions, no
       return line;
     }).join('\n');
 
-    // Format recent search results
-    const recentSearchSummary = completedQueries.map((q: any) =>
-      `Q: ${q.query}\nA: ${q.answer?.substring(0, 500) || 'No answer'}...`
-    ).join('\n\n');
+    // Build reflect prompt
+    const reflectPrompt = `OBJECTIVE: ${researchBrief.objective}
+
+Current initiatives:
+${freshListContext}
+
+Reflect on the search results above. Ask yourself:
+- Is this SPECIFIC enough? Or just generic names anyone could Google?
+- Do I have what the objective asks for? (e.g., if it needs "contacts", do I have actual names/emails?)
+- Should I EXTRACT some of the URLs found to get more details?
+
+If results are generic, either:
+1. Search with a MORE SPECIFIC query (e.g., "Head of Content at iHeartMedia LinkedIn")
+2. Extract a promising URL for detailed info
+
+Operations:
+- {action: "done", target: 0, note: "why this is useful"}
+- {action: "add", target: "0", item: "More specific question", note: "why needed"}`;
+
+    // Add reflect request to conversation
+    researchMessages.push({ role: 'user', content: reflectPrompt });
 
     const reflectResult = await generateText({
       model,
       system: systemPrompt,
-      prompt: `Current initiatives:
-${freshListContext}
-
-SEARCH RESULTS:
-${recentSearchSummary}
-
-Reflect on what you learned:
-1. What concrete facts, names, numbers did you find?
-2. What's still missing?
-3. Should you mark initiatives done, add subtasks, or continue?
-
-Set done=true ONLY if you have enough to answer the objective.
-
-Use operations to update the list:
-- {action: "done", target: 0} - mark initiative 0 done
-- {action: "done", target: "0.1"} - mark subtask done
-- {action: "add", target: 2, item: "New question"} - add initiative
-- {action: "add", target: "0.2", item: "Sub question"} - add subtask`,
+      messages: researchMessages,
       tools: { reflect: reflectTool },
       toolChoice: { type: 'tool', toolName: 'reflect' },
       abortSignal
@@ -510,6 +617,13 @@ Use operations to update the list:
 
     const reflectOutput = reflectResult.toolResults?.[0];
     const reflectData = (reflectOutput as any)?.output || {};
+
+    // Get reflection text from tool call args
+    const reflectArgs = (reflectResult.toolCalls?.[0] as any)?.args || {};
+    const reflectionText = reflectArgs.reflection || '';
+
+    // Add reflection to conversation memory
+    researchMessages.push({ role: 'assistant', content: `Reflection: ${reflectionText}` });
 
     console.log(`[Research] Reflect: done=${reflectData.done}, pending=${reflectData.pendingCount}`);
 
@@ -555,10 +669,8 @@ Use operations to update the list:
 
 ${searchSummary}
 
-Now synthesize your final answer. Address the objective directly:
+Synthesize your final answer for the objective:
 "${researchBrief.objective}"
-
-Success criteria: ${researchBrief.successCriteria}
 
 Provide a comprehensive, actionable answer.`,
     tools: { finish: finishTool },

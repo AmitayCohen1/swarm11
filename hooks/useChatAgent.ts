@@ -11,7 +11,7 @@ interface Message {
 }
 
 interface ProgressUpdate {
-  type: 'analyzing' | 'decision' | 'research_started' | 'research_iteration' | 'step_complete' | 'research_complete' | 'message' | 'complete' | 'error' | 'agent_thinking' | 'research_query' | 'list_updated' | 'brain_updated' | 'brain_update' | 'summary_created' | 'needs_clarification' | 'search_result' | 'search_completed' | 'ask_user' | 'search_started' | 'multi_choice_select' | 'reasoning_started' | 'synthesizing_started' | 'reasoning' | 'phase_change' | 'plan_started' | 'plan_completed' | 'reflect_completed' | 'list_operations';
+  type: 'analyzing' | 'decision' | 'research_started' | 'research_iteration' | 'step_complete' | 'research_complete' | 'message' | 'complete' | 'error' | 'agent_thinking' | 'research_query' | 'list_updated' | 'brain_updated' | 'brain_update' | 'summary_created' | 'needs_clarification' | 'search_result' | 'search_completed' | 'ask_user' | 'search_started' | 'multi_choice_select' | 'reasoning_started' | 'synthesizing_started' | 'reasoning' | 'phase_change' | 'plan_started' | 'plan_completed' | 'reflect_completed' | 'list_operations' | 'extract_started' | 'extract_completed';
   options?: { label: string; description?: string }[];
   message?: string;
   decision?: string;
@@ -43,6 +43,11 @@ interface ProgressUpdate {
   cycle?: number;
   searchCount?: number;
   toolSequence?: string[];
+  // Extract-specific
+  urls?: string[];
+  purpose?: string;
+  results?: any[];
+  failed?: any[];
 }
 
 // Event log entry for UI display
@@ -70,9 +75,6 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
   const [isResearching, setIsResearching] = useState(false);
   const [researchProgress, setResearchProgress] = useState<{
     objective?: string;
-    stoppingConditions?: string;
-    successCriteria?: string;
-    outputFormat?: string;
     iteration?: number;
   }>({});
   const [brain, setBrain] = useState<string>('');
@@ -216,6 +218,8 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
       let buffer = '';
 
       const processUpdate = (update: ProgressUpdate) => {
+        console.log('[SSE Event]', update.type, update);
+
         // Log all events for visibility
         if (update.type === 'plan_started') {
           addEvent('plan_started', 'Planning started', 'Creating research initiatives...', 'plan');
@@ -249,17 +253,14 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           setExplorationList(null);
           setIsResearching(true);
           setStatus('researching');
-          const brief = (update as any).brief;
           setResearchProgress({
             objective: update.objective,
-            stoppingConditions: brief?.stoppingConditions,
-            successCriteria: brief?.successCriteria,
-            outputFormat: brief?.outputFormat,
             iteration: 0
           });
           addEvent('research_started', 'Research started', update.objective?.substring(0, 50) + '...', 'info');
         } else if (update.type === 'search_started') {
           const rawQueries = (update as any).queries || [];
+          console.log('[search_started] Adding search batch with queries:', rawQueries);
           addEvent('search_started', `Search (${rawQueries.length} queries)`, rawQueries.map((q: any) => q.query).join(' | ').substring(0, 60) + '...', 'search');
           setStage('searching');
           const queries = rawQueries.map((q: any) => ({
@@ -272,10 +273,8 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           pendingBatchRef.current = queries;
 
           setMessages(prev => {
-            const lastBatch = prev.findLast(m => m.metadata?.type === 'search_batch');
-            if (lastBatch?.metadata?.queries?.[0]?.status === 'complete') {
-              return prev;
-            }
+            console.log('[search_started] Adding message, prev count:', prev.length);
+            // Always add a new search batch - each search gets its own message
             return [...prev, {
               role: 'assistant' as const,
               content: '',
@@ -317,6 +316,63 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
               metadata: {
                 type: 'search_batch',
                 queries: completedQueries
+              }
+            }];
+          });
+        } else if (update.type === 'extract_started') {
+          setStage('searching');
+          const urls = update.urls || [];
+          addEvent('extract_started', `Extracting (${urls.length} URLs)`, update.purpose || '', 'search');
+
+          setMessages(prev => [...prev, {
+            role: 'assistant' as const,
+            content: '',
+            timestamp: new Date().toISOString(),
+            metadata: {
+              type: 'extract_batch',
+              urls,
+              purpose: update.purpose,
+              status: 'extracting',
+              results: []
+            }
+          }]);
+        } else if (update.type === 'extract_completed') {
+          setStage(null);
+          const results = update.results || [];
+          const failed = update.failed || [];
+          addEvent('extract_completed', `Extract complete`, `${results.length} pages extracted`, 'search');
+
+          setMessages(prev => {
+            const batchIdx = prev.findLastIndex(m =>
+              m.metadata?.type === 'extract_batch' &&
+              m.metadata?.status === 'extracting'
+            );
+
+            if (batchIdx !== -1) {
+              const newMessages = [...prev];
+              newMessages[batchIdx] = {
+                ...newMessages[batchIdx],
+                metadata: {
+                  type: 'extract_batch',
+                  purpose: update.purpose,
+                  status: 'complete',
+                  results,
+                  failed
+                }
+              };
+              return newMessages;
+            }
+
+            return [...prev, {
+              role: 'assistant' as const,
+              content: '',
+              timestamp: new Date().toISOString(),
+              metadata: {
+                type: 'extract_batch',
+                purpose: update.purpose,
+                status: 'complete',
+                results,
+                failed
               }
             }];
           });
@@ -368,9 +424,11 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
         } else if (update.type === 'list_updated') {
           setExplorationList(update.list || null);
         } else if (update.type === 'list_operations') {
-          const summary = (update as any).summary || [];
-          if (summary.length > 0) {
-            addEvent('list_operations', 'List modified', summary.join(' | '), 'plan');
+          const ops = (update as any).operations || [];
+          for (const op of ops) {
+            const actionLabel = op.action === 'done' ? '✓ Completed' : op.action === 'add' ? '+ Added' : '− Removed';
+            const detail = op.note || op.item || `target ${op.target}`;
+            addEvent('list_operations', actionLabel, detail, 'plan');
           }
         } else if (update.type === 'reasoning') {
           setStage(null);

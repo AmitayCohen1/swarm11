@@ -165,7 +165,7 @@ export async function POST(
               role: 'assistant',
               content: question,
               timestamp: new Date().toISOString(),
-              metadata: { type: 'multi_choice_select', options, reason, blockedField: decision.blockedField }
+              metadata: { type: 'multi_choice_select', options, reason }
             });
 
             await db
@@ -174,7 +174,7 @@ export async function POST(
               .where(eq(chatSessions.id, chatSessionId));
 
             // Send as multi_choice_select so UI renders clickable buttons
-            sendEvent({ type: 'multi_choice_select', question, options, reason, blockedField: decision.blockedField });
+            sendEvent({ type: 'multi_choice_select', question, options, reason });
             sendEvent({ type: 'complete' });
 
           } else if (decision.type === 'start_research') {
@@ -200,10 +200,7 @@ export async function POST(
             const existingMemory = parseResearchMemory(currentBrain);
 
             // Create new structured memory, preserving legacy brain if exists
-            let newMemory = createResearchMemory(
-              researchBrief.objective,
-              researchBrief.successCriteria
-            );
+            let newMemory = createResearchMemory(researchBrief.objective);
 
             // Preserve legacy brain content if this is an existing session with old format
             if (existingMemory?.legacyBrain) {
@@ -228,8 +225,6 @@ export async function POST(
                 userId: user.id,
                 chatSessionId,
                 objective: researchBrief.objective,
-                successCriteria: researchBrief.successCriteria,
-                stoppingConditions: researchBrief.stoppingConditions,
                 status: 'running'
               })
               .returning({ id: researchSessions.id });
@@ -282,28 +277,8 @@ export async function POST(
                 conversationHistory,
                 existingBrain: currentBrain,
                 onProgress: (update) => {
-                  // Stream progress as structured events (UI can show/hide details)
-                  if (update.type === 'brain_update') {
-                    // Pass through brain updates to frontend
-                    sendEvent({
-                      type: 'brain_update',
-                      brain: update.brain
-                    });
-                  } else if (update.type === 'list_updated') {
-                    // Pass through exploration list updates
-                    sendEvent(update);
-                  } else if (update.type === 'reasoning') {
-                    // Pass through reasoning/learned content
-                    sendEvent(update);
-                  } else if (update.type === 'research_query' || update.type === 'search_started') {
-                    sendEvent(update);
-                  } else if (update.type === 'search_completed') {
-                    sendEvent(update);
-                  } else if (update.type === 'agent_thinking' || update.type === 'reasoning_started' || update.type === 'synthesizing_started') {
-                    sendEvent(update);
-                  } else if (update.type === 'research_iteration') {
-                    sendEvent(update);
-                  }
+                  // Forward all progress events to frontend
+                  sendEvent(update);
                 }
               });
               // (researchResult used below for final answer)
