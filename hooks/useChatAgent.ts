@@ -10,13 +10,30 @@ interface Message {
   metadata?: any;
 }
 
+interface LogEntry {
+  id: string;
+  timestamp: string;
+  method: string;
+  signal: string;
+  insight: string;
+  progressTowardObjective: string;
+  mood: 'exploring' | 'promising' | 'dead_end' | 'breakthrough';
+  sources: { url: string; title: string }[];
+}
+
+interface WorkingMemory {
+  bullets: string[];
+  lastUpdated: string;
+}
+
 interface ProgressUpdate {
-  type: 'analyzing' | 'decision' | 'research_started' | 'research_iteration' | 'step_complete' | 'research_complete' | 'message' | 'complete' | 'error' | 'agent_thinking' | 'research_query' | 'brain_updated' | 'brain_update' | 'summary_created' | 'needs_clarification' | 'search_result' | 'search_completed' | 'ask_user' | 'search_started' | 'multi_choice_select' | 'reasoning_started' | 'synthesizing_started' | 'reasoning' | 'phase_change' | 'plan_started' | 'plan_completed' | 'reflect_completed' | 'extract_started' | 'extract_completed' | 'angles_updated' | 'angle_updated' | 'review_completed' | 'review_rejected';
+  type: 'analyzing' | 'decision' | 'research_started' | 'research_iteration' | 'step_complete' | 'research_complete' | 'message' | 'complete' | 'error' | 'agent_thinking' | 'research_query' | 'brain_updated' | 'brain_update' | 'summary_created' | 'needs_clarification' | 'search_result' | 'search_completed' | 'ask_user' | 'search_started' | 'multi_choice_select' | 'reasoning_started' | 'synthesizing_started' | 'reasoning' | 'phase_change' | 'research_initialized' | 'log_entry_added' | 'extract_started' | 'extract_completed' | 'review_started' | 'review_completed' | 'review_rejected' | 'working_memory_updated';
   options?: { label: string; description?: string }[];
   message?: string;
   decision?: string;
   reasoning?: string;
   objective?: string;
+  doneWhen?: string;
   iteration?: number;
   text?: string;
   toolCalls?: any[];
@@ -38,16 +55,12 @@ interface ProgressUpdate {
   context?: string;
   brain?: string;
   phase?: string;
-  activeAngle?: string;
-  cycle?: number;
   searchCount?: number;
   toolSequence?: string[];
-  // Angles-specific
-  angles?: { name: string; goal: string; stopWhen: string; status: 'active' | 'worked' | 'rejected'; result?: string }[];
-  angleIndex?: number;
-  angleName?: string;
-  status?: string;
-  result?: string;
+  // Log entry
+  entry?: LogEntry;
+  logCount?: number;
+  isDone?: boolean;
   // Review-specific
   verdict?: string;
   critique?: string;
@@ -66,7 +79,7 @@ export interface EventLogEntry {
   timestamp: string;
   label: string;
   detail?: string;
-  icon: 'plan' | 'search' | 'reflect' | 'phase' | 'complete' | 'error' | 'info';
+  icon: 'plan' | 'search' | 'reflect' | 'phase' | 'complete' | 'error' | 'info' | 'log';
 }
 
 interface UseChatAgentOptions {
@@ -84,12 +97,15 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
   const [isResearching, setIsResearching] = useState(false);
   const [researchProgress, setResearchProgress] = useState<{
     objective?: string;
+    doneWhen?: string;
     iteration?: number;
   }>({});
   const [brain, setBrain] = useState<string>('');
   const [stage, setStage] = useState<'searching' | 'reflecting' | 'synthesizing' | null>(null);
-  const [angles, setAngles] = useState<{ name: string; goal: string; stopWhen: string; status: 'active' | 'worked' | 'rejected'; result?: string }[] | null>(null);
+  const [researchLog, setResearchLog] = useState<LogEntry[]>([]);
+  const [doneWhen, setDoneWhen] = useState<string | null>(null);
   const [eventLog, setEventLog] = useState<EventLogEntry[]>([]);
+  const [workingMemory, setWorkingMemory] = useState<WorkingMemory | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -139,6 +155,27 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
       setBrain(session.brain || '');
       setIsResearching(session.status === 'researching');
       setStatus('ready');
+
+      // Parse brain to extract log, doneWhen, and workingMemory
+      if (session.brain) {
+        try {
+          const parsed = JSON.parse(session.brain);
+          if (parsed.version === 2) {
+            setResearchLog(parsed.log || []);
+            setDoneWhen(parsed.doneWhen || null);
+            setResearchProgress({
+              objective: parsed.objective,
+              doneWhen: parsed.doneWhen
+            });
+            // Parse working memory
+            if (parsed.workingMemory) {
+              setWorkingMemory(parsed.workingMemory);
+            }
+          }
+        } catch {
+          // Invalid brain JSON
+        }
+      }
 
     } catch (err: any) {
       setError(err.message);
@@ -229,22 +266,22 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
       const processUpdate = (update: ProgressUpdate) => {
         console.log('[SSE Event]', update.type, update);
 
-        // Log all events for visibility
-        if (update.type === 'plan_started') {
-          addEvent('plan_started', 'Planning started', 'Setting up research angles...', 'plan');
-        } else if (update.type === 'plan_completed') {
-          const count = (update as any).angleCount || 0;
-          addEvent('plan_completed', `Plan created`, `${count} angle(s) to explore`, 'plan');
+        // Log events for visibility
+        if (update.type === 'research_initialized') {
+          addEvent('research_initialized', 'Research initialized', `Objective: ${update.objective?.substring(0, 40)}...`, 'info');
         } else if (update.type === 'phase_change') {
           const phase = update.phase || 'unknown';
-          const angle = update.activeAngle ? `"${update.activeAngle.substring(0, 30)}..."` : '';
-          addEvent('phase_change', `Phase: ${phase}`, angle, 'phase');
-        } else if (update.type === 'reflect_completed') {
-          const decision = (update as any).decision || 'unknown';
-          const active = (update as any).activeCount || 0;
-          const worked = (update as any).workedCount || 0;
-          const rejected = (update as any).rejectedCount || 0;
-          addEvent('reflect_completed', `Reflection done`, `${decision} | ${worked} worked, ${rejected} rejected, ${active} active`, 'reflect');
+          addEvent('phase_change', `Phase: ${phase}`, undefined, 'phase');
+        } else if (update.type === 'log_entry_added') {
+          const entry = update.entry;
+          addEvent('log_entry_added', `Logged: ${entry?.method?.substring(0, 30)}...`, entry?.insight?.substring(0, 50), 'log');
+        } else if (update.type === 'review_completed') {
+          const verdict = update.verdict || 'unknown';
+          const icon = verdict === 'pass' ? 'complete' : 'error';
+          addEvent('review_completed', `Review: ${verdict.toUpperCase()}`, update.critique?.substring(0, 60), icon as any);
+        } else if (update.type === 'review_rejected') {
+          const missing = update.missing || [];
+          addEvent('review_rejected', 'Review FAILED', `Missing: ${missing.join(', ').substring(0, 50)}`, 'error');
         } else if (update.type === 'research_complete') {
           const sequence = update.toolSequence || [];
           addEvent('research_complete', 'Research complete', `Sequence: ${sequence.join(' → ')}`, 'complete');
@@ -259,14 +296,27 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
         } else if (update.type === 'research_started') {
           // Clear event log for new research session
           setEventLog([]);
-          setAngles(null);
+          setResearchLog([]);
+          setDoneWhen(null);
+          setWorkingMemory(null);
           setIsResearching(true);
           setStatus('researching');
           setResearchProgress({
             objective: update.objective,
+            doneWhen: update.doneWhen,
             iteration: 0
           });
           addEvent('research_started', 'Research started', update.objective?.substring(0, 50) + '...', 'info');
+        } else if (update.type === 'research_initialized') {
+          // Set doneWhen when research initializes
+          if (update.doneWhen) {
+            setDoneWhen(update.doneWhen);
+          }
+          setResearchProgress({
+            objective: update.objective,
+            doneWhen: update.doneWhen,
+            iteration: 0
+          });
         } else if (update.type === 'search_started') {
           const rawQueries = (update as any).queries || [];
           console.log('[search_started] Adding search batch with queries:', rawQueries);
@@ -430,11 +480,35 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           }));
         } else if (update.type === 'brain_update') {
           setBrain(update.brain || '');
-        } else if (update.type === 'angles_updated') {
-          setAngles(update.angles || null);
-        } else if (update.type === 'angle_updated') {
-          const statusIcon = update.status === 'worked' ? '✓' : update.status === 'rejected' ? '✗' : '→';
-          addEvent('angle_updated', `${statusIcon} ${update.angleName}`, update.result || update.status, 'plan');
+          // Parse brain to extract log and working memory
+          if (update.brain) {
+            try {
+              const parsed = JSON.parse(update.brain);
+              if (parsed.version === 2 && parsed.log) {
+                setResearchLog(parsed.log);
+                if (parsed.doneWhen) {
+                  setDoneWhen(parsed.doneWhen);
+                }
+                // Parse working memory
+                if (parsed.workingMemory) {
+                  setWorkingMemory(parsed.workingMemory);
+                }
+              }
+            } catch {
+              // Invalid JSON
+            }
+          }
+        } else if (update.type === 'working_memory_updated') {
+          // Direct update of working memory (more efficient than parsing brain)
+          const bullets = (update as any).bullets || [];
+          const lastUpdated = (update as any).lastUpdated || new Date().toISOString();
+          setWorkingMemory({ bullets, lastUpdated });
+          addEvent('working_memory_updated', 'Memory updated', `${bullets.length} conclusions`, 'info');
+        } else if (update.type === 'log_entry_added') {
+          // Update research log with new entry
+          if (update.entry) {
+            setResearchLog(prev => [...prev, update.entry!]);
+          }
         } else if (update.type === 'reasoning') {
           setStage(null);
           setMessages(prev => [...prev, {
@@ -543,7 +617,9 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
     error,
     isResearching,
     researchProgress,
-    angles,
+    researchLog,
+    doneWhen,
+    workingMemory,
     brain,
     stage,
     eventLog,

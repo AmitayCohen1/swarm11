@@ -1,12 +1,13 @@
 /**
- * Research Memory Utilities
- * Helper functions for managing structured research memory
+ * Research Memory Utilities - Version 2
+ * Append-only log architecture helper functions
  */
 
-import type { ResearchMemory, ResearchCycle, SearchResult } from '../types/research-memory';
+import type { ResearchMemory, LogEntry, ResearchMemoryV1, WorkingMemory } from '../types/research-memory';
 
 /**
- * Parse brain content from JSON
+ * Parse brain content from JSON, handling v1 → v2 migration
+ * Also ensures workingMemory exists for v2 memories that predate this field
  */
 export function parseResearchMemory(brain: string): ResearchMemory | null {
   if (!brain || !brain.trim()) {
@@ -15,14 +16,66 @@ export function parseResearchMemory(brain: string): ResearchMemory | null {
 
   try {
     const parsed = JSON.parse(brain.trim());
-    if (parsed.version === 1 && parsed.objective) {
+
+    // Handle v2
+    if (parsed.version === 2 && parsed.objective) {
+      // Ensure workingMemory exists (backward compat for pre-workingMemory v2)
+      if (!parsed.workingMemory) {
+        parsed.workingMemory = {
+          bullets: [],
+          lastUpdated: new Date().toISOString()
+        };
+      }
       return parsed as ResearchMemory;
+    }
+
+    // Migrate v1 to v2
+    if (parsed.version === 1 && parsed.objective) {
+      return migrateV1toV2(parsed as ResearchMemoryV1);
     }
   } catch {
     // Invalid JSON
   }
 
   return null;
+}
+
+/**
+ * Migrate v1 memory to v2 format
+ */
+export function migrateV1toV2(v1: ResearchMemoryV1): ResearchMemory {
+  const log: LogEntry[] = [];
+
+  // Convert cycles to log entries
+  for (const cycle of v1.cycles || []) {
+    if (cycle.learned) {
+      log.push({
+        id: `migrated-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        timestamp: cycle.timestamp,
+        method: cycle.intent || 'Migrated from v1',
+        signal: cycle.searches?.map(s => s.answer).join(' | ') || '',
+        insight: cycle.learned,
+        progressTowardObjective: cycle.nextStep || 'Migrated from v1',
+        mood: 'exploring',
+        sources: cycle.searches?.flatMap(s => s.sources) || []
+      });
+    }
+  }
+
+  // Derive doneWhen from angles if present
+  const doneWhen = v1.angles?.map(a => a.stopWhen).join(' OR ') || 'Task completed';
+
+  return {
+    version: 2,
+    objective: v1.objective,
+    doneWhen,
+    workingMemory: {
+      bullets: [],
+      lastUpdated: new Date().toISOString()
+    },
+    log,
+    queriesRun: v1.queriesRun || []
+  };
 }
 
 /**
@@ -33,79 +86,49 @@ export function serializeResearchMemory(memory: ResearchMemory): string {
 }
 
 /**
- * Create a new research memory with objective
+ * Create a new research memory with objective and doneWhen
  */
-export function createResearchMemory(objective: string): ResearchMemory {
+export function createResearchMemory(objective: string, doneWhen: string): ResearchMemory {
   return {
-    version: 1,
+    version: 2,
     objective,
-    cycles: [],
+    doneWhen,
+    workingMemory: {
+      bullets: [],
+      lastUpdated: new Date().toISOString()
+    },
+    log: [],
     queriesRun: []
   };
 }
 
 /**
- * Start a new research cycle with an intent
+ * Append a log entry to memory (immutable)
  */
-export function startCycle(memory: ResearchMemory, intent: string): ResearchMemory {
-  const newCycle: ResearchCycle = {
+export function appendLogEntry(memory: ResearchMemory, entry: Omit<LogEntry, 'id' | 'timestamp'>): ResearchMemory {
+  const newEntry: LogEntry = {
+    id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     timestamp: new Date().toISOString(),
-    intent,
-    searches: [],
-    learned: '',
-    nextStep: ''
+    ...entry
   };
 
   return {
     ...memory,
-    cycles: [...memory.cycles, newCycle]
+    log: [...memory.log, newEntry]
   };
 }
 
 /**
- * Add a search result to the current (last) cycle
+ * Add a query to the dedup list
  */
-export function addSearchToMemory(memory: ResearchMemory, search: SearchResult): ResearchMemory {
-  if (memory.cycles.length === 0) {
-    // Auto-start a cycle if none exists
-    memory = startCycle(memory, 'Initial exploration');
-  }
-
-  const cycles = [...memory.cycles];
-  const currentCycle = { ...cycles[cycles.length - 1] };
-  currentCycle.searches = [...currentCycle.searches, search];
-  cycles[cycles.length - 1] = currentCycle;
-
-  // Add query to flat list for dedup
-  const queriesRun = [...memory.queriesRun];
-  if (!queriesRun.includes(search.query)) {
-    queriesRun.push(search.query);
-  }
-
-  return {
-    ...memory,
-    cycles,
-    queriesRun
-  };
-}
-
-/**
- * Complete the current cycle with learnings and next step
- */
-export function completeCycle(memory: ResearchMemory, learned: string, nextStep: string): ResearchMemory {
-  if (memory.cycles.length === 0) {
+export function addQueryToMemory(memory: ResearchMemory, query: string): ResearchMemory {
+  if (memory.queriesRun.includes(query)) {
     return memory;
   }
 
-  const cycles = [...memory.cycles];
-  const currentCycle = { ...cycles[cycles.length - 1] };
-  currentCycle.learned = learned;
-  currentCycle.nextStep = nextStep;
-  cycles[cycles.length - 1] = currentCycle;
-
   return {
     ...memory,
-    cycles
+    queriesRun: [...memory.queriesRun, query]
   };
 }
 
@@ -113,13 +136,118 @@ export function completeCycle(memory: ResearchMemory, learned: string, nextStep:
  * Check if a query has already been run (for deduplication)
  */
 export function hasQueryBeenRun(memory: ResearchMemory, query: string): boolean {
-  // Normalize query for comparison
   const normalizedQuery = query.toLowerCase().trim();
   return memory.queriesRun.some(q => q.toLowerCase().trim() === normalizedQuery);
 }
 
 /**
+ * Update working memory with new bullets (replaces existing)
+ * Working memory is "what we know" - conclusions, not actions.
+ * Limited to 10 bullets max.
+ */
+export function updateWorkingMemory(memory: ResearchMemory, bullets: string[]): ResearchMemory {
+  return {
+    ...memory,
+    workingMemory: {
+      bullets: bullets.slice(0, 10), // Enforce max 10 bullets
+      lastUpdated: new Date().toISOString()
+    }
+  };
+}
+
+/**
+ * Format log for agent context - working memory first, then recent log entries
+ * Working memory is the primary context; full log is for reference only.
+ */
+export function formatLogForAgent(memory: ResearchMemory, maxEntries: number = 10): string {
+  const parts: string[] = [];
+
+  parts.push(`**OBJECTIVE:** ${memory.objective}`);
+  parts.push(`**DONE_WHEN:** ${memory.doneWhen}`);
+
+  // Working memory - the narrative of the research journey (read this first!)
+  if (memory.workingMemory?.bullets?.length > 0) {
+    const lastUpdated = memory.workingMemory.lastUpdated
+      ? formatTimeAgo(new Date(memory.workingMemory.lastUpdated))
+      : 'unknown';
+    parts.push(`\n**THE STORY SO FAR** (updated ${lastUpdated}):`);
+    for (const bullet of memory.workingMemory.bullets) {
+      parts.push(`- ${bullet}`);
+    }
+  } else {
+    parts.push('\n**THE STORY SO FAR:** (empty - research just starting)');
+  }
+
+  parts.push(`\n**Queries run:** ${memory.queriesRun.length}`);
+
+  if (memory.log.length === 0) {
+    parts.push('\n**Research Log:** (empty - no iterations yet)');
+    return parts.join('\n');
+  }
+
+  parts.push(`\n**Research Log:** (${memory.log.length} entries)`);
+
+  // Show recent entries (for reference, not primary context)
+  const recentEntries = memory.log.slice(-maxEntries);
+  const skipped = memory.log.length - recentEntries.length;
+
+  if (skipped > 0) {
+    parts.push(`... (${skipped} earlier entries omitted)`);
+  }
+
+  for (const entry of recentEntries) {
+    const time = new Date(entry.timestamp).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    parts.push(`\n[${time}] **${entry.method}**`);
+    parts.push(`  Signal: ${entry.signal.substring(0, 200)}${entry.signal.length > 200 ? '...' : ''}`);
+    parts.push(`  Insight: ${entry.insight}`);
+    parts.push(`  Progress: ${entry.progressTowardObjective}`);
+  }
+
+  return parts.join('\n');
+}
+
+/**
+ * Format a time difference as human-readable "X ago" string
+ */
+function formatTimeAgo(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHour = Math.floor(diffMin / 60);
+
+  if (diffMin < 1) return 'just now';
+  if (diffMin < 60) return `${diffMin} min ago`;
+  if (diffHour < 24) return `${diffHour} hour${diffHour > 1 ? 's' : ''} ago`;
+  return date.toLocaleDateString();
+}
+
+/**
+ * Summarize log for context compression
+ */
+export function summarizeLog(memory: ResearchMemory): string {
+  if (memory.log.length === 0) {
+    return 'No research conducted yet.';
+  }
+
+  const insights = memory.log.map(e => e.insight).filter(Boolean);
+  const methods = [...new Set(memory.log.map(e => e.method))];
+  const lastProgress = memory.log[memory.log.length - 1]?.progressTowardObjective;
+
+  return [
+    `**Methods tried (${methods.length}):** ${methods.join(', ')}`,
+    `**Key insights (${insights.length}):**`,
+    ...insights.slice(-5).map(i => `- ${i}`),
+    `**Latest progress:** ${lastProgress || 'Unknown'}`
+  ].join('\n');
+}
+
+/**
  * Format research memory for orchestrator context (structured summary)
+ * Working memory is the primary summary; includes recent insights for context
  */
 export function formatForOrchestrator(memory: ResearchMemory | null, maxChars: number = 1500): string {
   if (!memory) {
@@ -129,30 +257,36 @@ export function formatForOrchestrator(memory: ResearchMemory | null, maxChars: n
   const parts: string[] = [];
 
   parts.push(`**Objective:** ${memory.objective}`);
+  parts.push(`**Done when:** ${memory.doneWhen}`);
 
-  // Recent cycles summary
-  if (memory.cycles.length > 0) {
-    parts.push(`\n**Research Cycles:** ${memory.cycles.length}`);
+  // Working memory first - the research narrative
+  if (memory.workingMemory?.bullets?.length > 0) {
+    parts.push('\n**The story so far:**');
+    for (const bullet of memory.workingMemory.bullets) {
+      parts.push(`- ${bullet}`);
+    }
+  }
+
+  if (memory.log.length > 0) {
+    parts.push(`\n**Research Log:** ${memory.log.length} entries`);
     parts.push(`**Queries Run:** ${memory.queriesRun.length}`);
 
-    // Show last 2-3 cycles' learnings
-    const recentCycles = memory.cycles.slice(-3);
-    parts.push('\n**Recent Learnings:**');
+    // Show last 3 entries' insights
+    const recentEntries = memory.log.slice(-3);
+    parts.push('\n**Recent Insights:**');
 
-    for (const cycle of recentCycles) {
-      if (cycle.learned) {
-        const timestamp = new Date(cycle.timestamp).toLocaleTimeString([], {
-          hour: '2-digit',
-          minute: '2-digit'
-        });
-        parts.push(`- [${timestamp}] ${cycle.learned}`);
-      }
+    for (const entry of recentEntries) {
+      const timestamp = new Date(entry.timestamp).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+      parts.push(`- [${timestamp}] ${entry.insight}`);
     }
 
-    // Show last cycle's next step if research is ongoing
-    const lastCycle = memory.cycles[memory.cycles.length - 1];
-    if (lastCycle.nextStep && lastCycle.nextStep !== 'stop') {
-      parts.push(`\n**Next Step:** ${lastCycle.nextStep}`);
+    // Show last progress assessment
+    const lastEntry = memory.log[memory.log.length - 1];
+    if (lastEntry) {
+      parts.push(`\n**Latest Progress:** ${lastEntry.progressTowardObjective}`);
     }
   }
 
@@ -172,14 +306,3 @@ export function formatForOrchestrator(memory: ResearchMemory | null, maxChars: n
 export function getAllQueries(memory: ResearchMemory): string[] {
   return [...memory.queriesRun];
 }
-
-/**
- * Get the current cycle's search count
- */
-export function getCurrentCycleSearchCount(memory: ResearchMemory): number {
-  if (memory.cycles.length === 0) {
-    return 0;
-  }
-  return memory.cycles[memory.cycles.length - 1].searches.length;
-}
-

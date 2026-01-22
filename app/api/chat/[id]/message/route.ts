@@ -196,7 +196,7 @@ export async function POST(
               .where(eq(chatSessions.id, chatSessionId));
 
             const currentBrain = currentSession?.brain || '';
-            const newMemory = createResearchMemory(researchBrief.objective);
+            const newMemory = createResearchMemory(researchBrief.objective, researchBrief.doneWhen);
             const serializedBrain = serializeResearchMemory(newMemory);
 
             await db

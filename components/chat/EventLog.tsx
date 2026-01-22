@@ -27,7 +27,8 @@ const iconMap = {
   phase: ArrowRight,
   complete: CheckCircle2,
   error: AlertCircle,
-  info: Info
+  info: Info,
+  log: Clock
 };
 
 const colorMap = {
@@ -37,7 +38,8 @@ const colorMap = {
   phase: 'text-slate-500 bg-slate-500/10 border-slate-500/20',
   complete: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20',
   error: 'text-red-500 bg-red-500/10 border-red-500/20',
-  info: 'text-slate-400 bg-slate-400/10 border-slate-400/20'
+  info: 'text-slate-400 bg-slate-400/10 border-slate-400/20',
+  log: 'text-indigo-500 bg-indigo-500/10 border-indigo-500/20'
 };
 
 function formatTime(timestamp: string): string {

@@ -9,12 +9,13 @@ import { ResearchBrief } from './orchestrator-chat-agent';
 import {
   parseResearchMemory,
   serializeResearchMemory,
-  addSearchToMemory,
-  completeCycle,
-  startCycle,
-  formatForOrchestrator
+  createResearchMemory,
+  appendLogEntry,
+  addQueryToMemory,
+  formatLogForAgent,
+  updateWorkingMemory
 } from '@/lib/utils/research-memory';
-import type { ResearchMemory, SearchResult, ResearchAngle } from '@/lib/types/research-memory';
+import type { ResearchMemory, LogEntry } from '@/lib/types/research-memory';
 
 interface ResearchExecutorConfig {
   chatSessionId: string;
@@ -28,12 +29,10 @@ interface ResearchExecutorConfig {
 }
 
 /**
- * Research Executor Agent - Custom loop with explicit phases
+ * Research Executor Agent - Append-Only Log Architecture
  *
- * Flow: plan() → search() → reflect() → [loop or finish()]
- *
- * Each phase is a separate generateText call with forced tool choice.
- * Much cleaner than ToolLoopAgent callbacks.
+ * New loop: search → log → checkDone (no planning state)
+ * Agent decides fresh every iteration - no persisted strategy.
  */
 export async function executeResearch(config: ResearchExecutorConfig) {
   const {
@@ -53,7 +52,6 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   let totalCreditsUsed = 0;
   let iterationCount = 0;
   let searchCount = 0;
-  let cycleCounter = 1;
   const toolSequence: string[] = [];
 
   // ============================================================
@@ -86,92 +84,38 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   // TOOL DEFINITIONS
   // ============================================================
 
-  // Convert brief angles to ResearchAngle format
-  const briefAngles: ResearchAngle[] = (researchBrief.angles || []).map(angle => ({
-    name: angle.name,
-    goal: angle.goal,
-    stopWhen: angle.stopWhen,
-    status: 'active' as const
-  }));
+  const logTool = tool({
+    description: `Log your findings after each search iteration. Answer all four questions.
 
-  const planTool = tool({
-    description: `Initialize the research plan. Called once at the start.`,
+    OBJECTIVE: ${researchBrief.objective}
+    DONE_WHEN: ${researchBrief.doneWhen}
+
+    After searching, you MUST call this tool to log:
+    1. method - What approach did you try THIS step? (ephemeral - don't plan ahead)
+    2. signal - What did you observe in the results?
+    3. insight - What did you learn?
+    4. progressTowardObjective - How does this help or block reaching DONE_WHEN? Be explicit!
+    5. isDone - Have you satisfied DONE_WHEN or proven it impossible?
+
+    isDone should be true ONLY if:
+    - You have enough information to satisfy DONE_WHEN, OR
+    - You've proven DONE_WHEN is impossible to satisfy
+
+    If neither, set isDone to false and continue searching with a DIFFERENT method.`,
     inputSchema: z.object({
-      acknowledged: z.boolean().describe('Set to true to start research')
+      method: z.string().describe('What approach did you try THIS step? (e.g., "Searched for CEO LinkedIn profiles")'),
+      signal: z.string().describe('What did you observe in the search results?'),
+      insight: z.string().describe('What did you learn from this?'),
+      progressTowardObjective: z.string().describe('How does this help/block reaching DONE_WHEN? Compare explicitly to the stopping condition.'),
+      mood: z.enum(['exploring', 'promising', 'dead_end', 'breakthrough']).describe('How did this iteration go? exploring=still looking, promising=getting closer, dead_end=this path failed, breakthrough=found what we need'),
+      isDone: z.boolean().describe('True if DONE_WHEN is satisfied OR proven impossible. False if more research needed.'),
+      sources: z.array(z.object({
+        url: z.string(),
+        title: z.string()
+      })).describe('Key sources from this iteration')
     }),
-    execute: async () => {
-      emitProgress('plan_started');
-
-      const angles = briefAngles.length > 0 ? briefAngles : [{
-        name: 'Main',
-        goal: researchBrief.objective,
-        stopWhen: 'Found actionable answer or concluded not findable',
-        status: 'active' as const
-      }];
-
-      const memory: ResearchMemory = {
-        version: 1,
-        objective: researchBrief.objective,
-        cycles: [],
-        queriesRun: [],
-        angles
-      };
-
-      const serializedBrain = serializeResearchMemory(memory);
-      await db
-        .update(chatSessions)
-        .set({ brain: serializedBrain, updatedAt: new Date() })
-        .where(eq(chatSessions.id, chatSessionId));
-
-      emitProgress('angles_updated', { angles });
-      emitProgress('brain_update', { brain: serializedBrain });
-      emitProgress('plan_completed', { angleCount: angles.length });
-
-      return { acknowledged: true, angles: angles.map(a => a.name) };
-    }
-  });
-
-  const reflectTool = tool({
-    description: `Evaluate your search results for the CURRENT ANGLE. Decide: continue, mark worked, or mark rejected.
-
-    ANGLES (fixed - you explore these systematically):
-    ${briefAngles.map((a, idx) => `${idx}. ${a.name} [${a.status}]\n       Goal: ${a.goal}\n       Stop when: ${a.stopWhen}`).join('\n')}
-
-    For the CURRENT angle, ask:
-    - Did this search yield useful signal toward the goal?
-    - Have I hit the stop condition (success OR rejection)?
-
-    You control the angle status by setting the angleStatus field:
-
-    If you found useful results for this angle, set angleStatus to "worked".
-    If this angle is not producing results and you want to move on, set angleStatus to "rejected".
-    If you want to keep searching this angle, set angleStatus to "active".
-
-    When you set "worked" or "rejected", also fill in angleResult to explain what happened.
-
-    Once all angles are either worked or rejected, set done to true.`,
-    inputSchema: z.object({
-      reflection: z.string().describe(`Markdown formatted reflection. Structure:
-## Current Angle
-- Which angle I'm working on
-
-## What I Found
-- Key findings from this search
-
-## Angle Status
-- Did this angle work, get rejected, or need more searching?
-
-## Next
-- Continue this angle OR move to next angle OR done`),
-      angleIndex: z.number().describe('Index of the angle being evaluated (0-based)'),
-      angleStatus: z.enum(['active', 'worked', 'rejected']).describe('New status for this angle'),
-      angleResult: z.string().optional().describe('Brief summary of what this angle produced (required if worked/rejected)'),
-      done: z.boolean().describe('True if ALL angles are resolved (worked or rejected)')
-    }),
-    execute: async ({ reflection, angleIndex, angleStatus, angleResult, done }) => {
-      emitProgress('reasoning', { reflection });
-
-      // Load and update memory
+    execute: async ({ method, signal, insight, progressTowardObjective, mood, isDone, sources }) => {
+      // Load current memory
       const [session] = await db
         .select({ brain: chatSessions.brain })
         .from(chatSessions)
@@ -179,99 +123,121 @@ export async function executeResearch(config: ResearchExecutorConfig) {
 
       let memory = parseResearchMemory(session?.brain || '');
       if (!memory) {
-        memory = {
-          version: 1,
-          objective: researchBrief.objective,
-          cycles: [],
-          queriesRun: [],
-          angles: briefAngles
-        };
+        memory = createResearchMemory(researchBrief.objective, researchBrief.doneWhen);
       }
 
-      // Update angle status
-      const angles: ResearchAngle[] = JSON.parse(JSON.stringify(memory.angles || briefAngles));
-      if (angles[angleIndex]) {
-        angles[angleIndex].status = angleStatus;
-        if (angleResult) {
-          angles[angleIndex].result = angleResult;
-        }
-      }
+      // Append log entry
+      memory = appendLogEntry(memory, {
+        method,
+        signal,
+        insight,
+        progressTowardObjective,
+        mood,
+        sources
+      });
 
-      memory.angles = angles;
-      memory = completeCycle(memory, reflection, done ? 'done' : 'continue');
-
+      // Save to DB
       const serializedBrain = serializeResearchMemory(memory);
       await db
         .update(chatSessions)
         .set({ brain: serializedBrain, updatedAt: new Date() })
         .where(eq(chatSessions.id, chatSessionId));
 
-      // Emit angle update
-      emitProgress('angle_updated', {
-        angleIndex,
-        angleName: angles[angleIndex]?.name,
-        status: angleStatus,
-        result: angleResult
-      });
+      // Get the just-added entry
+      const newEntry = memory.log[memory.log.length - 1];
 
-      emitProgress('angles_updated', { angles });
+      // Emit progress
+      emitProgress('log_entry_added', {
+        entry: newEntry,
+        logCount: memory.log.length,
+        isDone
+      });
       emitProgress('brain_update', { brain: serializedBrain });
 
-      // Count active angles
-      const activeAngles = angles.filter(a => a.status === 'active');
-      const workedAngles = angles.filter(a => a.status === 'worked');
-      const rejectedAngles = angles.filter(a => a.status === 'rejected');
-
-      const allResolved = activeAngles.length === 0;
-      const nextAngle = activeAngles[0]?.name || null;
-
-      emitProgress('reflect_completed', {
-        decision: allResolved ? 'finishing' : 'continuing',
-        activeCount: activeAngles.length,
-        workedCount: workedAngles.length,
-        rejectedCount: rejectedAngles.length
-      });
-
-      return { done: allResolved, nextAngle, activeCount: activeAngles.length };
+      return {
+        logged: true,
+        entryId: newEntry.id,
+        isDone,
+        totalEntries: memory.log.length
+      };
     }
   });
 
-  const finishTool = tool({
-    description: `Deliver your final research answer.`,
-    inputSchema: z.object({
-      confidenceLevel: z.enum(['low', 'medium', 'high']),
-      finalAnswer: z.string()
-    }),
-    execute: async ({ confidenceLevel, finalAnswer }) => {
-      emitProgress('synthesizing_started');
+  const updateMemoryTool = tool({
+    description: `Update working memory with a narrative summary of the research journey (5-10 bullets).
 
-      // Ensure all angles are marked as resolved
+    Write it like a story someone can skim to understand what happened:
+    - What you tried and why
+    - What you realized/learned
+    - How you pivoted when something didn't work
+    - What criteria you're using for success
+
+    Good examples:
+    - "Started with obvious high-budget targets - looked up major podcast networks"
+    - "Realized org names weren't enough - needed actual decision-makers with contact info"
+    - "Shifted to LinkedIn to find people, not brands"
+    - "Dropped dead ends fast - conference sites gave names but no contacts"
+    - "A prospect only counts if it has: name, org, LinkedIn/email, clear fit reason"
+
+    Bad examples:
+    - "Searched Google" (too vague, no insight)
+    - "Found 5 results" (just a number, no meaning)
+
+    Call when:
+    - Your mood is 'breakthrough' or 'dead_end'
+    - You pivoted to a new approach
+    - Every 3-4 iterations to keep the narrative current`,
+    inputSchema: z.object({
+      bullets: z.array(z.string()).min(1).max(10)
+        .describe('Narrative summary - the story of your research journey so far, written for easy skimming')
+    }),
+    execute: async ({ bullets }) => {
+      // Load current memory
       const [session] = await db
         .select({ brain: chatSessions.brain })
         .from(chatSessions)
         .where(eq(chatSessions.id, chatSessionId));
 
       let memory = parseResearchMemory(session?.brain || '');
-      if (memory?.angles) {
-        // Mark any remaining active angles as worked (research complete)
-        for (const angle of memory.angles) {
-          if (angle.status === 'active') {
-            angle.status = 'worked';
-            angle.result = angle.result || 'Completed during synthesis';
-          }
-        }
-
-        const serializedBrain = serializeResearchMemory(memory);
-        await db
-          .update(chatSessions)
-          .set({ brain: serializedBrain, updatedAt: new Date() })
-          .where(eq(chatSessions.id, chatSessionId));
-
-        emitProgress('angles_updated', { angles: memory.angles });
-        emitProgress('brain_update', { brain: serializedBrain });
+      if (!memory) {
+        memory = createResearchMemory(researchBrief.objective, researchBrief.doneWhen);
       }
 
-      return { confidenceLevel, finalAnswer };
+      // Update working memory (overwrites, not appends)
+      memory = updateWorkingMemory(memory, bullets);
+
+      // Save to DB
+      const serializedBrain = serializeResearchMemory(memory);
+      await db
+        .update(chatSessions)
+        .set({ brain: serializedBrain, updatedAt: new Date() })
+        .where(eq(chatSessions.id, chatSessionId));
+
+      // Emit progress
+      emitProgress('working_memory_updated', {
+        bullets: memory.workingMemory.bullets,
+        lastUpdated: memory.workingMemory.lastUpdated
+      });
+      emitProgress('brain_update', { brain: serializedBrain });
+
+      return {
+        updated: true,
+        bulletCount: bullets.length,
+        message: 'Working memory updated with current conclusions'
+      };
+    }
+  });
+
+  const finishTool = tool({
+    description: `Deliver your final research answer. Use this after logTool returns isDone=true.`,
+    inputSchema: z.object({
+      confidenceLevel: z.enum(['low', 'medium', 'high']),
+      finalAnswer: z.string().describe('Complete answer to the research objective'),
+      doneWhenStatus: z.string().describe('Explain how DONE_WHEN was satisfied or why it was impossible')
+    }),
+    execute: async ({ confidenceLevel, finalAnswer, doneWhenStatus }) => {
+      emitProgress('synthesizing_started');
+      return { confidenceLevel, finalAnswer, doneWhenStatus };
     }
   });
 
@@ -292,32 +258,38 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   // BUILD CONTEXT
   // ============================================================
 
-  const systemPrompt = `You are an autonomous research agent.
+  const systemPrompt = `You are an autonomous research agent with three layers of memory:
+
+┌─────────────────────────────────────┐
+│  OBJECTIVE + DONE_WHEN              │  ← Stable north star (never drifts)
+├─────────────────────────────────────┤
+│  WORKING MEMORY (5-10 bullets)      │  ← Compressed conclusions (overwrites)
+├─────────────────────────────────────┤
+│  FULL LOG (append-only)             │  ← Raw brain trace (grows forever)
+└─────────────────────────────────────┘
 
 OBJECTIVE: ${researchBrief.objective}
+DONE_WHEN: ${researchBrief.doneWhen}
 
-HOW TO RESEARCH:
-1. HYPOTHESIZE - "What's the best way to find this?"
-2. TEST - Run searches based on your hypothesis
-3. EVALUATE - Did you get actionable signal or noise?
-4. DECIDE:
-   - Low signal / diminishing returns → STOP this approach, explain why
-   - Promising signal → NARROW further
-   - Enough signal to act → DONE
+YOUR LOOP (repeat until done):
+1. Read OBJECTIVE + DONE_WHEN
+2. Read WORKING MEMORY (compressed state - this is your primary context)
+3. Think: "What is the biggest remaining unknown?"
+4. Execute ONE search
+5. Call logTool to record: method, signal, insight, progressTowardObjective
+6. Update working memory if conclusions changed (on breakthrough/dead_end)
+7. Check DONE_WHEN - set isDone=true only if satisfied or proven impossible
+8. Continue or finish
 
-ANGLES:
-You have a set of ANGLES (strategies) to explore. For each angle:
-- Search to make progress on its goal
-- Evaluate: did this yield signal or noise?
-- Mark as "worked" (found what we needed) or "rejected" (concluded this won't work)
-- Move to next angle
+WORKING MEMORY is "what we KNOW" not "what we tried":
+- Good: "Direct market size data does not exist publicly"
+- Bad: "Searched for market reports" (that's an action)
 
-An angle can be REJECTED because:
-- The path is low-signal or inaccessible
-- Further search adds diminishing value
-Rejection is valid output - it's learning, not failure.
-
-You're DONE when all angles are resolved (worked or rejected).
+KEY PRINCIPLES:
+- Each iteration tries a DIFFERENT method (don't repeat what failed)
+- method is ephemeral - describes THIS step only, not a reusable strategy
+- progressTowardObjective MUST reference DONE_WHEN explicitly
+- Working memory keeps you from re-learning the same things
 
 WATCH FOR SIGNALS:
 - Engagement over credentials (who's actually influential, not just titled)
@@ -329,8 +301,9 @@ COMMON TRAPS:
 - Accepting generic lists as "results"
 - Repeating similar searches hoping for different results
 - Stopping at credentials when you need quality signals
+- Setting isDone=true prematurely (be rigorous!)
 
-${existingBrain ? `PREVIOUS RESEARCH:\n${formatForOrchestrator(parseResearchMemory(existingBrain), 3000)}` : ''}`;
+${existingBrain ? `PREVIOUS RESEARCH:\n${formatLogForAgent(parseResearchMemory(existingBrain)!, 10)}` : ''}`;
 
   let conversationContext = '';
   if (conversationHistory.length > 0) {
@@ -341,45 +314,42 @@ ${existingBrain ? `PREVIOUS RESEARCH:\n${formatForOrchestrator(parseResearchMemo
   }
 
   // ============================================================
-  // PHASE 1: PLAN
+  // PHASE 1: INITIALIZE MEMORY
   // ============================================================
 
   console.log('[Research] ═══════════════════════════════════════════════════');
-  console.log('[Research] PHASE 1: PLAN');
+  console.log('[Research] PHASE 1: INITIALIZE');
   console.log('[Research] ═══════════════════════════════════════════════════');
 
   await checkAborted();
 
-  // Build angles display for context
-  const anglesDisplay = briefAngles.map((angle, idx) =>
-    `${idx + 1}. ${angle.name}\n   Goal: ${angle.goal}\n   Stop when: ${angle.stopWhen}`
-  ).join('\n\n');
+  // Initialize memory if needed
+  const [initialSession] = await db
+    .select({ brain: chatSessions.brain })
+    .from(chatSessions)
+    .where(eq(chatSessions.id, chatSessionId));
 
-  const planResult = await generateText({
-    model,
-    system: systemPrompt,
-    prompt: `${conversationContext}
+  let memory = parseResearchMemory(initialSession?.brain || '');
+  if (!memory) {
+    memory = createResearchMemory(researchBrief.objective, researchBrief.doneWhen);
+    const serializedBrain = serializeResearchMemory(memory);
+    await db
+      .update(chatSessions)
+      .set({ brain: serializedBrain, updatedAt: new Date() })
+      .where(eq(chatSessions.id, chatSessionId));
+    emitProgress('brain_update', { brain: serializedBrain });
+  }
 
-Here are your research ANGLES (explore these systematically):
-${anglesDisplay}
-
-Call the plan tool to start.`,
-    tools: { plan: planTool },
-    toolChoice: { type: 'tool', toolName: 'plan' },
-    abortSignal
+  emitProgress('research_initialized', {
+    objective: researchBrief.objective,
+    doneWhen: researchBrief.doneWhen
   });
 
-  trackUsage(planResult.usage);
-  toolSequence.push('plan');
-  console.log('[Research] Plan created');
-
   // ============================================================
-  // PHASE 2: SEARCH/REFLECT LOOP
+  // PHASE 2: SEARCH/LOG LOOP
   // ============================================================
 
   let researchDone = false;
-
-  // Conversation memory - accumulates throughout the session
   const researchMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
 
   while (!researchDone && iterationCount < MAX_ITERATIONS) {
@@ -395,42 +365,25 @@ Call the plan tool to start.`,
       .from(chatSessions)
       .where(eq(chatSessions.id, chatSessionId));
 
-    const memory = parseResearchMemory(session?.brain || '');
-    const currentAngles: ResearchAngle[] = memory?.angles || briefAngles;
-    const activeAngle = currentAngles.find(a => a.status === 'active');
-    const activeAngleIndex = currentAngles.findIndex(a => a.status === 'active');
-
-    if (!activeAngle) {
-      // All angles resolved
-      researchDone = true;
-      break;
+    memory = parseResearchMemory(session?.brain || '');
+    if (!memory) {
+      memory = createResearchMemory(researchBrief.objective, researchBrief.doneWhen);
     }
 
-    // Format angles for context
-    const anglesContext = currentAngles.map((angle, idx) => {
-      const statusIcon = angle.status === 'worked' ? '✓' : angle.status === 'rejected' ? '✗' : '→';
-      let line = `${idx}. ${angle.name} [${statusIcon} ${angle.status.toUpperCase()}]`;
-      line += `\n   Goal: ${angle.goal}`;
-      line += `\n   Stop when: ${angle.stopWhen}`;
-      if (angle.result) {
-        line += `\n   Result: ${angle.result}`;
-      }
-      return line;
-    }).join('\n\n');
+    // Format log for context
+    const logContext = formatLogForAgent(memory, 8);
 
     // ──────────────────────────────────────────────────────────
     // SEARCH
     // ──────────────────────────────────────────────────────────
 
+    const searchPrompt = `CURRENT STATE:
+${logContext}
 
-    const searchPrompt = `ANGLES (explore systematically):
-${anglesContext}
+DONE_WHEN: ${researchBrief.doneWhen}
 
-CURRENT ANGLE: "${activeAngle.name}"
-Goal: ${activeAngle.goal}
-Stop when: ${activeAngle.stopWhen}
-
-Search to make progress on this angle. Ask specific questions.`;
+Think: What is ONE different method worth trying to make progress toward DONE_WHEN?
+Then execute a search. After getting results, call logTool to record your findings.`;
 
     researchMessages.push({ role: 'user', content: searchPrompt });
 
@@ -453,7 +406,6 @@ Search to make progress on this angle. Ask specific questions.`;
     emitProgress('search_started', {
       count: queryArgs.length,
       totalSearches: searchCount,
-      activeAngle: activeAngle.name,
       queries: queryArgs
     });
 
@@ -476,124 +428,146 @@ Search to make progress on this angle. Ask specific questions.`;
 
     emitProgress('search_completed', {
       totalSearches: searchCount,
-      activeAngle: activeAngle.name,
       queries: completedQueries
     });
 
-    // Save searches to memory
-    if (memory) {
-      let updatedMemory = memory;
-      if (updatedMemory.cycles.length === 0) {
-        updatedMemory = startCycle(updatedMemory, activeAngle.name);
-      }
-      for (const sq of completedQueries) {
-        const searchEntry: SearchResult = {
-          query: sq.query,
-          purpose: sq.purpose,
-          answer: sq.answer,
-          sources: sq.sources
-        };
-        updatedMemory = addSearchToMemory(updatedMemory, searchEntry);
+    // Track queries in memory
+    for (const sq of completedQueries) {
+      memory = addQueryToMemory(memory, sq.query);
 
-        await db.insert(searchQueries).values({
-          researchSessionId,
-          query: sq.query,
-          queryNormalized: sq.query.toLowerCase().trim(),
-          purpose: sq.purpose,
-          answer: sq.answer,
-          sources: sq.sources,
-          cycleNumber: cycleCounter
-        });
-      }
-      const serializedBrain = serializeResearchMemory(updatedMemory);
-      await db
-        .update(chatSessions)
-        .set({ brain: serializedBrain, updatedAt: new Date() })
-        .where(eq(chatSessions.id, chatSessionId));
-      emitProgress('brain_update', { brain: serializedBrain });
+      await db.insert(searchQueries).values({
+        researchSessionId,
+        query: sq.query,
+        queryNormalized: sq.query.toLowerCase().trim(),
+        purpose: sq.purpose,
+        answer: sq.answer,
+        sources: sq.sources,
+        cycleNumber: iterationCount
+      });
     }
+
+    // Save updated query list
+    const serializedBrain = serializeResearchMemory(memory);
+    await db
+      .update(chatSessions)
+      .set({ brain: serializedBrain, updatedAt: new Date() })
+      .where(eq(chatSessions.id, chatSessionId));
+    emitProgress('brain_update', { brain: serializedBrain });
 
     console.log(`[Research] Search complete: ${completedQueries.length} queries`);
 
     // ──────────────────────────────────────────────────────────
-    // REFLECT
+    // LOG (replaces reflect)
     // ──────────────────────────────────────────────────────────
 
     await checkAborted();
-    console.log(`[Research] ITERATION ${iterationCount}: REFLECT`);
+    console.log(`[Research] ITERATION ${iterationCount}: LOG`);
 
+    const logPrompt = `You just searched. Now call logTool to record your findings.
 
-    // Get fresh state after search
-    const [freshSession] = await db
-      .select({ brain: chatSessions.brain })
-      .from(chatSessions)
-      .where(eq(chatSessions.id, chatSessionId));
+OBJECTIVE: ${researchBrief.objective}
+DONE_WHEN: ${researchBrief.doneWhen}
 
-    const freshMemory = parseResearchMemory(freshSession?.brain || '');
-    const freshAngles: ResearchAngle[] = freshMemory?.angles || briefAngles;
-    const freshAnglesContext = freshAngles.map((angle, idx) => {
-      const statusIcon = angle.status === 'worked' ? '✓' : angle.status === 'rejected' ? '✗' : '→';
-      let line = `${idx}. ${angle.name} [${statusIcon} ${angle.status.toUpperCase()}]`;
-      line += `\n   Goal: ${angle.goal}`;
-      line += `\n   Stop when: ${angle.stopWhen}`;
-      if (angle.result) {
-        line += `\n   Result: ${angle.result}`;
-      }
-      return line;
-    }).join('\n\n');
+Record:
+1. method - What approach did you try?
+2. signal - What did you observe?
+3. insight - What did you learn?
+4. progressTowardObjective - How does this help/block reaching DONE_WHEN? (be explicit!)
+5. isDone - Is DONE_WHEN satisfied or proven impossible?
 
-    // Build reflect prompt
-    const reflectPrompt = `OBJECTIVE: ${researchBrief.objective}
+Be rigorous about isDone - only set true if you can clearly justify it against DONE_WHEN.`;
 
-CURRENT ANGLE: ${activeAngle.name} (index: ${activeAngleIndex})
-Goal: ${activeAngle.goal}
-Stop when: ${activeAngle.stopWhen}
+    researchMessages.push({ role: 'user', content: logPrompt });
 
-ALL ANGLES:
-${freshAnglesContext}
-
-Evaluate the search results for the CURRENT ANGLE.
-- Did it produce useful signal toward the goal?
-- Have you hit the stop condition (success OR rejection)?
-
-Call the reflect tool with your evaluation.`;
-
-    // Add reflect request to conversation
-    researchMessages.push({ role: 'user', content: reflectPrompt });
-
-    const reflectResult = await generateText({
+    const logResult = await generateText({
       model,
       system: systemPrompt,
       messages: researchMessages,
-      tools: { reflect: reflectTool },
-      toolChoice: { type: 'tool', toolName: 'reflect' },
+      tools: { log: logTool },
+      toolChoice: { type: 'tool', toolName: 'log' },
       abortSignal
     });
 
-    trackUsage(reflectResult.usage);
-    toolSequence.push('reflect');
+    trackUsage(logResult.usage);
+    toolSequence.push('log');
 
-    const reflectOutput = reflectResult.toolResults?.[0];
-    const reflectData = (reflectOutput as any)?.output || {};
+    const logOutput = logResult.toolResults?.[0];
+    const logData = (logOutput as any)?.output || {};
 
-    // Get reflection text from tool call args
-    const reflectArgs = (reflectResult.toolCalls?.[0] as any)?.args || {};
-    const reflectionText = reflectArgs.reflection || '';
+    // Get log args for conversation context
+    const logArgs = (logResult.toolCalls?.[0] as any)?.args || {};
+    researchMessages.push({
+      role: 'assistant',
+      content: `Logged: ${logArgs.method}\nInsight: ${logArgs.insight}\nProgress: ${logArgs.progressTowardObjective}\nisDone: ${logArgs.isDone}`
+    });
 
-    // Add reflection to conversation memory
-    researchMessages.push({ role: 'assistant', content: `Reflection: ${reflectionText}` });
+    console.log(`[Research] Log complete: isDone=${logData.isDone}, entries=${logData.totalEntries}`);
 
-    console.log(`[Research] Reflect: done=${reflectData.done}, pending=${reflectData.pendingCount}`);
+    // ──────────────────────────────────────────────────────────
+    // UPDATE WORKING MEMORY (if significant finding)
+    // ──────────────────────────────────────────────────────────
 
-    if (reflectData.done) {
+    // Trigger working memory update on breakthrough/dead_end or every 3 iterations
+    const shouldUpdateMemory =
+      logArgs.mood === 'breakthrough' ||
+      logArgs.mood === 'dead_end' ||
+      iterationCount % 3 === 0;
+
+    if (shouldUpdateMemory) {
+      await checkAborted();
+      console.log(`[Research] ITERATION ${iterationCount}: UPDATE WORKING MEMORY (mood: ${logArgs.mood})`);
+
+      const updateMemoryPrompt = `Your last finding was ${logArgs.mood === 'breakthrough' ? 'a breakthrough' : logArgs.mood === 'dead_end' ? 'a dead end' : 'worth consolidating'}.
+
+Update your working memory with the story so far.
+
+Write 5-10 bullets that tell the narrative of this research:
+- What approaches you tried and why
+- What you realized or learned
+- How you pivoted when something didn't work
+- What's working vs what's not
+- What counts as "done" (your success criteria)
+
+Write it so someone can skim and instantly understand the journey.
+
+Example style:
+- "Started with X because Y"
+- "Realized X wasn't enough - needed Y"
+- "Shifted to X to find Y, not Z"
+- "Dropped X fast - gave names but no contacts"
+- "Only counting prospects with: name, org, contact, fit reason"`;
+
+      researchMessages.push({ role: 'user', content: updateMemoryPrompt });
+
+      const updateMemoryResult = await generateText({
+        model,
+        system: systemPrompt,
+        messages: researchMessages,
+        tools: { updateMemory: updateMemoryTool },
+        toolChoice: { type: 'tool', toolName: 'updateMemory' },
+        abortSignal
+      });
+
+      trackUsage(updateMemoryResult.usage);
+      toolSequence.push('updateMemory');
+
+      const updateMemoryArgs = (updateMemoryResult.toolCalls?.[0] as any)?.args || {};
+      researchMessages.push({
+        role: 'assistant',
+        content: `Updated working memory with ${updateMemoryArgs.bullets?.length || 0} conclusions`
+      });
+
+      console.log(`[Research] Working memory updated: ${updateMemoryArgs.bullets?.length || 0} bullets`);
+    }
+
+    if (logData.isDone) {
       researchDone = true;
-    } else {
-      cycleCounter++;
     }
 
     emitProgress('research_iteration', {
       iteration: iterationCount,
       searchCount,
+      isDone: logData.isDone,
       toolSequence: [...toolSequence]
     });
   }
@@ -607,33 +581,33 @@ Call the reflect tool with your evaluation.`;
   console.log('[Research] ═══════════════════════════════════════════════════');
 
   await checkAborted();
+  emitProgress('review_started');
 
-  // Get state for review
+  // Get final state for review
   const [reviewSession] = await db
     .select({ brain: chatSessions.brain })
     .from(chatSessions)
     .where(eq(chatSessions.id, chatSessionId));
 
   const reviewMemory = parseResearchMemory(reviewSession?.brain || '');
-  const reviewSearches = reviewMemory?.cycles?.flatMap(c => c.searches) || [];
-  const reviewSummary = reviewSearches.slice(-10).map(s =>
-    `Q: ${s.query}\nA: ${s.answer?.substring(0, 300) || 'N/A'}`
-  ).join('\n\n');
+  const recentInsights = reviewMemory?.log.slice(-10).map(e =>
+    `Method: ${e.method}\nInsight: ${e.insight}\nProgress: ${e.progressTowardObjective}`
+  ).join('\n\n') || 'No log entries';
 
   const reviewerPrompt = `You are a hostile reviewer. Your job is to block weak conclusions.
 Assume the researcher is wrong unless proven otherwise.
 
 OBJECTIVE: ${researchBrief.objective}
+DONE_WHEN: ${researchBrief.doneWhen}
 
-RESEARCH CONDUCTED:
-${reviewSummary}
+RESEARCH LOG (recent entries):
+${recentInsights}
 
-ANGLES EXPLORED:
-${reviewMemory?.angles?.map((a, idx) => `${idx}. ${a.name} [${a.status.toUpperCase()}]${a.result ? ` - ${a.result}` : ''}`).join('\n') || 'None'}
+QUERIES RUN: ${reviewMemory?.queriesRun?.length || 0}
 
-Evaluate harshly. Is this research sufficient to deliver an actionable answer?
-- If weak, vague, or lacks actionable specifics → FAIL
-- If solid evidence supports a clear answer → PASS`;
+Evaluate harshly. Is DONE_WHEN actually satisfied?
+- If the evidence is weak or doesn't match DONE_WHEN → FAIL
+- If solid evidence supports the stopping condition → PASS`;
 
   const reviewResult = await generateText({
     model,
@@ -663,13 +637,12 @@ Evaluate harshly. Is this research sufficient to deliver an actionable answer?
     // Add critique to conversation and loop back
     researchMessages.push({
       role: 'user',
-      content: `REVIEWER REJECTION: ${reviewVerdict.critique}\nMissing: ${reviewVerdict.missing.join(', ')}\n\nAddress these gaps.`
+      content: `REVIEWER REJECTION: ${reviewVerdict.critique}\nMissing: ${reviewVerdict.missing.join(', ')}\n\nAddress these gaps with a DIFFERENT method.`
     });
 
-    // Force one more search/reflect cycle
+    // Quick search to address gaps
     iterationCount++;
 
-    // Quick search to address gaps
     const gapSearchResult = await generateText({
       model,
       system: systemPrompt,
@@ -691,7 +664,6 @@ Evaluate harshly. Is this research sufficient to deliver an actionable answer?
 
     emitProgress('search_completed', {
       totalSearches: searchCount,
-      activeInitiative: 'Addressing reviewer gaps',
       queries: gapResults
     });
 
@@ -718,10 +690,8 @@ Evaluate harshly. Is this research sufficient to deliver an actionable answer?
     .where(eq(chatSessions.id, chatSessionId));
 
   const finalMemory = parseResearchMemory(finalSession?.brain || '');
-  const allSearches = finalMemory?.cycles?.flatMap(c => c.searches) || [];
-  const searchSummary = allSearches.slice(-10).map(s =>
-    `Q: ${s.query}\nA: ${s.answer?.substring(0, 300) || 'N/A'}`
-  ).join('\n\n');
+  const allInsights = finalMemory?.log.map(e => e.insight).join('\n- ') || 'No insights';
+  const finalProgress = finalMemory?.log[finalMemory.log.length - 1]?.progressTowardObjective || 'Unknown';
 
   // Build reviewer context for finish
   const reviewerContext = reviewVerdict.verdict === 'pass'
@@ -733,14 +703,17 @@ Evaluate harshly. Is this research sufficient to deliver an actionable answer?
     system: systemPrompt,
     prompt: `Research complete. Here's what you found:
 
-${searchSummary}
+KEY INSIGHTS:
+- ${allInsights}
+
+LATEST PROGRESS ASSESSMENT: ${finalProgress}
 
 ${reviewerContext}
 
-Synthesize your final answer for the objective:
-"${researchBrief.objective}"
+OBJECTIVE: ${researchBrief.objective}
+DONE_WHEN: ${researchBrief.doneWhen}
 
-Address the reviewer's notes in your synthesis. Provide an actionable answer.`,
+Synthesize your final answer. Explain how DONE_WHEN was satisfied (or why it proved impossible).`,
     tools: { finish: finishTool },
     toolChoice: { type: 'tool', toolName: 'finish' },
     abortSignal
@@ -752,7 +725,8 @@ Address the reviewer's notes in your synthesis. Provide an actionable answer.`,
   const finishOutput = finishResult.toolResults?.[0];
   const output = (finishOutput as any)?.output || {
     confidenceLevel: 'low',
-    finalAnswer: 'Research completed but no answer extracted.'
+    finalAnswer: 'Research completed but no answer extracted.',
+    doneWhenStatus: 'Unknown'
   };
 
   // ============================================================

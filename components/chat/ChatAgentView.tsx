@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import SessionsSidebar from './SessionsSidebar';
-import ExplorationList from './ExplorationList';
+import ResearchLog from './ExplorationList';
 import EventLog from './EventLog';
 import {
   Send,
@@ -453,7 +453,9 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
     error,
     isResearching,
     researchProgress,
-    angles,
+    researchLog,
+    doneWhen,
+    workingMemory,
     stage,
     eventLog,
     sendMessage,
@@ -762,15 +764,17 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
         </footer>
       </div>
 
-      {/* Right Column - Exploration List + Event Log */}
-      {(isResearching || (angles && angles.length > 0) || eventLog.length > 0) && (
+      {/* Right Column - Research Log + Event Log */}
+      {(isResearching || (researchLog && researchLog.length > 0) || eventLog.length > 0 || doneWhen) && (
         <div className="w-[480px] h-full border-l border-slate-200/60 dark:border-white/5 bg-white dark:bg-[#0a0a0a] flex flex-col overflow-hidden animate-in slide-in-from-right duration-300">
-          {/* Research Angles - top section */}
-          {angles && angles.length > 0 && (
+          {/* Research Log - top section */}
+          {(researchLog.length > 0 || researchProgress?.objective || doneWhen) && (
             <div className="p-6 pb-4 border-b border-slate-100 dark:border-white/5">
-              <ExplorationList
-                list={angles}
+              <ResearchLog
+                log={researchLog}
                 objective={researchProgress?.objective}
+                doneWhen={doneWhen || researchProgress?.doneWhen}
+                workingMemory={workingMemory || undefined}
               />
             </div>
           )}
