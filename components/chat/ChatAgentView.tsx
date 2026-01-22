@@ -453,7 +453,7 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
     error,
     isResearching,
     researchProgress,
-    explorationList,
+    angles,
     stage,
     eventLog,
     sendMessage,
@@ -763,13 +763,13 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
       </div>
 
       {/* Right Column - Exploration List + Event Log */}
-      {(isResearching || (explorationList && explorationList.length > 0) || eventLog.length > 0) && (
+      {(isResearching || (angles && angles.length > 0) || eventLog.length > 0) && (
         <div className="w-[480px] h-full border-l border-slate-200/60 dark:border-white/5 bg-white dark:bg-[#0a0a0a] flex flex-col overflow-hidden animate-in slide-in-from-right duration-300">
-          {/* Exploration List - top section */}
-          {explorationList && explorationList.length > 0 && (
+          {/* Research Angles - top section */}
+          {angles && angles.length > 0 && (
             <div className="p-6 pb-4 border-b border-slate-100 dark:border-white/5">
               <ExplorationList
-                list={explorationList}
+                list={angles}
                 objective={researchProgress?.objective}
               />
             </div>

@@ -14,7 +14,7 @@ import {
   startCycle,
   formatForOrchestrator
 } from '@/lib/utils/research-memory';
-import type { ResearchMemory, SearchResult, ExplorationItem } from '@/lib/types/research-memory';
+import type { ResearchMemory, SearchResult, ResearchAngle } from '@/lib/types/research-memory';
 
 interface ResearchExecutorConfig {
   chatSessionId: string;
@@ -86,11 +86,12 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   // TOOL DEFINITIONS
   // ============================================================
 
-  // Convert brief initiatives to exploration list format
-  const briefInitiatives: ExplorationItem[] = (researchBrief.initiatives || []).map(init => ({
-    item: init.question,
-    done: false,
-    doneWhen: init.doneWhen
+  // Convert brief angles to ResearchAngle format
+  const briefAngles: ResearchAngle[] = (researchBrief.angles || []).map(angle => ({
+    name: angle.name,
+    goal: angle.goal,
+    stopWhen: angle.stopWhen,
+    status: 'active' as const
   }));
 
   const planTool = tool({
@@ -101,9 +102,11 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     execute: async () => {
       emitProgress('plan_started');
 
-      const list = briefInitiatives.length > 0 ? briefInitiatives : [{
-        item: researchBrief.objective,
-        done: false
+      const angles = briefAngles.length > 0 ? briefAngles : [{
+        name: 'Main',
+        goal: researchBrief.objective,
+        stopWhen: 'Found actionable answer or concluded not findable',
+        status: 'active' as const
       }];
 
       const memory: ResearchMemory = {
@@ -111,7 +114,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
         objective: researchBrief.objective,
         cycles: [],
         queriesRun: [],
-        explorationList: list
+        angles
       };
 
       const serializedBrain = serializeResearchMemory(memory);
@@ -120,58 +123,52 @@ export async function executeResearch(config: ResearchExecutorConfig) {
         .set({ brain: serializedBrain, updatedAt: new Date() })
         .where(eq(chatSessions.id, chatSessionId));
 
-      emitProgress('list_updated', { list });
+      emitProgress('angles_updated', { angles });
       emitProgress('brain_update', { brain: serializedBrain });
-      emitProgress('plan_completed', { initiativeCount: list.length });
+      emitProgress('plan_completed', { angleCount: angles.length });
 
-      return { acknowledged: true, initiatives: list.map(i => i.item) };
+      return { acknowledged: true, angles: angles.map(a => a.name) };
     }
   });
 
   const reflectTool = tool({
-    description: `Evaluate your search results and decide next steps.
+    description: `Evaluate your search results for the CURRENT ANGLE. Decide: continue, mark worked, or mark rejected.
 
-    Current initiatives:
-    ${briefInitiatives.map((i, idx) => `${idx}. ${i.item} [${i.done ? 'done' : 'pending'}]\n       DONE WHEN: ${i.doneWhen || 'not specified'}`).join('\n')}
+    ANGLES (fixed - you explore these systematically):
+    ${briefAngles.map((a, idx) => `${idx}. ${a.name} [${a.status}]\n       Goal: ${a.goal}\n       Stop when: ${a.stopWhen}`).join('\n')}
 
-    EVALUATE:
-    - Did this search yield signal or noise?
-    - Is further searching likely to add value, or diminishing returns?
+    For the CURRENT angle, ask:
+    - Did this search yield useful signal toward the goal?
+    - Have I hit the stop condition (success OR rejection)?
 
-    Operations:
-    - {action: "done", target: 0, note: "Found: [result] OR Concluded: [why low-signal]"}
-    - {action: "add", item: "New initiative", note: "Pivoting to different angle"}
-    - {action: "add", target: "0", item: "Subtask", note: "Breaking down initiative 0"}
-    - {action: "remove", target: 0, note: "Stopping - diminishing returns"}
+    You control the angle status by setting the angleStatus field:
 
-    Use target: "0" to add subtask under initiative 0. Use target: "0.1" to mark subtask 1 done.
+    If you found useful results for this angle, set angleStatus to "worked".
+    If this angle is not producing results and you want to move on, set angleStatus to "rejected".
+    If you want to keep searching this angle, set angleStatus to "active".
 
-    An initiative can be DONE because:
-    ✓ Found actionable result
-    ✓ Learned this path is low-signal (negative finding = valid output)
-    ✓ Further search adds diminishing value
+    When you set "worked" or "rejected", also fill in angleResult to explain what happened.
 
-    Stopping because you learned something is progress.`,
+    Once all angles are either worked or rejected, set done to true.`,
     inputSchema: z.object({
       reflection: z.string().describe(`Markdown formatted reflection. Structure:
+## Current Angle
+- Which angle I'm working on
+
 ## What I Found
 - Key findings from this search
 
-## Progress
-- Which initiatives are closer to done
-- What's still missing
+## Angle Status
+- Did this angle work, get rejected, or need more searching?
 
-## Next Steps
-- What I'll search for next and why`),
-      operations: z.array(z.object({
-        action: z.enum(['done', 'remove', 'add']),
-        target: z.union([z.number(), z.string()]),
-        item: z.string().optional(),
-        note: z.string().optional().describe('Brief reason for this operation, e.g. "Found 3 companies matching criteria"')
-      })).optional(),
-      done: z.boolean()
+## Next
+- Continue this angle OR move to next angle OR done`),
+      angleIndex: z.number().describe('Index of the angle being evaluated (0-based)'),
+      angleStatus: z.enum(['active', 'worked', 'rejected']).describe('New status for this angle'),
+      angleResult: z.string().optional().describe('Brief summary of what this angle produced (required if worked/rejected)'),
+      done: z.boolean().describe('True if ALL angles are resolved (worked or rejected)')
     }),
-    execute: async ({ reflection, operations, done }) => {
+    execute: async ({ reflection, angleIndex, angleStatus, angleResult, done }) => {
       emitProgress('reasoning', { reflection });
 
       // Load and update memory
@@ -186,46 +183,21 @@ export async function executeResearch(config: ResearchExecutorConfig) {
           version: 1,
           objective: researchBrief.objective,
           cycles: [],
-          queriesRun: []
+          queriesRun: [],
+          angles: briefAngles
         };
       }
 
-      let list: ExplorationItem[] = JSON.parse(JSON.stringify(memory.explorationList || []));
-
-      // Process operations
-      if (operations && operations.length > 0) {
-        const parseTarget = (target: number | string): { parent: number; sub?: number } => {
-          if (typeof target === 'number') return { parent: target };
-          const parts = String(target).split('.');
-          return { parent: parseInt(parts[0]), sub: parts[1] !== undefined ? parseInt(parts[1]) : undefined };
-        };
-
-        for (const op of operations) {
-          const { parent, sub } = parseTarget(op.target);
-          if (op.action === 'done') {
-            if (sub !== undefined && list[parent]?.subtasks?.[sub]) {
-              list[parent].subtasks[sub].done = true;
-            } else if (list[parent]) {
-              list[parent].done = true;
-            }
-          } else if (op.action === 'add' && op.item) {
-            if (sub !== undefined && list[parent]) {
-              if (!list[parent].subtasks) list[parent].subtasks = [];
-              list[parent].subtasks.push({ item: op.item, done: false });
-            } else {
-              list.push({ item: op.item, done: false });
-            }
-          } else if (op.action === 'remove') {
-            if (sub !== undefined && list[parent]?.subtasks) {
-              list[parent].subtasks.splice(sub, 1);
-            } else if (parent < list.length) {
-              list.splice(parent, 1);
-            }
-          }
+      // Update angle status
+      const angles: ResearchAngle[] = JSON.parse(JSON.stringify(memory.angles || briefAngles));
+      if (angles[angleIndex]) {
+        angles[angleIndex].status = angleStatus;
+        if (angleResult) {
+          angles[angleIndex].result = angleResult;
         }
       }
 
-      memory.explorationList = list;
+      memory.angles = angles;
       memory = completeCycle(memory, reflection, done ? 'done' : 'continue');
 
       const serializedBrain = serializeResearchMemory(memory);
@@ -234,40 +206,33 @@ export async function executeResearch(config: ResearchExecutorConfig) {
         .set({ brain: serializedBrain, updatedAt: new Date() })
         .where(eq(chatSessions.id, chatSessionId));
 
-      // Emit operations with notes for UI popups
-      if (operations && operations.length > 0) {
-        emitProgress('list_operations', {
-          operations: operations.map(op => ({
-            action: op.action,
-            target: op.target,
-            item: op.item,
-            note: op.note
-          }))
-        });
-      }
-
-      emitProgress('list_updated', { list });
-      emitProgress('brain_update', { brain: serializedBrain });
-
-      // Count pending
-      let pendingCount = 0;
-      for (const item of list) {
-        if (!item.done) pendingCount++;
-        for (const sub of item.subtasks || []) {
-          if (!sub.done) pendingCount++;
-        }
-      }
-
-      const actualDone = done && pendingCount === 0;
-      const nextActive = list.find(i => !i.done)?.item || null;
-
-      emitProgress('reflect_completed', {
-        decision: actualDone ? 'finishing' : 'continuing',
-        pendingCount,
-        doneCount: list.filter(i => i.done).length
+      // Emit angle update
+      emitProgress('angle_updated', {
+        angleIndex,
+        angleName: angles[angleIndex]?.name,
+        status: angleStatus,
+        result: angleResult
       });
 
-      return { done: actualDone, nextInitiative: nextActive, pendingCount };
+      emitProgress('angles_updated', { angles });
+      emitProgress('brain_update', { brain: serializedBrain });
+
+      // Count active angles
+      const activeAngles = angles.filter(a => a.status === 'active');
+      const workedAngles = angles.filter(a => a.status === 'worked');
+      const rejectedAngles = angles.filter(a => a.status === 'rejected');
+
+      const allResolved = activeAngles.length === 0;
+      const nextAngle = activeAngles[0]?.name || null;
+
+      emitProgress('reflect_completed', {
+        decision: allResolved ? 'finishing' : 'continuing',
+        activeCount: activeAngles.length,
+        workedCount: workedAngles.length,
+        rejectedCount: rejectedAngles.length
+      });
+
+      return { done: allResolved, nextAngle, activeCount: activeAngles.length };
     }
   });
 
@@ -280,18 +245,19 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     execute: async ({ confidenceLevel, finalAnswer }) => {
       emitProgress('synthesizing_started');
 
-      // Mark all initiatives done
+      // Ensure all angles are marked as resolved
       const [session] = await db
         .select({ brain: chatSessions.brain })
         .from(chatSessions)
         .where(eq(chatSessions.id, chatSessionId));
 
       let memory = parseResearchMemory(session?.brain || '');
-      if (memory?.explorationList) {
-        for (const item of memory.explorationList) {
-          item.done = true;
-          for (const sub of item.subtasks || []) {
-            sub.done = true;
+      if (memory?.angles) {
+        // Mark any remaining active angles as worked (research complete)
+        for (const angle of memory.angles) {
+          if (angle.status === 'active') {
+            angle.status = 'worked';
+            angle.result = angle.result || 'Completed during synthesis';
           }
         }
 
@@ -301,7 +267,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
           .set({ brain: serializedBrain, updatedAt: new Date() })
           .where(eq(chatSessions.id, chatSessionId));
 
-        emitProgress('list_updated', { list: memory.explorationList });
+        emitProgress('angles_updated', { angles: memory.angles });
         emitProgress('brain_update', { brain: serializedBrain });
       }
 
@@ -339,15 +305,19 @@ HOW TO RESEARCH:
    - Promising signal → NARROW further
    - Enough signal to act → DONE
 
-WHAT "DONE" MEANS:
-Done = enough signal gathered to decide.
-This includes NEGATIVE findings: "This approach doesn't work because X" is valid output.
-An initiative can end because:
-- You found what you needed (success)
-- The path is low-signal or inaccessible (learned something)
-- Further search adds diminishing value (time to pivot)
+ANGLES:
+You have a set of ANGLES (strategies) to explore. For each angle:
+- Search to make progress on its goal
+- Evaluate: did this yield signal or noise?
+- Mark as "worked" (found what we needed) or "rejected" (concluded this won't work)
+- Move to next angle
 
-Stopping because you learned something is progress, not failure.
+An angle can be REJECTED because:
+- The path is low-signal or inaccessible
+- Further search adds diminishing value
+Rejection is valid output - it's learning, not failure.
+
+You're DONE when all angles are resolved (worked or rejected).
 
 WATCH FOR SIGNALS:
 - Engagement over credentials (who's actually influential, not just titled)
@@ -380,18 +350,18 @@ ${existingBrain ? `PREVIOUS RESEARCH:\n${formatForOrchestrator(parseResearchMemo
 
   await checkAborted();
 
-  // Build initiatives display for context
-  const initiativesDisplay = briefInitiatives.map((init, idx) =>
-    `${idx + 1}. ${init.item}${init.doneWhen ? `\n   DONE WHEN: ${init.doneWhen}` : ''}`
-  ).join('\n');
+  // Build angles display for context
+  const anglesDisplay = briefAngles.map((angle, idx) =>
+    `${idx + 1}. ${angle.name}\n   Goal: ${angle.goal}\n   Stop when: ${angle.stopWhen}`
+  ).join('\n\n');
 
   const planResult = await generateText({
     model,
     system: systemPrompt,
     prompt: `${conversationContext}
 
-Here are your research initiatives:
-${initiativesDisplay}
+Here are your research ANGLES (explore these systematically):
+${anglesDisplay}
 
 Call the plan tool to start.`,
     tools: { plan: planTool },
@@ -426,36 +396,41 @@ Call the plan tool to start.`,
       .where(eq(chatSessions.id, chatSessionId));
 
     const memory = parseResearchMemory(session?.brain || '');
-    const currentList = memory?.explorationList || [];
-    const activeInitiative = currentList.find(i => !i.done)?.item || 'General research';
+    const currentAngles: ResearchAngle[] = memory?.angles || briefAngles;
+    const activeAngle = currentAngles.find(a => a.status === 'active');
+    const activeAngleIndex = currentAngles.findIndex(a => a.status === 'active');
 
-    // Format list for context - include doneWhen criteria
-    const listContext = currentList.map((item, idx) => {
-      const status = item.done ? '✓ DONE' : 'PENDING';
-      let line = `${idx}. ${item.item} [${status}]`;
-      if (item.doneWhen) {
-        line += `\n   DONE WHEN: ${item.doneWhen}`;
-      }
-      if (item.subtasks) {
-        for (let subIdx = 0; subIdx < item.subtasks.length; subIdx++) {
-          const sub = item.subtasks[subIdx];
-          line += `\n   ${idx}.${subIdx} ${sub.item} [${sub.done ? '✓' : 'pending'}]`;
-        }
+    if (!activeAngle) {
+      // All angles resolved
+      researchDone = true;
+      break;
+    }
+
+    // Format angles for context
+    const anglesContext = currentAngles.map((angle, idx) => {
+      const statusIcon = angle.status === 'worked' ? '✓' : angle.status === 'rejected' ? '✗' : '→';
+      let line = `${idx}. ${angle.name} [${statusIcon} ${angle.status.toUpperCase()}]`;
+      line += `\n   Goal: ${angle.goal}`;
+      line += `\n   Stop when: ${angle.stopWhen}`;
+      if (angle.result) {
+        line += `\n   Result: ${angle.result}`;
       }
       return line;
-    }).join('\n');
+    }).join('\n\n');
 
     // ──────────────────────────────────────────────────────────
     // SEARCH
     // ──────────────────────────────────────────────────────────
 
 
-    const searchPrompt = `Current initiatives:
-${listContext}
+    const searchPrompt = `ANGLES (explore systematically):
+${anglesContext}
 
-Active: "${activeInitiative}"
+CURRENT ANGLE: "${activeAngle.name}"
+Goal: ${activeAngle.goal}
+Stop when: ${activeAngle.stopWhen}
 
-Search for information. If previous searches were too generic, try MORE SPECIFIC queries.`;
+Search to make progress on this angle. Ask specific questions.`;
 
     researchMessages.push({ role: 'user', content: searchPrompt });
 
@@ -478,7 +453,7 @@ Search for information. If previous searches were too generic, try MORE SPECIFIC
     emitProgress('search_started', {
       count: queryArgs.length,
       totalSearches: searchCount,
-      activeInitiative,
+      activeAngle: activeAngle.name,
       queries: queryArgs
     });
 
@@ -501,7 +476,7 @@ Search for information. If previous searches were too generic, try MORE SPECIFIC
 
     emitProgress('search_completed', {
       totalSearches: searchCount,
-      activeInitiative,
+      activeAngle: activeAngle.name,
       queries: completedQueries
     });
 
@@ -509,7 +484,7 @@ Search for information. If previous searches were too generic, try MORE SPECIFIC
     if (memory) {
       let updatedMemory = memory;
       if (updatedMemory.cycles.length === 0) {
-        updatedMemory = startCycle(updatedMemory, activeInitiative);
+        updatedMemory = startCycle(updatedMemory, activeAngle.name);
       }
       for (const sq of completedQueries) {
         const searchEntry: SearchResult = {
@@ -555,30 +530,33 @@ Search for information. If previous searches were too generic, try MORE SPECIFIC
       .where(eq(chatSessions.id, chatSessionId));
 
     const freshMemory = parseResearchMemory(freshSession?.brain || '');
-    const freshList = freshMemory?.explorationList || [];
-    const freshListContext = freshList.map((item, idx) => {
-      const status = item.done ? '✓ DONE' : 'PENDING';
-      let line = `${idx}. ${item.item} [${status}]`;
-      if (item.doneWhen) {
-        line += `\n   DONE WHEN: ${item.doneWhen}`;
-      }
-      if (item.subtasks) {
-        for (let subIdx = 0; subIdx < item.subtasks.length; subIdx++) {
-          const sub = item.subtasks[subIdx];
-          line += `\n   ${idx}.${subIdx} ${sub.item} [${sub.done ? '✓' : 'pending'}]`;
-        }
+    const freshAngles: ResearchAngle[] = freshMemory?.angles || briefAngles;
+    const freshAnglesContext = freshAngles.map((angle, idx) => {
+      const statusIcon = angle.status === 'worked' ? '✓' : angle.status === 'rejected' ? '✗' : '→';
+      let line = `${idx}. ${angle.name} [${statusIcon} ${angle.status.toUpperCase()}]`;
+      line += `\n   Goal: ${angle.goal}`;
+      line += `\n   Stop when: ${angle.stopWhen}`;
+      if (angle.result) {
+        line += `\n   Result: ${angle.result}`;
       }
       return line;
-    }).join('\n');
+    }).join('\n\n');
 
-    // Build reflect prompt - simple, tool description has the guidance
+    // Build reflect prompt
     const reflectPrompt = `OBJECTIVE: ${researchBrief.objective}
 
-Current initiatives:
-${freshListContext}
+CURRENT ANGLE: ${activeAngle.name} (index: ${activeAngleIndex})
+Goal: ${activeAngle.goal}
+Stop when: ${activeAngle.stopWhen}
 
-Reflect on the search results. Check each initiative against its DONE WHEN criteria.
-Call the reflect tool.`;
+ALL ANGLES:
+${freshAnglesContext}
+
+Evaluate the search results for the CURRENT ANGLE.
+- Did it produce useful signal toward the goal?
+- Have you hit the stop condition (success OR rejection)?
+
+Call the reflect tool with your evaluation.`;
 
     // Add reflect request to conversation
     researchMessages.push({ role: 'user', content: reflectPrompt });
@@ -650,8 +628,8 @@ OBJECTIVE: ${researchBrief.objective}
 RESEARCH CONDUCTED:
 ${reviewSummary}
 
-CURRENT INITIATIVES:
-${reviewMemory?.explorationList?.map((i, idx) => `${idx}. ${i.item} [${i.done ? 'DONE' : 'pending'}]`).join('\n') || 'None'}
+ANGLES EXPLORED:
+${reviewMemory?.angles?.map((a, idx) => `${idx}. ${a.name} [${a.status.toUpperCase()}]${a.result ? ` - ${a.result}` : ''}`).join('\n') || 'None'}
 
 Evaluate harshly. Is this research sufficient to deliver an actionable answer?
 - If weak, vague, or lacks actionable specifics → FAIL

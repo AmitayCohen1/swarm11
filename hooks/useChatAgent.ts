@@ -11,7 +11,7 @@ interface Message {
 }
 
 interface ProgressUpdate {
-  type: 'analyzing' | 'decision' | 'research_started' | 'research_iteration' | 'step_complete' | 'research_complete' | 'message' | 'complete' | 'error' | 'agent_thinking' | 'research_query' | 'list_updated' | 'brain_updated' | 'brain_update' | 'summary_created' | 'needs_clarification' | 'search_result' | 'search_completed' | 'ask_user' | 'search_started' | 'multi_choice_select' | 'reasoning_started' | 'synthesizing_started' | 'reasoning' | 'phase_change' | 'plan_started' | 'plan_completed' | 'reflect_completed' | 'list_operations' | 'extract_started' | 'extract_completed';
+  type: 'analyzing' | 'decision' | 'research_started' | 'research_iteration' | 'step_complete' | 'research_complete' | 'message' | 'complete' | 'error' | 'agent_thinking' | 'research_query' | 'brain_updated' | 'brain_update' | 'summary_created' | 'needs_clarification' | 'search_result' | 'search_completed' | 'ask_user' | 'search_started' | 'multi_choice_select' | 'reasoning_started' | 'synthesizing_started' | 'reasoning' | 'phase_change' | 'plan_started' | 'plan_completed' | 'reflect_completed' | 'extract_started' | 'extract_completed' | 'angles_updated' | 'angle_updated' | 'review_completed' | 'review_rejected';
   options?: { label: string; description?: string }[];
   message?: string;
   decision?: string;
@@ -29,7 +29,6 @@ interface ProgressUpdate {
   answer?: string;
   sources?: any[];
   toolName?: string;
-  list?: { item: string; done: boolean; subtasks?: { item: string; done: boolean }[] }[];
   reflection?: string;
   action?: string;
   category?: string;
@@ -39,10 +38,20 @@ interface ProgressUpdate {
   context?: string;
   brain?: string;
   phase?: string;
-  activeInitiative?: string;
+  activeAngle?: string;
   cycle?: number;
   searchCount?: number;
   toolSequence?: string[];
+  // Angles-specific
+  angles?: { name: string; goal: string; stopWhen: string; status: 'active' | 'worked' | 'rejected'; result?: string }[];
+  angleIndex?: number;
+  angleName?: string;
+  status?: string;
+  result?: string;
+  // Review-specific
+  verdict?: string;
+  critique?: string;
+  missing?: string[];
   // Extract-specific
   urls?: string[];
   purpose?: string;
@@ -79,7 +88,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
   }>({});
   const [brain, setBrain] = useState<string>('');
   const [stage, setStage] = useState<'searching' | 'reflecting' | 'synthesizing' | null>(null);
-  const [explorationList, setExplorationList] = useState<{ item: string; done: boolean; subtasks?: { item: string; done: boolean }[] }[] | null>(null);
+  const [angles, setAngles] = useState<{ name: string; goal: string; stopWhen: string; status: 'active' | 'worked' | 'rejected'; result?: string }[] | null>(null);
   const [eventLog, setEventLog] = useState<EventLogEntry[]>([]);
 
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -222,20 +231,20 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
 
         // Log all events for visibility
         if (update.type === 'plan_started') {
-          addEvent('plan_started', 'Planning started', 'Creating research initiatives...', 'plan');
+          addEvent('plan_started', 'Planning started', 'Setting up research angles...', 'plan');
         } else if (update.type === 'plan_completed') {
-          const count = (update as any).initiativeCount || 0;
-          const active = (update as any).activeInitiative || '';
-          addEvent('plan_completed', `Plan created`, `${count} initiative(s). Active: "${active.substring(0, 40)}..."`, 'plan');
+          const count = (update as any).angleCount || 0;
+          addEvent('plan_completed', `Plan created`, `${count} angle(s) to explore`, 'plan');
         } else if (update.type === 'phase_change') {
           const phase = update.phase || 'unknown';
-          const initiative = update.activeInitiative ? `"${update.activeInitiative.substring(0, 30)}..."` : '';
-          addEvent('phase_change', `Phase: ${phase}`, initiative, 'phase');
+          const angle = update.activeAngle ? `"${update.activeAngle.substring(0, 30)}..."` : '';
+          addEvent('phase_change', `Phase: ${phase}`, angle, 'phase');
         } else if (update.type === 'reflect_completed') {
           const decision = (update as any).decision || 'unknown';
-          const pending = (update as any).pendingCount || 0;
-          const done = (update as any).doneCount || 0;
-          addEvent('reflect_completed', `Reflection done`, `${decision} | ${done} done, ${pending} pending`, 'reflect');
+          const active = (update as any).activeCount || 0;
+          const worked = (update as any).workedCount || 0;
+          const rejected = (update as any).rejectedCount || 0;
+          addEvent('reflect_completed', `Reflection done`, `${decision} | ${worked} worked, ${rejected} rejected, ${active} active`, 'reflect');
         } else if (update.type === 'research_complete') {
           const sequence = update.toolSequence || [];
           addEvent('research_complete', 'Research complete', `Sequence: ${sequence.join(' → ')}`, 'complete');
@@ -250,7 +259,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
         } else if (update.type === 'research_started') {
           // Clear event log for new research session
           setEventLog([]);
-          setExplorationList(null);
+          setAngles(null);
           setIsResearching(true);
           setStatus('researching');
           setResearchProgress({
@@ -421,15 +430,11 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           }));
         } else if (update.type === 'brain_update') {
           setBrain(update.brain || '');
-        } else if (update.type === 'list_updated') {
-          setExplorationList(update.list || null);
-        } else if (update.type === 'list_operations') {
-          const ops = (update as any).operations || [];
-          for (const op of ops) {
-            const actionLabel = op.action === 'done' ? '✓ Completed' : op.action === 'add' ? '+ Added' : '− Removed';
-            const detail = op.note || op.item || `target ${op.target}`;
-            addEvent('list_operations', actionLabel, detail, 'plan');
-          }
+        } else if (update.type === 'angles_updated') {
+          setAngles(update.angles || null);
+        } else if (update.type === 'angle_updated') {
+          const statusIcon = update.status === 'worked' ? '✓' : update.status === 'rejected' ? '✗' : '→';
+          addEvent('angle_updated', `${statusIcon} ${update.angleName}`, update.result || update.status, 'plan');
         } else if (update.type === 'reasoning') {
           setStage(null);
           setMessages(prev => [...prev, {
@@ -538,7 +543,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
     error,
     isResearching,
     researchProgress,
-    explorationList,
+    angles,
     brain,
     stage,
     eventLog,

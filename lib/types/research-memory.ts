@@ -18,17 +18,18 @@ export interface ResearchCycle {
   nextStep: string;         // Freeform - what to do next
 }
 
-export interface ExplorationItem {
-  item: string;
-  done: boolean;
-  doneWhen?: string;  // Criteria for when this is complete
-  subtasks?: { item: string; done: boolean }[];
+export interface ResearchAngle {
+  name: string;           // Short name: "Platforms", "Newsrooms", etc.
+  goal: string;           // What we're looking for via this angle
+  stopWhen: string;       // When to stop: success criteria OR rejection criteria
+  status: 'active' | 'worked' | 'rejected';
+  result?: string;        // Brief summary of what happened
 }
 
 export interface ResearchMemory {
   version: 1;
   objective: string;
-  explorationList?: ExplorationItem[];
+  angles?: ResearchAngle[];  // Fixed set of strategies to try
   cycles: ResearchCycle[];
   queriesRun: string[];
 }

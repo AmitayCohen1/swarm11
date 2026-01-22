@@ -3,14 +3,15 @@ import { anthropic } from '@ai-sdk/anthropic';
 import { z } from 'zod';
 import { parseResearchMemory, formatForOrchestrator } from '@/lib/utils/research-memory';
 
-export interface ResearchInitiative {
-  question: string;
-  doneWhen: string;
+export interface ResearchAngle {
+  name: string;      // Short name: "Platforms", "Newsrooms", etc.
+  goal: string;      // What we're looking for via this angle
+  stopWhen: string;  // Success criteria OR rejection criteria
 }
 
 export interface ResearchBrief {
   objective: string;
-  initiatives: ResearchInitiative[];
+  angles: ResearchAngle[];  // 3-5 fixed strategies to try
 }
 
 export interface OrchestratorDecision {
@@ -53,10 +54,11 @@ export async function analyzeUserMessage(
       // start_research fields
       researchBrief: z.object({
         objective: z.string().describe("Clear, specific research objective. Include what to find and what the user will do with it."),
-        initiatives: z.array(z.object({
-          question: z.string().describe("Specific question to answer. Must be standalone and searchable."),
-          doneWhen: z.string().describe("When there's ENOUGH SIGNAL to decide - either found what's needed OR learned why this path doesn't work. e.g. 'Identified specific candidate with opening signal' or 'Determined if this market has accessible buyers'")
-        })).length(1).describe("ONE focused initiative. Agent can add more during research.")
+        angles: z.array(z.object({
+          name: z.string().describe("Short name for this angle (2-3 words). e.g. 'Platforms', 'Newsrooms', 'Trigger events'"),
+          goal: z.string().describe("What we're looking for via this angle. e.g. 'Find ops-level owners at podcast platforms + direct outreach path'"),
+          stopWhen: z.string().describe("When to stop this angle - success OR rejection. e.g. '10 named contacts OR concluded platforms are gated'")
+        })).min(2).max(5).describe("3-5 different ANGLES (strategies) to try. These are fixed - agent explores them systematically.")
       }).optional().describe('Required for start_research.'),
 
       reasoning: z.string().describe('Brief reasoning for your decision')
@@ -67,6 +69,8 @@ export async function analyzeUserMessage(
   const systemPrompt = `You are the Research Assistant Agent.
   You gather information from the user, then pass it to the Autonomous Research Agent.
   Your role is to ensure clarity about what research the user wants.
+
+  The objective you create should only reflect what the user actually said - don't embellish.
 
   Make sure you understand:
   1. What exactly do we need to research? What type of results are they interested in?
@@ -86,14 +90,22 @@ export async function analyzeUserMessage(
   - Don't invent information or assume.
 
   WHEN STARTING RESEARCH:
-  Create ONE focused initiative with concrete doneWhen criteria.
-  The agent can add more initiatives during research if needed.
+  Create 3-5 ANGLES (strategies) for the agent to explore systematically.
+  Angles are FIXED - agent can't add more. They explore and mark each as "worked" or "rejected".
 
-  doneWhen = enough SIGNAL to decide (success OR learned why it won't work):
-  ✅ "Identified candidate with opening signal, or concluded this pool lacks quality"
-  ✅ "Found accessible decision-maker, or determined this market is gated"
-  ❌ "Find 5 companies" (count-based, ignores signal quality)
-  ❌ "Research the market" (no clear decision point)
+  Each angle needs:
+  - name: Short label (2-3 words)
+  - goal: What we're looking for via this angle
+  - stopWhen: When to stop - EITHER success criteria OR rejection criteria
+
+  Example angles for "find DevRel lead":
+  ✅ Platforms angle: "Find DevRel at Datadog/Vercel" → stop when "5 candidates OR concluded these companies are too big"
+  ✅ Speakers angle: "Find conference speakers on our topic" → stop when "10 speakers with engagement OR no relevant talks found"
+  ✅ Trigger angle: "Find people whose companies just did layoffs" → stop when "3 candidates with timing signal OR no recent layoffs in space"
+
+  Bad angles:
+  ❌ "Research the market" (not a strategy, too vague)
+  ❌ "Find 10 people" (that's a task, not an angle)
   `;
   
 
