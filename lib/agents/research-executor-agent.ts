@@ -17,7 +17,7 @@ import { db } from '@/lib/db';
 import { chatSessions, searchQueries } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { ResearchBrief } from './orchestrator-chat-agent';
+import { ResearchBrief } from './intake-agent';
 import { executeSearch, createSearchTask } from './search-agent';
 import { analyzeAndReflect } from './reflection-agent';
 import {

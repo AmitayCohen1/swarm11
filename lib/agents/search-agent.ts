@@ -10,7 +10,7 @@
 import { generateText, tool } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
-import { search, extract } from '@/lib/tools/tavily-search';
+import { search } from '@/lib/tools/tavily-search';
 import type { SearchFindings, SearchTask } from '@/lib/types/doc-edit';
 
 interface SearchAgentConfig {
@@ -30,7 +30,7 @@ interface SearchAgentResult {
  */
 export async function executeSearch(config: SearchAgentConfig): Promise<SearchAgentResult> {
   const { task, abortSignal, onProgress } = config;
-  const model = openai('gpt-5.1');
+  const model = openai('gpt-4.1');
 
   let creditsUsed = 0;
   const queriesExecuted: string[] = [];
@@ -70,9 +70,7 @@ INSTRUCTIONS:
 2. Be specific - don't repeat queries that have been run
 3. After searching, use the complete tool to summarize your findings
 
-You have two search tools:
-- search: For web searches. Write natural language questions.
-- extract: For scraping specific URLs when you need detailed info from a page.
+Use the search tool with natural language questions.
 
 IMPORTANT:
 - You are ONLY searching. You do NOT update any document.
@@ -99,7 +97,7 @@ IMPORTANT:
       model,
       system: systemPrompt,
       messages,
-      tools: { search, extract, complete: completeTool },
+      tools: { search, complete: completeTool },
       abortSignal
     });
 
@@ -156,30 +154,6 @@ IMPORTANT:
         messages.push({
           role: 'assistant',
           content: `Searched:\n${searchSummary}`
-        });
-      }
-
-      if (tc.toolName === 'extract') {
-        const urls = (tc as any).input?.urls || tc.args?.urls || [];
-        const purpose = (tc as any).input?.purpose || tc.args?.purpose;
-        onProgress?.({
-          type: 'extract_started',
-          urls,
-          purpose
-        });
-
-        const toolResult = result.toolResults?.find((tr: any) => tr.toolCallId === tc.toolCallId);
-        const extractResults = (toolResult as any)?.output || (toolResult as any)?.result || { results: [], failed: [] };
-
-        onProgress?.({
-          type: 'extract_completed',
-          results: extractResults.results,
-          failed: extractResults.failed
-        });
-
-        messages.push({
-          role: 'assistant',
-          content: `Extracted ${extractResults.results?.length || 0} pages`
         });
       }
 

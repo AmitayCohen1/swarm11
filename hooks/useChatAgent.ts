@@ -72,7 +72,7 @@ interface ProgressUpdate {
   sectionTitle?: string;
   section?: Section;
   sectionsUpdated?: number;
-  strategy?: Strategy;
+  currentStrategy?: StrategyLogEntry;
   version?: number;
   shouldContinue?: boolean;
   task?: string;

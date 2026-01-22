@@ -61,6 +61,8 @@ export async function analyzeAndReflect(config: ReflectionAgentConfig): Promise<
 
   const systemPrompt = `You are a Reflection Agent. Analyze search findings and edit the research document.
 
+  Golden word: "First Principles" - think about the root objectives and goals from the first principles.
+
 OBJECTIVE: ${objective}
 DONE_WHEN: ${doneWhen}
 
@@ -82,22 +84,34 @@ EDIT OPERATIONS:
 - **edit_item**: Update an existing item's content
 
 CONTENT STYLE:
-Write clean, factual items. Each item should be a discrete fact or finding.
+Each item = ONE discrete fact. Short. No fluff. No meta-commentary.
 
-GOOD items:
-- "**NPR** - Collin Campbell (Podcast Chief) - linkedin.com/in/..."
-- "Pricing: $49/mo (Starter), $99/mo (Pro), $249/mo (Enterprise)"
-- "Key competitor: Acme Corp - offers similar features at 20% lower price"
+GOOD ITEMS (copy this style):
+- "**NPR** | Collin Campbell | SVP Podcasting | linkedin.com/in/collincampbell"
+- "**Teladoc** | Teri Condon | Chief Compliance Officer | teladochealth.com/leadership"
+- "Pricing: $49/mo Starter, $99/mo Pro, $249/mo Enterprise"
+- "Series B: $25M raised, led by Sequoia (March 2024)"
+- "Integration: Supports Slack, Salesforce, HubSpot via API"
 
-BAD items:
-- "Recent research suggests that..." (meta-commentary)
-- "We found that there might be..." (hedging)
-- "Further investigation needed for..." (process notes)
+BAD ITEMS (never do this):
+- "Large telehealth platforms increasingly record audio..." (essay, not a fact)
+- "Public bios do not list direct emails; outreach would route via..." (process notes)
+- "Potential users: CEO, Head of Production, Director..." (vague list, no names)
+- "This company could benefit from fact-checking because..." (commentary)
+- Multi-paragraph descriptions of anything
+
+RULE: If an item is longer than 2 lines, it's too long. Split it or trim it.
 
 WHEN TO EDIT vs ADD:
 - If new info updates/corrects existing item → edit_item
 - If new info is distinct/separate → add_item
 - If info is wrong/outdated → remove_item
+
+STRATEGY UPDATES:
+Only update strategy when research direction MEANINGFULLY changes. Not every iteration.
+- Good reason to update: "Pivoting from media companies to healthcare compliance"
+- Bad reason to update: "Continuing to enrich the lead list" (not a change)
+If approach is the same, don't include strategyUpdate.
 
 STOP (shouldContinue = false) when:
 - DONE_WHEN is clearly satisfied, OR

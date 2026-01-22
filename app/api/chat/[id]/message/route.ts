@@ -3,7 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { db } from '@/lib/db';
 import { chatSessions, users, researchSessions } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
-import { analyzeUserMessage } from '@/lib/agents/orchestrator-chat-agent';
+import { analyzeUserMessage } from '@/lib/agents/intake-agent';
 import { executeResearch } from '@/lib/agents/research-executor-agent';
 import {
   createResearchDoc,
