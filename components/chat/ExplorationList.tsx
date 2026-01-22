@@ -1,9 +1,38 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import { Lightbulb, Target, ArrowRight, TrendingUp, TrendingDown, Minus, Sparkles, Brain } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Clock, Target, ArrowRight } from 'lucide-react';
+import { motion } from 'framer-motion';
 
+// V3 Document-centric types
+interface SectionItem {
+  id: string;
+  text: string;
+  sources?: { url: string; title: string }[];
+}
+
+interface Section {
+  id: string;
+  title: string;
+  items: SectionItem[];
+  lastUpdated: string;
+}
+
+interface Strategy {
+  approach: string;
+  rationale: string;
+  nextActions: string[];
+}
+
+interface ResearchDoc {
+  northStar: string;
+  currentObjective: string;
+  doneWhen: string;
+  sections: Section[];
+  strategy: Strategy;
+}
+
+// Legacy V2 types for backwards compatibility
 interface LogEntry {
   id: string;
   timestamp: string;
@@ -21,16 +50,14 @@ interface WorkingMemory {
 }
 
 interface ResearchLogProps {
-  log: LogEntry[];
+  doc?: ResearchDoc | null;
+  log?: LogEntry[];
   objective?: string;
   doneWhen?: string;
   workingMemory?: WorkingMemory;
   className?: string;
 }
 
-/**
- * Format a time difference as human-readable "X ago" string
- */
 function formatTimeAgo(date: Date): string {
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -45,25 +72,132 @@ function formatTimeAgo(date: Date): string {
 }
 
 /**
- * Mood display config - agent tells us the mood directly
+ * Research Document - Live updating markdown document
  */
-const moodConfig = {
-  exploring: { label: 'Exploring', color: 'text-amber-500 bg-amber-500/10', icon: Minus },
-  promising: { label: 'Promising', color: 'text-blue-500 bg-blue-500/10', icon: TrendingUp },
-  dead_end: { label: 'Dead end', color: 'text-slate-400 bg-slate-400/10', icon: TrendingDown },
-  breakthrough: { label: 'Breakthrough', color: 'text-emerald-500 bg-emerald-500/10', icon: Sparkles }
-};
+export default function ResearchLog({
+  doc,
+  log,
+  objective,
+  doneWhen,
+  workingMemory,
+  className
+}: ResearchLogProps) {
 
-export default function ResearchLog({ log, objective, doneWhen, workingMemory, className }: ResearchLogProps) {
+  // V3: Document-centric rendering - clean doc style
+  if (doc) {
+    return (
+      <div className={cn("flex flex-col prose prose-slate dark:prose-invert max-w-none", className)}>
+        {/* Document Header - Objective */}
+        <div className="not-prose mb-10 pb-6 border-b border-slate-200 dark:border-white/10">
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
+            {doc.currentObjective}
+          </h1>
+          {doc.doneWhen && (
+            <p className="text-slate-500 dark:text-slate-400">
+              <span className="font-medium">Done when:</span> {doc.doneWhen}
+            </p>
+          )}
+        </div>
+
+        {/* Strategy - subtle callout */}
+        {doc.strategy && (
+          <div className="not-prose mb-8 pl-4 border-l-2 border-indigo-300 dark:border-indigo-500/50">
+            <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400 mb-1">Strategy</p>
+            <p className="text-slate-700 dark:text-slate-300">{doc.strategy.approach}</p>
+            {doc.strategy.nextActions.length > 0 && (
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+                → {doc.strategy.nextActions[0]}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Sections - clean document flow */}
+        {doc.sections.map((section, idx) => {
+          const hasItems = section.items && section.items.length > 0;
+
+          // Skip empty sections except Key Findings
+          if (!hasItems && !section.title.includes('Key Findings')) {
+            return null;
+          }
+
+          return (
+            <motion.div
+              key={section.id}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: idx * 0.03 }}
+              className="mb-10"
+            >
+              <h2 className="text-xl font-semibold text-slate-900 dark:text-white mb-4">
+                {section.title}
+              </h2>
+
+              {hasItems ? (
+                <div className="space-y-0">
+                  {section.items.map((item, itemIdx) => (
+                    <div
+                      key={item.id}
+                      className="py-4 border-b border-slate-100 dark:border-white/5 last:border-0"
+                    >
+                      <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
+                        {item.text}
+                      </p>
+                      {item.sources && item.sources.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {item.sources.map((source, i) => {
+                            const domain = (() => {
+                              try {
+                                return new URL(source.url).hostname.replace('www.', '');
+                              } catch {
+                                return source.url;
+                              }
+                            })();
+                            return (
+                              <a
+                                key={i}
+                                href={source.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-slate-400 hover:text-blue-500"
+                              >
+                                {domain}
+                              </a>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-slate-400 dark:text-slate-500 italic">
+                  Nothing yet...
+                </p>
+              )}
+            </motion.div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // V2: Legacy log-based rendering (backwards compatibility)
   if (!log || log.length === 0) {
     if (!objective && !doneWhen) {
       return null;
     }
   }
 
+  const moodConfig = {
+    exploring: { label: 'Exploring', color: 'text-amber-500 bg-amber-500/10' },
+    promising: { label: 'Promising', color: 'text-blue-500 bg-blue-500/10' },
+    dead_end: { label: 'Dead end', color: 'text-slate-400 bg-slate-400/10' },
+    breakthrough: { label: 'Breakthrough', color: 'text-emerald-500 bg-emerald-500/10' }
+  };
+
   return (
     <div className={cn("flex flex-col max-h-[50vh]", className)}>
-      {/* Header */}
       <div className="shrink-0 mb-4">
         <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">
           Research Log
@@ -82,20 +216,11 @@ export default function ResearchLog({ log, objective, doneWhen, workingMemory, c
         )}
       </div>
 
-      {/* Working Memory - Narrative summary of the research journey */}
       {workingMemory && workingMemory.bullets && workingMemory.bullets.length > 0 && (
         <div className="shrink-0 mb-4 p-3 rounded-xl bg-violet-50 dark:bg-violet-500/10 border border-violet-100 dark:border-violet-500/20">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <Brain className="w-4 h-4 text-violet-500" />
-              <h3 className="text-sm font-semibold text-violet-700 dark:text-violet-300">
-                The story so far
-              </h3>
-            </div>
-            <span className="text-[10px] text-violet-400 dark:text-violet-500">
-              {workingMemory.lastUpdated ? formatTimeAgo(new Date(workingMemory.lastUpdated)) : ''}
-            </span>
-          </div>
+          <h3 className="text-sm font-semibold text-violet-700 dark:text-violet-300 mb-2">
+            Key Findings
+          </h3>
           <ul className="space-y-1.5">
             {workingMemory.bullets.map((bullet, idx) => (
               <li key={idx} className="flex items-start gap-2 text-sm text-violet-800 dark:text-violet-200">
@@ -107,130 +232,28 @@ export default function ResearchLog({ log, objective, doneWhen, workingMemory, c
         </div>
       )}
 
-      {/* Log count */}
-      {log && log.length > 0 && (
-        <div className="shrink-0 mb-3 text-xs font-medium text-slate-400 dark:text-slate-500">
-          {log.length} iteration{log.length !== 1 ? 's' : ''}
-        </div>
-      )}
-
-      {/* Log Entries - Narrative Style */}
-      <div className="flex-1 overflow-y-auto -mx-2 px-2 space-y-3">
-        <AnimatePresence mode="popLayout">
-          {log && log.map((entry, idx) => {
-            const mood = moodConfig[entry.mood] || moodConfig.exploring;
-            const MoodIcon = mood.icon;
-            const isLatest = idx === log.length - 1;
-
-            return (
-              <motion.div
-                key={entry.id}
-                layout
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.2 }}
-              >
-                <div className={cn(
-                  "p-4 rounded-xl border space-y-3 transition-all",
-                  isLatest
-                    ? "bg-white dark:bg-white/5 border-slate-200 dark:border-white/10 shadow-sm"
-                    : "bg-slate-50/50 dark:bg-white/2 border-slate-100 dark:border-white/5"
-                )}>
-                  {/* Mood Label */}
-                  <div className="flex items-center justify-between">
-                    <div className={cn(
-                      "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider",
-                      mood.color
-                    )}>
-                      <MoodIcon className="w-3 h-3" />
-                      {mood.label}
-                    </div>
-                    <span className="text-[10px] text-slate-400 dark:text-slate-500">
-                      #{idx + 1}
-                    </span>
-                  </div>
-
-                  {/* Narrative Content */}
-                  <div className="space-y-2 text-sm">
-                    {/* What I tried */}
-                    <p className="text-slate-600 dark:text-slate-300">
-                      <span className="font-medium text-slate-500 dark:text-slate-400">Tried:</span>{' '}
-                      {entry.method}
-                    </p>
-
-                    {/* What I noticed */}
-                    {entry.signal && (
-                      <p className="text-slate-600 dark:text-slate-300">
-                        <span className="font-medium text-slate-500 dark:text-slate-400">Noticed:</span>{' '}
-                        {entry.signal.length > 150 ? entry.signal.substring(0, 150) + '...' : entry.signal}
-                      </p>
-                    )}
-
-                    {/* What I learned */}
-                    {entry.insight && (
-                      <div className="flex items-start gap-2 p-2 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20">
-                        <Lightbulb className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-500" />
-                        <p className="text-slate-700 dark:text-slate-200 font-medium">
-                          {entry.insight}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Why this matters (progress) */}
-                    {entry.progressTowardObjective && (
-                      <p className="text-xs text-slate-500 dark:text-slate-400 italic pl-1 border-l-2 border-emerald-300 dark:border-emerald-500/50">
-                        <span className="font-semibold text-emerald-600 dark:text-emerald-400 not-italic">Why this matters:</span>{' '}
-                        {entry.progressTowardObjective}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Sources (compact) */}
-                  {entry.sources && entry.sources.length > 0 && (
-                    <div className="flex flex-wrap gap-1 pt-1">
-                      {entry.sources.slice(0, 3).map((source, i) => {
-                        const domain = source.url ? (() => {
-                          try {
-                            return new URL(source.url).hostname.replace('www.', '');
-                          } catch {
-                            return source.url;
-                          }
-                        })() : '';
-                        return (
-                          <a
-                            key={i}
-                            href={source.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/10 transition-colors"
-                          >
-                            {domain}
-                          </a>
-                        );
-                      })}
-                      {entry.sources.length > 3 && (
-                        <span className="text-[10px] px-1.5 py-0.5 text-slate-400 dark:text-slate-500">
-                          +{entry.sources.length - 3}
-                        </span>
-                      )}
-                    </div>
-                  )}
+      <div className="flex-1 overflow-y-auto space-y-3">
+        {log && log.map((entry, idx) => {
+          const mood = moodConfig[entry.mood] || moodConfig.exploring;
+          return (
+            <div key={entry.id} className="p-3 rounded-xl border border-slate-200/60 dark:border-white/5 bg-white/50 dark:bg-white/2">
+              <div className="flex items-center gap-2 mb-2">
+                <div className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold uppercase", mood.color)}>
+                  {mood.label}
                 </div>
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
-
-        {/* Empty state */}
-        {(!log || log.length === 0) && (
-          <div className="text-center py-8 text-sm text-slate-400 dark:text-slate-500">
-            <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-white/5 flex items-center justify-center mx-auto mb-3">
-              <Target className="w-5 h-5 text-slate-300 dark:text-slate-600" />
+                <span className="text-[10px] text-slate-400">#{idx + 1}</span>
+              </div>
+              <p className="text-sm text-slate-600 dark:text-slate-300 mb-1">
+                <span className="font-medium text-slate-500">Tried:</span> {entry.method}
+              </p>
+              {entry.insight && (
+                <p className="text-sm text-slate-800 dark:text-slate-200 font-medium">
+                  {entry.insight}
+                </p>
+              )}
             </div>
-            Thinking will appear here...
-          </div>
-        )}
+          );
+        })}
       </div>
     </div>
   );

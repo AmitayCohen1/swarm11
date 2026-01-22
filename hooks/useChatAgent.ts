@@ -10,6 +10,35 @@ interface Message {
   metadata?: any;
 }
 
+// V3 Document-centric types
+interface SectionItem {
+  id: string;
+  text: string;
+  sources?: { url: string; title: string }[];
+}
+
+interface Section {
+  id: string;
+  title: string;
+  items: SectionItem[];
+  lastUpdated: string;
+}
+
+interface Strategy {
+  approach: string;
+  rationale: string;
+  nextActions: string[];
+}
+
+interface ResearchDoc {
+  northStar: string;
+  currentObjective: string;
+  doneWhen: string;
+  sections: Section[];
+  strategy: Strategy;
+}
+
+// Legacy V2 types (for backwards compatibility)
 interface LogEntry {
   id: string;
   timestamp: string;
@@ -27,7 +56,7 @@ interface WorkingMemory {
 }
 
 interface ProgressUpdate {
-  type: 'analyzing' | 'decision' | 'research_started' | 'research_iteration' | 'step_complete' | 'research_complete' | 'message' | 'complete' | 'error' | 'agent_thinking' | 'research_query' | 'brain_updated' | 'brain_update' | 'summary_created' | 'needs_clarification' | 'search_result' | 'search_completed' | 'ask_user' | 'search_started' | 'multi_choice_select' | 'reasoning_started' | 'synthesizing_started' | 'reasoning' | 'phase_change' | 'research_initialized' | 'log_entry_added' | 'extract_started' | 'extract_completed' | 'review_started' | 'review_completed' | 'review_rejected' | 'working_memory_updated';
+  type: 'analyzing' | 'decision' | 'research_started' | 'research_iteration' | 'step_complete' | 'research_complete' | 'message' | 'complete' | 'error' | 'agent_thinking' | 'research_query' | 'brain_updated' | 'brain_update' | 'summary_created' | 'needs_clarification' | 'search_result' | 'search_completed' | 'ask_user' | 'search_started' | 'multi_choice_select' | 'reasoning_started' | 'synthesizing_started' | 'reasoning' | 'phase_change' | 'research_initialized' | 'log_entry_added' | 'extract_started' | 'extract_completed' | 'review_started' | 'review_completed' | 'review_rejected' | 'working_memory_updated' | 'doc_updated' | 'section_updated' | 'iteration_started' | 'reflection_started' | 'reflection_completed' | 'search_agent_started' | 'search_agent_completed';
   options?: { label: string; description?: string }[];
   message?: string;
   decision?: string;
@@ -57,7 +86,7 @@ interface ProgressUpdate {
   phase?: string;
   searchCount?: number;
   toolSequence?: string[];
-  // Log entry
+  // Legacy log entry
   entry?: LogEntry;
   logCount?: number;
   isDone?: boolean;
@@ -70,6 +99,17 @@ interface ProgressUpdate {
   purpose?: string;
   results?: any[];
   failed?: any[];
+  // V3 document-specific
+  doc?: ResearchDoc;
+  sectionTitle?: string;
+  section?: Section;
+  editsApplied?: number;
+  strategy?: Strategy;
+  version?: number;
+  shouldContinue?: boolean;
+  task?: string;
+  summary?: string;
+  totalSearches?: number;
 }
 
 // Event log entry for UI display
@@ -102,10 +142,16 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
   }>({});
   const [brain, setBrain] = useState<string>('');
   const [stage, setStage] = useState<'searching' | 'reflecting' | 'synthesizing' | null>(null);
+
+  // V3: Document-centric state
+  const [researchDoc, setResearchDoc] = useState<ResearchDoc | null>(null);
+
+  // Legacy V2 state (for backwards compatibility)
   const [researchLog, setResearchLog] = useState<LogEntry[]>([]);
   const [doneWhen, setDoneWhen] = useState<string | null>(null);
-  const [eventLog, setEventLog] = useState<EventLogEntry[]>([]);
   const [workingMemory, setWorkingMemory] = useState<WorkingMemory | null>(null);
+
+  const [eventLog, setEventLog] = useState<EventLogEntry[]>([]);
 
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -123,7 +169,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
   }, []);
   const abortControllerRef = useRef<AbortController | null>(null);
   const pendingBatchRef = useRef<any[] | null>(null);
-  const isResearchingRef = useRef(false); // Ref to avoid stale closure in sendMessage
+  const isResearchingRef = useRef(false);
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -140,7 +186,6 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
 
       if (!response.ok) {
         if (response.status === 404) {
-          // Session not found, redirect to new chat
           router.replace('/chat');
           return;
         }
@@ -156,21 +201,42 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
       setIsResearching(session.status === 'researching');
       setStatus('ready');
 
-      // Parse brain to extract log, doneWhen, and workingMemory
+      // Parse brain to extract document or legacy log
       if (session.brain) {
         try {
           const parsed = JSON.parse(session.brain);
-          if (parsed.version === 2) {
+
+          // V3: Document-centric format
+          if (parsed.version === 3) {
+            setResearchDoc({
+              northStar: parsed.northStar,
+              currentObjective: parsed.currentObjective,
+              doneWhen: parsed.doneWhen,
+              sections: parsed.sections,
+              strategy: parsed.strategy
+            });
+            setDoneWhen(parsed.doneWhen || null);
+            setResearchProgress({
+              objective: parsed.currentObjective,
+              doneWhen: parsed.doneWhen
+            });
+            // Clear legacy state
+            setResearchLog([]);
+            setWorkingMemory(null);
+          }
+          // V2: Legacy log-based format
+          else if (parsed.version === 2) {
             setResearchLog(parsed.log || []);
             setDoneWhen(parsed.doneWhen || null);
             setResearchProgress({
               objective: parsed.objective,
               doneWhen: parsed.doneWhen
             });
-            // Parse working memory
             if (parsed.workingMemory) {
               setWorkingMemory(parsed.workingMemory);
             }
+            // Clear V3 state
+            setResearchDoc(null);
           }
         } catch {
           // Invalid brain JSON
@@ -203,10 +269,8 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
       setSessionId(data.sessionId);
       setStatus('ready');
 
-      // Update URL to include session ID (shallow - no remount)
       window.history.replaceState(window.history.state, '', `/chat/${data.sessionId}`);
 
-      // Add welcome message
       setMessages([{
         role: 'assistant',
         content: "Hello! I'm your research assistant. I can help you research topics, answer questions, and gather information. What would you like to explore today?",
@@ -220,17 +284,13 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
   }, []);
 
   // Send message
-  // skipUserBubble: when true, don't add user message to chat (used for option selections)
   const sendMessage = async (userMessage: string, options?: { skipUserBubble?: boolean }) => {
     if (!sessionId || !userMessage.trim()) return;
 
     setStatus('processing');
     setError(null);
-    // Don't clear research state here - it's cleared in research_started event
-    // This prevents flickering when chatting with orchestrator
     setStage(null);
 
-    // Add user message to UI immediately (unless it's an option selection)
     if (!options?.skipUserBubble) {
       const newUserMessage: Message = {
         role: 'user',
@@ -266,37 +326,138 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
       const processUpdate = (update: ProgressUpdate) => {
         console.log('[SSE Event]', update.type, update);
 
-        // Log events for visibility
+        // ==========================================
+        // V3: Document-centric events
+        // ==========================================
+
+        if (update.type === 'doc_updated') {
+          if (update.doc) {
+            setResearchDoc(update.doc);
+            // Also update legacy state for compatibility
+            setDoneWhen(update.doc.doneWhen);
+            setResearchProgress({
+              objective: update.doc.currentObjective,
+              doneWhen: update.doc.doneWhen
+            });
+          }
+          addEvent('doc_updated', 'Document updated', `${update.editsApplied || 0} edits applied`, 'info');
+        }
+
+        if (update.type === 'section_updated') {
+          addEvent('section_updated', `${update.sectionTitle} updated`, update.action, 'log');
+          // The doc_updated event will handle the full state update
+        }
+
+        if (update.type === 'iteration_started') {
+          addEvent('iteration_started', `Iteration ${update.iteration}`, update.action, 'phase');
+        }
+
+        if (update.type === 'reflection_started') {
+          setStage('reflecting');
+          addEvent('reflection_started', 'Analyzing findings', 'Deciding what to add to document...', 'reflect');
+        }
+
+        if (update.type === 'reflection_completed') {
+          setStage(null);
+          addEvent('reflection_completed', 'Reflection complete', `${update.editsApplied || 0} edits`, 'reflect');
+
+          // Show reasoning in chat if available
+          if (update.reasoning) {
+            setMessages(prev => [...prev, {
+              role: 'assistant' as const,
+              content: '',
+              timestamp: new Date().toISOString(),
+              metadata: {
+                type: 'reasoning',
+                reflection: update.reasoning
+              }
+            }]);
+          }
+        }
+
+        if (update.type === 'search_agent_started') {
+          addEvent('search_agent_started', 'Search agent started', update.task as any, 'search');
+        }
+
+        if (update.type === 'search_agent_completed') {
+          addEvent('search_agent_completed', 'Search agent complete', update.summary as any, 'search');
+        }
+
+        // ==========================================
+        // Legacy and shared events
+        // ==========================================
+
         if (update.type === 'research_initialized') {
-          addEvent('research_initialized', 'Research initialized', `Objective: ${update.objective?.substring(0, 40)}...`, 'info');
-        } else if (update.type === 'phase_change') {
+          const version = update.version || 2;
+          addEvent('research_initialized', `Research initialized (v${version})`, `Objective: ${update.objective?.substring(0, 40)}...`, 'info');
+
+          // Initialize appropriate state based on version
+          if (version === 3 && update.doc) {
+            setResearchDoc(update.doc);
+            setResearchLog([]);
+            setWorkingMemory(null);
+          }
+        }
+
+        if (update.type === 'phase_change') {
           const phase = update.phase || 'unknown';
           addEvent('phase_change', `Phase: ${phase}`, undefined, 'phase');
-        } else if (update.type === 'log_entry_added') {
+        }
+
+        // Legacy V2: log_entry_added
+        if (update.type === 'log_entry_added') {
           const entry = update.entry;
           addEvent('log_entry_added', `Logged: ${entry?.method?.substring(0, 30)}...`, entry?.insight?.substring(0, 50), 'log');
-        } else if (update.type === 'review_completed') {
+          if (update.entry) {
+            setResearchLog(prev => [...prev, update.entry!]);
+          }
+        }
+
+        if (update.type === 'review_started') {
+          addEvent('review_started', 'Reviewing research', 'Checking if DONE_WHEN is satisfied...', 'reflect');
+        }
+
+        if (update.type === 'review_completed') {
           const verdict = update.verdict || 'unknown';
           const icon = verdict === 'pass' ? 'complete' : 'error';
           addEvent('review_completed', `Review: ${verdict.toUpperCase()}`, update.critique?.substring(0, 60), icon as any);
-        } else if (update.type === 'review_rejected') {
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: '',
+            timestamp: new Date().toISOString(),
+            metadata: {
+              type: 'review_result',
+              verdict: update.verdict,
+              critique: update.critique,
+              missing: update.missing
+            }
+          }]);
+        }
+
+        if (update.type === 'review_rejected') {
           const missing = update.missing || [];
           addEvent('review_rejected', 'Review FAILED', `Missing: ${missing.join(', ').substring(0, 50)}`, 'error');
-        } else if (update.type === 'research_complete') {
+        }
+
+        if (update.type === 'research_complete') {
           const sequence = update.toolSequence || [];
-          addEvent('research_complete', 'Research complete', `Sequence: ${sequence.join(' → ')}`, 'complete');
+          addEvent('research_complete', 'Research complete', sequence.length > 0 ? `Sequence: ${sequence.join(' → ')}` : `${update.totalSearches} searches`, 'complete');
         }
 
         if (update.type === 'analyzing') {
           setStatus('processing');
           addEvent('analyzing', 'Analyzing message', 'Understanding your request...', 'info');
-        } else if (update.type === 'decision') {
+        }
+
+        if (update.type === 'decision') {
           console.log('Decision:', update.decision, update.reasoning);
           addEvent('decision', `Decision: ${update.decision}`, update.reasoning, 'info');
-        } else if (update.type === 'research_started') {
-          // Clear event log for new research session
+        }
+
+        if (update.type === 'research_started') {
           setEventLog([]);
           setResearchLog([]);
+          setResearchDoc(null);
           setDoneWhen(null);
           setWorkingMemory(null);
           setIsResearching(true);
@@ -307,68 +468,22 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
             iteration: 0
           });
           addEvent('research_started', 'Research started', update.objective?.substring(0, 50) + '...', 'info');
-        } else if (update.type === 'research_initialized') {
-          // Set doneWhen when research initializes
-          if (update.doneWhen) {
-            setDoneWhen(update.doneWhen);
-          }
-          setResearchProgress({
-            objective: update.objective,
-            doneWhen: update.doneWhen,
-            iteration: 0
-          });
-        } else if (update.type === 'search_started') {
-          const rawQueries = (update as any).queries || [];
-          console.log('[search_started] Adding search batch with queries:', rawQueries);
-          addEvent('search_started', `Search (${rawQueries.length} queries)`, rawQueries.map((q: any) => q.query).join(' | ').substring(0, 60) + '...', 'search');
-          setStage('searching');
-          const queries = rawQueries.map((q: any) => ({
-            query: q.query,
-            purpose: q.purpose,
-            status: 'searching',
-            answer: null,
-            sources: []
-          }));
-          pendingBatchRef.current = queries;
+        }
 
-          setMessages(prev => {
-            console.log('[search_started] Adding message, prev count:', prev.length);
-            // Always add a new search batch - each search gets its own message
-            return [...prev, {
-              role: 'assistant' as const,
-              content: '',
-              timestamp: new Date().toISOString(),
-              metadata: {
-                type: 'search_batch',
-                queries
-              }
-            }];
-          });
-        } else if (update.type === 'search_completed') {
+        if (update.type === 'search_started') {
+          // Just set stage, don't create messages yet
+          setStage('searching');
+          addEvent('search_started', 'Searching...', '', 'search');
+        }
+
+        if (update.type === 'search_completed') {
           setStage(null);
           const completedQueries = (update as any).queries || [];
-          pendingBatchRef.current = null;
-          addEvent('search_completed', `Search complete`, `${completedQueries.length} results received`, 'search');
+          addEvent('search_completed', `Search complete`, `${completedQueries.length} results`, 'search');
 
-          setMessages(prev => {
-            const batchIdx = prev.findLastIndex(m =>
-              m.metadata?.type === 'search_batch' &&
-              m.metadata?.queries?.[0]?.status === 'searching'
-            );
-
-            if (batchIdx !== -1) {
-              const newMessages = [...prev];
-              newMessages[batchIdx] = {
-                ...newMessages[batchIdx],
-                metadata: {
-                  type: 'search_batch',
-                  queries: completedQueries
-                }
-              };
-              return newMessages;
-            }
-
-            return [...prev, {
+          // Only create message if we have actual results
+          if (completedQueries.length > 0) {
+            setMessages(prev => [...prev, {
               role: 'assistant' as const,
               content: '',
               timestamp: new Date().toISOString(),
@@ -376,9 +491,11 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
                 type: 'search_batch',
                 queries: completedQueries
               }
-            }];
-          });
-        } else if (update.type === 'extract_started') {
+            }]);
+          }
+        }
+
+        if (update.type === 'extract_started') {
           setStage('searching');
           const urls = update.urls || [];
           addEvent('extract_started', `Extracting (${urls.length} URLs)`, update.purpose || '', 'search');
@@ -395,7 +512,9 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
               results: []
             }
           }]);
-        } else if (update.type === 'extract_completed') {
+        }
+
+        if (update.type === 'extract_completed') {
           setStage(null);
           const results = update.results || [];
           const failed = update.failed || [];
@@ -435,7 +554,9 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
               }
             }];
           });
-        } else if (update.type === 'ask_user') {
+        }
+
+        if (update.type === 'ask_user') {
           setMessages(prev => [...prev, {
             role: 'assistant',
             content: '',
@@ -446,7 +567,9 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
               options: update.options
             }
           }]);
-        } else if (update.type === 'multi_choice_select') {
+        }
+
+        if (update.type === 'multi_choice_select') {
           setMessages(prev => [...prev, {
             role: 'assistant',
             content: '',
@@ -458,58 +581,78 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
               reason: (update as any).reason
             }
           }]);
-        } else if (update.type === 'reasoning_started') {
+        }
+
+        if (update.type === 'reasoning_started') {
           setStage('reflecting');
           addEvent('reasoning_started', 'Reflecting', 'Analyzing what was learned...', 'reflect');
-        } else if (update.type === 'synthesizing_started') {
+        }
+
+        if (update.type === 'synthesizing_started') {
           setStage('synthesizing');
           addEvent('synthesizing_started', 'Synthesizing', 'Writing final answer...', 'complete');
-        } else if (update.type === 'research_iteration') {
+        }
+
+        if (update.type === 'research_iteration') {
           setMessages(prev => [...prev, {
             role: 'assistant',
             content: '',
             timestamp: new Date().toISOString(),
             metadata: { ...update }
           }]);
-        }
-
-        if (update.type === 'research_iteration' || update.type === 'step_complete') {
           setResearchProgress(prev => ({
             ...prev,
             iteration: update.iteration
           }));
-        } else if (update.type === 'brain_update') {
+        }
+
+        if (update.type === 'brain_update') {
           setBrain(update.brain || '');
-          // Parse brain to extract log and working memory
           if (update.brain) {
             try {
               const parsed = JSON.parse(update.brain);
-              if (parsed.version === 2 && parsed.log) {
+
+              // V3: Document-centric
+              if (parsed.version === 3) {
+                setResearchDoc({
+                  northStar: parsed.northStar,
+                  currentObjective: parsed.currentObjective,
+                  doneWhen: parsed.doneWhen,
+                  sections: parsed.sections,
+                  strategy: parsed.strategy
+                });
+                setDoneWhen(parsed.doneWhen);
+                // Clear legacy state
+                setResearchLog([]);
+                setWorkingMemory(null);
+              }
+              // V2: Legacy
+              else if (parsed.version === 2 && parsed.log) {
                 setResearchLog(parsed.log);
                 if (parsed.doneWhen) {
                   setDoneWhen(parsed.doneWhen);
                 }
-                // Parse working memory
                 if (parsed.workingMemory) {
                   setWorkingMemory(parsed.workingMemory);
                 }
+                // Clear V3 state
+                setResearchDoc(null);
               }
             } catch {
               // Invalid JSON
             }
           }
-        } else if (update.type === 'working_memory_updated') {
-          // Direct update of working memory (more efficient than parsing brain)
+        }
+
+        // Legacy V2: working_memory_updated
+        if (update.type === 'working_memory_updated') {
           const bullets = (update as any).bullets || [];
           const lastUpdated = (update as any).lastUpdated || new Date().toISOString();
           setWorkingMemory({ bullets, lastUpdated });
           addEvent('working_memory_updated', 'Memory updated', `${bullets.length} conclusions`, 'info');
-        } else if (update.type === 'log_entry_added') {
-          // Update research log with new entry
-          if (update.entry) {
-            setResearchLog(prev => [...prev, update.entry!]);
-          }
-        } else if (update.type === 'reasoning') {
+        }
+
+        if (update.type === 'reasoning') {
           setStage(null);
           setMessages(prev => [...prev, {
             role: 'assistant',
@@ -517,7 +660,9 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
             timestamp: new Date().toISOString(),
             metadata: { type: 'reasoning', reflection: update.reflection }
           }]);
-        } else if (update.type === 'message') {
+        }
+
+        if (update.type === 'message') {
           const assistantMessage: Message = {
             role: 'assistant',
             content: update.message || '',
@@ -525,11 +670,15 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
             metadata: update.metadata
           };
           setMessages(prev => [...prev, assistantMessage]);
-        } else if (update.type === 'complete') {
+        }
+
+        if (update.type === 'complete') {
           setStatus('ready');
           setIsResearching(false);
           setStage(null);
-        } else if (update.type === 'error') {
+        }
+
+        if (update.type === 'error') {
           setError(update.message || 'An error occurred');
           setStatus('error');
           setIsResearching(false);
@@ -617,6 +766,9 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
     error,
     isResearching,
     researchProgress,
+    // V3: Document-centric
+    researchDoc,
+    // Legacy V2 (for backwards compatibility)
     researchLog,
     doneWhen,
     workingMemory,

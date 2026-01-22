@@ -6,9 +6,9 @@ import { eq } from 'drizzle-orm';
 import { analyzeUserMessage } from '@/lib/agents/orchestrator-chat-agent';
 import { executeResearch } from '@/lib/agents/research-executor-agent';
 import {
-  createResearchMemory,
-  serializeResearchMemory
-} from '@/lib/utils/research-memory';
+  createResearchDoc,
+  serializeDoc
+} from '@/lib/utils/doc-operations';
 
 export const maxDuration = 300; // 5 minutes
 
@@ -189,15 +189,19 @@ export async function POST(
             // POC: Credit checks disabled - free to use
             // TODO: Enable credit checks before production launch
 
-            // Initialize structured research memory
+            // Initialize V3 research document
             const [currentSession] = await db
               .select({ brain: chatSessions.brain })
               .from(chatSessions)
               .where(eq(chatSessions.id, chatSessionId));
 
             const currentBrain = currentSession?.brain || '';
-            const newMemory = createResearchMemory(researchBrief.objective, researchBrief.doneWhen);
-            const serializedBrain = serializeResearchMemory(newMemory);
+            const newDoc = createResearchDoc(
+              researchBrief.objective, // northStar
+              researchBrief.objective, // currentObjective
+              researchBrief.doneWhen
+            );
+            const serializedBrain = serializeDoc(newDoc);
 
             await db
               .update(chatSessions)
