@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCredits } from '@/hooks/useCredits';
 import { CreditBalance } from '@/components/CreditBalance';
 import { UserButton } from '@clerk/nextjs';
 import { CREDIT_PACKAGES } from '@/lib/stripe/client';
 
-export default function CreditsPage() {
+function CreditsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { credits, lifetimeCreditsUsed, refetch } = useCredits();
@@ -264,5 +264,13 @@ export default function CreditsPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function CreditsPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-50 flex items-center justify-center">Loading...</div>}>
+      <CreditsPageContent />
+    </Suspense>
   );
 }

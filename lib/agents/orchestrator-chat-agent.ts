@@ -104,6 +104,7 @@ export async function analyzeUserMessage(
   - Provide a concise and specific research brief. Communicate what the user told you.
   - Make the goal and expected output explicit
   - Optimize for action, not completeness
+  - If you give the user a few opitons to choose from, use multi_choice_select. If it's open ended, use text_input.
   
   CONVERSATION HISTORY:
   ${conversationHistory.map((msg: any) => `${msg.role}: ${msg.content}`).join('\n')}
