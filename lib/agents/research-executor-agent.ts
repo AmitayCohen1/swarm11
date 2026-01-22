@@ -28,6 +28,8 @@ import {
   applyReflectionOutput,
   addQueriesToDoc,
   getDocSummary,
+  getCurrentStrategy,
+  appendStrategy,
 } from '@/lib/utils/doc-operations';
 import type { ResearchDoc } from '@/lib/types/research-doc';
 
@@ -133,7 +135,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
       objective: doc.objective,
       doneWhen: doc.doneWhen,
       sections: doc.sections,
-      strategy: doc.strategy
+      strategyLog: doc.strategyLog
     }
   });
 
@@ -154,14 +156,15 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     // STEP 1: PLAN - Get next action from strategy
     // ──────────────────────────────────────────────────────────
 
-    const nextAction = doc.strategy.nextActions[0] || 'Continue exploring the research objective';
+    const currentStrategy = getCurrentStrategy(doc);
+    const nextAction = currentStrategy?.nextActions[0] || 'Continue exploring the research objective';
 
     console.log(`[Research] Next action: ${nextAction}`);
 
     emitProgress('iteration_started', {
       iteration: iterationCount,
       action: nextAction,
-      strategy: doc.strategy
+      currentStrategy
     });
 
     // ──────────────────────────────────────────────────────────
@@ -262,7 +265,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
         objective: doc.objective,
         doneWhen: doc.doneWhen,
         sections: doc.sections,
-        strategy: doc.strategy
+        strategyLog: doc.strategyLog
       },
       editsApplied: reflectionResult.output.edits.length,
       reasoning: reflectionResult.output.reasoning
@@ -352,18 +355,15 @@ Evaluate harshly. Is DONE_WHEN actually satisfied?
       missing: reviewVerdict.missing
     });
 
-    // Update strategy to address gaps
-    doc = {
-      ...doc,
-      strategy: {
-        approach: 'Addressing reviewer gaps',
-        rationale: reviewVerdict.critique,
-        nextActions: reviewVerdict.missing.length > 0
-          ? reviewVerdict.missing.map((m: string) => `Address gap: ${m}`)
-          : ['Address reviewer critique']
-      },
-      lastUpdated: new Date().toISOString()
+    // Append new strategy to address gaps
+    const gapStrategy = {
+      approach: 'Addressing reviewer gaps',
+      rationale: reviewVerdict.critique,
+      nextActions: reviewVerdict.missing.length > 0
+        ? reviewVerdict.missing.map((m: string) => `Address gap: ${m}`)
+        : ['Address reviewer critique']
     };
+    doc = appendStrategy(doc, gapStrategy);
 
     await saveDocToDb(doc);
 
@@ -371,7 +371,7 @@ Evaluate harshly. Is DONE_WHEN actually satisfied?
     iterationCount++;
 
     const gapSearchTask = createSearchTask(
-      doc.strategy.nextActions[0],
+      gapStrategy.nextActions[0],
       getDocSummary(doc),
       doc.objective,
       doc.doneWhen,
@@ -405,7 +405,7 @@ Evaluate harshly. Is DONE_WHEN actually satisfied?
         objective: doc.objective,
         doneWhen: doc.doneWhen,
         sections: doc.sections,
-        strategy: doc.strategy
+        strategyLog: doc.strategyLog
       },
       editsApplied: gapReflectionResult.output.edits.length,
       reasoning: 'Addressing reviewer gaps'

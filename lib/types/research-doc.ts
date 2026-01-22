@@ -91,12 +91,32 @@ export function generateItemId(): string {
 }
 
 /**
- * Create initial strategy
+ * Generate strategy log entry ID
  */
-export function createInitialStrategy(objective: string): Strategy {
+export function generateStrategyId(): string {
+  return `strat_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+}
+
+/**
+ * Create initial strategy log entry
+ */
+export function createInitialStrategyEntry(objective: string): StrategyLogEntry {
   return {
+    id: generateStrategyId(),
+    timestamp: new Date().toISOString(),
     approach: 'Starting research',
     rationale: `Initial approach to investigate: ${objective}`,
     nextActions: ['Perform initial search to understand the landscape'],
+  };
+}
+
+/**
+ * Create strategy log entry from strategy update
+ */
+export function createStrategyEntry(strategy: Strategy): StrategyLogEntry {
+  return {
+    id: generateStrategyId(),
+    timestamp: new Date().toISOString(),
+    ...strategy,
   };
 }

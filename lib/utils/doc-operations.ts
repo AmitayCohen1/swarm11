@@ -9,7 +9,9 @@ import {
   Section,
   SectionItem,
   Strategy,
-  createInitialStrategy,
+  StrategyLogEntry,
+  createInitialStrategyEntry,
+  createStrategyEntry,
   generateSectionId,
   generateItemId,
 } from '../types/research-doc';
@@ -23,15 +25,26 @@ export function createResearchDoc(
   doneWhen: string,
   initialStrategy?: Strategy
 ): ResearchDoc {
+  const initialEntry = initialStrategy
+    ? createStrategyEntry(initialStrategy)
+    : createInitialStrategyEntry(objective);
+
   return {
     version: 4,
     objective,
     doneWhen,
     sections: [],
-    strategy: initialStrategy || createInitialStrategy(objective),
+    strategyLog: [initialEntry],
     queriesRun: [],
     lastUpdated: new Date().toISOString(),
   };
+}
+
+/**
+ * Get the current (latest) strategy from the log
+ */
+export function getCurrentStrategy(doc: ResearchDoc): StrategyLogEntry | null {
+  return doc.strategyLog.length > 0 ? doc.strategyLog[doc.strategyLog.length - 1] : null;
 }
 
 /**
@@ -148,9 +161,10 @@ export function applyReflectionOutput(
   let newDoc = applyEdits(doc, output.edits);
 
   if (output.strategyUpdate) {
+    const newEntry = createStrategyEntry(output.strategyUpdate);
     newDoc = {
       ...newDoc,
-      strategy: output.strategyUpdate,
+      strategyLog: [...newDoc.strategyLog, newEntry],
       lastUpdated: new Date().toISOString(),
     };
   }
@@ -159,12 +173,13 @@ export function applyReflectionOutput(
 }
 
 /**
- * Update the strategy
+ * Append a new strategy to the log
  */
-export function updateStrategy(doc: ResearchDoc, strategy: Strategy): ResearchDoc {
+export function appendStrategy(doc: ResearchDoc, strategy: Strategy): ResearchDoc {
+  const newEntry = createStrategyEntry(strategy);
   return {
     ...doc,
-    strategy,
+    strategyLog: [...doc.strategyLog, newEntry],
     lastUpdated: new Date().toISOString(),
   };
 }
@@ -196,18 +211,21 @@ export function hasQueryBeenRun(doc: ResearchDoc, query: string): boolean {
  */
 export function formatDocForAgent(doc: ResearchDoc): string {
   const parts: string[] = [];
+  const currentStrategy = getCurrentStrategy(doc);
 
   parts.push('# Research Document\n');
   parts.push(`**Objective:** ${doc.objective}`);
   parts.push(`**Done When:** ${doc.doneWhen}`);
 
-  parts.push('\n## Strategy');
-  parts.push(`**Approach:** ${doc.strategy.approach}`);
-  parts.push(`**Rationale:** ${doc.strategy.rationale}`);
-  if (doc.strategy.nextActions.length > 0) {
-    parts.push('**Next Actions:**');
-    for (const action of doc.strategy.nextActions) {
-      parts.push(`- ${action}`);
+  if (currentStrategy) {
+    parts.push('\n## Current Strategy');
+    parts.push(`**Approach:** ${currentStrategy.approach}`);
+    parts.push(`**Rationale:** ${currentStrategy.rationale}`);
+    if (currentStrategy.nextActions.length > 0) {
+      parts.push('**Next Actions:**');
+      for (const action of currentStrategy.nextActions) {
+        parts.push(`- ${action}`);
+      }
     }
   }
 
@@ -240,6 +258,8 @@ export function formatDocForAgent(doc: ResearchDoc): string {
  */
 export function getDocSummary(doc: ResearchDoc): string {
   const parts: string[] = [];
+  const currentStrategy = getCurrentStrategy(doc);
+
   parts.push(`**Objective:** ${doc.objective}`);
 
   if (doc.sections.length > 0) {
@@ -248,7 +268,9 @@ export function getDocSummary(doc: ResearchDoc): string {
     }
   }
 
-  parts.push(`\n**Strategy:** ${doc.strategy.approach}`);
+  if (currentStrategy) {
+    parts.push(`\n**Strategy:** ${currentStrategy.approach}`);
+  }
 
   return parts.join('\n');
 }

@@ -23,7 +23,9 @@ interface Section {
   items: SectionItem[];
 }
 
-interface Strategy {
+interface StrategyLogEntry {
+  id: string;
+  timestamp: string;
   approach: string;
   rationale: string;
   nextActions: string[];
@@ -33,7 +35,7 @@ interface ResearchDoc {
   objective: string;
   doneWhen: string;
   sections: Section[];
-  strategy: Strategy;
+  strategyLog: StrategyLogEntry[];
 }
 
 interface ProgressUpdate {
@@ -166,7 +168,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
               objective: parsed.objective,
               doneWhen: parsed.doneWhen,
               sections: parsed.sections,
-              strategy: parsed.strategy
+              strategyLog: parsed.strategyLog
             });
             setResearchProgress({
               objective: parsed.objective,
@@ -495,7 +497,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
                   objective: parsed.objective,
                   doneWhen: parsed.doneWhen,
                   sections: parsed.sections,
-                  strategy: parsed.strategy
+                  strategyLog: parsed.strategyLog
                 });
               }
             } catch {

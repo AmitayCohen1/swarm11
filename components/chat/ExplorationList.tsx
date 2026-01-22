@@ -72,7 +72,9 @@ interface Section {
   items: SectionItem[];
 }
 
-interface Strategy {
+interface StrategyLogEntry {
+  id: string;
+  timestamp: string;
   approach: string;
   rationale: string;
   nextActions: string[];
@@ -82,7 +84,7 @@ interface ResearchDoc {
   objective: string;
   doneWhen: string;
   sections: Section[];
-  strategy: Strategy;
+  strategyLog: StrategyLogEntry[];
 }
 
 interface ResearchLogProps {
@@ -116,29 +118,53 @@ export default function ResearchLog({
         )}
       </div>
 
-      {/* Strategy - subtle callout with animation */}
-      {doc.strategy && (
-        <motion.div
-          key={doc.strategy.approach}
-          initial={{ opacity: 0, x: -10 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.3, ease: 'easeOut' }}
-          className="mb-8 pl-4 border-l-2 border-indigo-300 dark:border-indigo-500/50"
-        >
-          <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400 mb-1">Strategy</p>
-          <p className="text-slate-700 dark:text-slate-300">{doc.strategy.approach}</p>
-          {doc.strategy.nextActions.length > 0 && (
-            <motion.p
-              key={doc.strategy.nextActions[0]}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.15 }}
-              className="text-sm text-slate-500 dark:text-slate-400 mt-2"
-            >
-              → {doc.strategy.nextActions[0]}
-            </motion.p>
-          )}
-        </motion.div>
+      {/* Strategy Log - shows thinking evolution */}
+      {doc.strategyLog && doc.strategyLog.length > 0 && (
+        <div className="mb-8">
+          <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400 mb-3">Strategy Log</p>
+          <div className="space-y-2">
+            <AnimatePresence mode="popLayout">
+              {doc.strategyLog.map((entry, idx) => {
+                const isLatest = idx === doc.strategyLog.length - 1;
+                return (
+                  <motion.div
+                    key={entry.id}
+                    layout
+                    initial={{ opacity: 0, x: -10, filter: 'blur(4px)' }}
+                    animate={{ opacity: 1, x: 0, filter: 'blur(0px)' }}
+                    exit={{ opacity: 0, x: -10 }}
+                    transition={{ duration: 0.3, ease: 'easeOut' }}
+                    className={cn(
+                      "pl-4 border-l-2 py-2",
+                      isLatest
+                        ? "border-indigo-400 dark:border-indigo-500"
+                        : "border-slate-200 dark:border-white/10"
+                    )}
+                  >
+                    <p className={cn(
+                      "text-sm",
+                      isLatest
+                        ? "text-slate-800 dark:text-slate-200"
+                        : "text-slate-500 dark:text-slate-400"
+                    )}>
+                      {entry.approach}
+                    </p>
+                    {isLatest && entry.nextActions.length > 0 && (
+                      <motion.p
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 0.15 }}
+                        className="text-xs text-slate-400 dark:text-slate-500 mt-1"
+                      >
+                        → {entry.nextActions[0]}
+                      </motion.p>
+                    )}
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
+          </div>
+        </div>
       )}
 
       {/* Sections - clean document flow with animations */}
