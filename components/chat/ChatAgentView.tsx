@@ -508,7 +508,7 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
                         options={msg.metadata.options || []}
                         reason={msg.metadata.reason}
                         status={status}
-                        onSelect={(value) => sendMessage(value, { skipUserBubble: true })}
+                        onSelect={(value) => sendMessage(value)}
                       />
                     </div>
                   );

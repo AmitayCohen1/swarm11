@@ -230,12 +230,15 @@ OPERATIONS:
   Add subtask: {action: "add", target: "0.2", item: "What's their revenue?"}
   Remove:      {action: "remove", target: 1}     → delete initiative
 
-USE SUBTASKS when an initiative needs multiple searches to complete.
+USE SUBTASKS when an you want to drill down on a specific topic.
 Each subtask = one specific question.
 
 New items must be SPECIFIC:
 ✅ "Who is Head of Content at iHeartMedia?"
 ❌ "Research buyer personas" (too vague)
+
+Research rellenlesy until you have either a really good result or you looked in any place, any direction, and there is no more to look.
+
 
 Set done=true when you have enough to answer the objective.
 When done=true, you'll be told to call finish() with your final answer.`,

@@ -178,14 +178,8 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
 
     setStatus('processing');
     setError(null);
-    // Don't clear research state if we're in the middle of research (e.g., answering a clarification)
-    // Only reset when a new research actually starts (handled in research_started event)
-    // Use ref to avoid stale closure issues
-    if (!isResearchingRef.current) {
-      setResearchProgress({});
-      setExplorationList(null);
-      setEventLog([]);
-    }
+    // Don't clear research state here - it's cleared in research_started event
+    // This prevents flickering when chatting with orchestrator
     setStage(null);
 
     // Add user message to UI immediately (unless it's an option selection)
