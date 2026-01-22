@@ -74,11 +74,31 @@ export async function POST(
 
     // Add user message to conversation
     const conversationHistory = session.messages as any[] || [];
-    conversationHistory.push({
-      role: 'user',
-      content: userMessage,
-      timestamp: new Date().toISOString()
-    });
+
+    // Check if this is a response to a multi_choice_select
+    const lastMessage = conversationHistory[conversationHistory.length - 1];
+    const isResponseToOptions = lastMessage?.metadata?.type === 'multi_choice_select';
+
+    if (isResponseToOptions) {
+      // Store with context about what was offered and selected
+      conversationHistory.push({
+        role: 'user',
+        content: userMessage,
+        timestamp: new Date().toISOString(),
+        metadata: {
+          type: 'option_selected',
+          selectedOption: userMessage,
+          offeredOptions: lastMessage.metadata.options,
+          originalQuestion: lastMessage.content
+        }
+      });
+    } else {
+      conversationHistory.push({
+        role: 'user',
+        content: userMessage,
+        timestamp: new Date().toISOString()
+      });
+    }
 
     await db
       .update(chatSessions)
