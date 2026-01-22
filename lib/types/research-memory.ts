@@ -28,8 +28,7 @@ export interface ExplorationItem {
 export interface ResearchMemory {
   version: 1;
   objective: string;
-  explorationList?: ExplorationItem[];  // Things to investigate (dynamic todo list)
+  explorationList?: ExplorationItem[];
   cycles: ResearchCycle[];
-  queriesRun: string[];        // Flat list for dedup
-  legacyBrain?: string;        // Preserved markdown from old sessions
+  queriesRun: string[];
 }

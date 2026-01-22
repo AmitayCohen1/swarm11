@@ -6,7 +6,6 @@ import { eq } from 'drizzle-orm';
 import { analyzeUserMessage } from '@/lib/agents/orchestrator-chat-agent';
 import { executeResearch } from '@/lib/agents/research-executor-agent';
 import {
-  parseResearchMemory,
   createResearchMemory,
   serializeResearchMemory
 } from '@/lib/utils/research-memory';
@@ -197,16 +196,7 @@ export async function POST(
               .where(eq(chatSessions.id, chatSessionId));
 
             const currentBrain = currentSession?.brain || '';
-            const existingMemory = parseResearchMemory(currentBrain);
-
-            // Create new structured memory, preserving legacy brain if exists
-            let newMemory = createResearchMemory(researchBrief.objective);
-
-            // Preserve legacy brain content if this is an existing session with old format
-            if (existingMemory?.legacyBrain) {
-              newMemory.legacyBrain = existingMemory.legacyBrain;
-            }
-
+            const newMemory = createResearchMemory(researchBrief.objective);
             const serializedBrain = serializeResearchMemory(newMemory);
 
             await db

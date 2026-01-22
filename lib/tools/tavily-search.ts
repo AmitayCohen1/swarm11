@@ -7,19 +7,20 @@ const client = tavily({ apiKey: process.env.TAVILY_API_KEY! });
 const TAVILY_API_KEY = process.env.TAVILY_API_KEY!;
 
 export const search = tool({
-  description: `Search the web. Write HUMAN-READABLE questions.
+  description: `Search the web. Queries must be HUMAN-READABLE and SPECIFIC.
 
-Your queries should sound like asking a knowledgeable friend:
-✅ "What are the biggest challenges podcast producers face with fact-checking?"
-✅ "Which media companies have been criticized for spreading misinformation?"
-❌ "podcast fact-check challenges 2024" (keyword soup)
-❌ "misinformation media companies list" (not a question)
+Write like you're asking a knowledgeable person, not keyword stuffing:
+✅ "Who leads DevRel at Datadog?"
+✅ "What startups make podcast fact-checking tools?"
+✅ "Is Sarah Chen active on Twitter?"
+❌ "DevRel leads Datadog 2024" (keyword soup)
+❌ "podcast fact-check tools startups list" (not a question)
 
 Each query needs:
-- query: The human-readable question
-- purpose: What you're trying to learn (1 sentence)
+- query: A clear, specific question a human would ask
+- purpose: What you're trying to learn
 
-Run 1-2 queries at a time. Focused beats broad.`,
+Run 1-2 queries at a time. Specific beats broad.`,
   inputSchema: z.object({
     queries: z.array(z.object({
       query: z.string(),

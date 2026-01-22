@@ -1,6 +1,6 @@
 import { generateText, tool } from 'ai';
 import { openai } from '@ai-sdk/openai';
-import { search, extract } from '@/lib/tools/tavily-search';
+import { search } from '@/lib/tools/tavily-search';
 import { db } from '@/lib/db';
 import { chatSessions, searchQueries } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -129,23 +129,40 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   });
 
   const reflectTool = tool({
-    description: `Analyze search results. 
-    Write what you learned, and what you plan to do next, and if there are any operations you need to perform.
+    description: `Evaluate your search results and decide next steps.
 
-    These are the current initiatives:
-    ${briefInitiatives.map(i => `- ${i.item} [${i.done ? 'done' : 'pending'}]`).join('\n')}
+    Current initiatives:
+    ${briefInitiatives.map((i, idx) => `${idx}. ${i.item} [${i.done ? 'done' : 'pending'}]\n       DONE WHEN: ${i.doneWhen || 'not specified'}`).join('\n')}
 
-    You can add new initiatives, add subtasks to existing initiatives, or remove ones that are no longer needed.
-    Types of operations: "done", "add", "remove".
+    EVALUATE:
+    - Did this search yield signal or noise?
+    - Is further searching likely to add value, or diminishing returns?
 
     Operations:
-    - {action: "done", target: 0, note: "why this is useful"}
-    - {action: "add", target: "0", item: "Drill-down question", note: "why needed"}
-    - {action: "remove", target: 0, note: "why this is no longer needed"}
+    - {action: "done", target: 0, note: "Found: [result] OR Concluded: [why low-signal]"}
+    - {action: "add", item: "New initiative", note: "Pivoting to different angle"}
+    - {action: "add", target: "0", item: "Subtask", note: "Breaking down initiative 0"}
+    - {action: "remove", target: 0, note: "Stopping - diminishing returns"}
 
-    Set done=true ONLY when you have actionable, specific information.`,
+    Use target: "0" to add subtask under initiative 0. Use target: "0.1" to mark subtask 1 done.
+
+    An initiative can be DONE because:
+    ✓ Found actionable result
+    ✓ Learned this path is low-signal (negative finding = valid output)
+    ✓ Further search adds diminishing value
+
+    Stopping because you learned something is progress.`,
     inputSchema: z.object({
-      reflection: z.string(),
+      reflection: z.string().describe(`Markdown formatted reflection. Structure:
+## What I Found
+- Key findings from this search
+
+## Progress
+- Which initiatives are closer to done
+- What's still missing
+
+## Next Steps
+- What I'll search for next and why`),
       operations: z.array(z.object({
         action: z.enum(['done', 'remove', 'add']),
         target: z.union([z.number(), z.string()]),
@@ -292,6 +309,19 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     }
   });
 
+  const reviewTool = tool({
+    description: `Adversarial review of research quality. Be hostile - block weak conclusions.`,
+    inputSchema: z.object({
+      verdict: z.enum(['pass', 'fail']).describe('pass = research is sufficient, fail = gaps remain'),
+      critique: z.string().describe('Why this passes or fails. Be specific.'),
+      missing: z.array(z.string()).describe('What specific gaps remain (empty if pass)')
+    }),
+    execute: async ({ verdict, critique, missing }) => {
+      emitProgress('review_completed', { verdict, critique, missing });
+      return { verdict, critique, missing };
+    }
+  });
+
   // ============================================================
   // BUILD CONTEXT
   // ============================================================
@@ -300,14 +330,37 @@ export async function executeResearch(config: ResearchExecutorConfig) {
 
 OBJECTIVE: ${researchBrief.objective}
 
-RULES:
-  - Be smart and creative. Look for signals. Start broad, then narrow down.
-  - Work systematically. Understand the best ways to tackle the objective.
-  - Explore different directions. Then double down or pivot.
+HOW TO RESEARCH:
+1. HYPOTHESIZE - "What's the best way to find this?"
+2. TEST - Run searches based on your hypothesis
+3. EVALUATE - Did you get actionable signal or noise?
+4. DECIDE:
+   - Low signal / diminishing returns → STOP this approach, explain why
+   - Promising signal → NARROW further
+   - Enough signal to act → DONE
 
-${existingBrain ? `PREVIOUS RESEARCH:\n${formatForOrchestrator(parseResearchMemory(existingBrain), 3000)}` : ''}
+WHAT "DONE" MEANS:
+Done = enough signal gathered to decide.
+This includes NEGATIVE findings: "This approach doesn't work because X" is valid output.
+An initiative can end because:
+- You found what you needed (success)
+- The path is low-signal or inaccessible (learned something)
+- Further search adds diminishing value (time to pivot)
 
-Research until you have actionable, specific information that fulfills the objective.`;
+Stopping because you learned something is progress, not failure.
+
+WATCH FOR SIGNALS:
+- Engagement over credentials (who's actually influential, not just titled)
+- Activity changes (drops may signal openness to change)
+- Cross-surface presence (same person across sources = real)
+- Timing (recent events that create opportunity)
+
+COMMON TRAPS:
+- Accepting generic lists as "results"
+- Repeating similar searches hoping for different results
+- Stopping at credentials when you need quality signals
+
+${existingBrain ? `PREVIOUS RESEARCH:\n${formatForOrchestrator(parseResearchMemory(existingBrain), 3000)}` : ''}`;
 
   let conversationContext = '';
   if (conversationHistory.length > 0) {
@@ -327,18 +380,20 @@ Research until you have actionable, specific information that fulfills the objec
 
   await checkAborted();
 
+  // Build initiatives display for context
+  const initiativesDisplay = briefInitiatives.map((init, idx) =>
+    `${idx + 1}. ${init.item}${init.doneWhen ? `\n   DONE WHEN: ${init.doneWhen}` : ''}`
+  ).join('\n');
+
   const planResult = await generateText({
     model,
     system: systemPrompt,
     prompt: `${conversationContext}
 
-Create a research plan with 2-4 specific initiatives.
-Each initiative should be a specific question you need to answer.
-Initatives msut be standalone, and spesific.
-Good: "Which podcast networks have 10M+ listeners?"
-Bad: "Research the podcast industry"
+Here are your research initiatives:
+${initiativesDisplay}
 
-Call the plan tool now.`,
+Call the plan tool to start.`,
     tools: { plan: planTool },
     toolChoice: { type: 'tool', toolName: 'plan' },
     abortSignal
@@ -356,7 +411,6 @@ Call the plan tool now.`,
 
   // Conversation memory - accumulates throughout the session
   const researchMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
-  const foundUrls: string[] = []; // Track URLs found for potential extraction
 
   while (!researchDone && iterationCount < MAX_ITERATIONS) {
     iterationCount++;
@@ -375,114 +429,61 @@ Call the plan tool now.`,
     const currentList = memory?.explorationList || [];
     const activeInitiative = currentList.find(i => !i.done)?.item || 'General research';
 
-    // Format list for context
+    // Format list for context - include doneWhen criteria
     const listContext = currentList.map((item, idx) => {
-      const status = item.done ? 'done' : 'pending';
+      const status = item.done ? '✓ DONE' : 'PENDING';
       let line = `${idx}. ${item.item} [${status}]`;
+      if (item.doneWhen) {
+        line += `\n   DONE WHEN: ${item.doneWhen}`;
+      }
       if (item.subtasks) {
         for (let subIdx = 0; subIdx < item.subtasks.length; subIdx++) {
           const sub = item.subtasks[subIdx];
-          line += `\n   ${idx}.${subIdx} ${sub.item} [${sub.done ? 'done' : 'pending'}]`;
+          line += `\n   ${idx}.${subIdx} ${sub.item} [${sub.done ? '✓' : 'pending'}]`;
         }
       }
       return line;
     }).join('\n');
 
     // ──────────────────────────────────────────────────────────
-    // SEARCH OR EXTRACT
+    // SEARCH
     // ──────────────────────────────────────────────────────────
 
-    emitProgress('phase_change', { phase: 'searching', activeInitiative });
 
-    // Build the search prompt with context
     const searchPrompt = `Current initiatives:
 ${listContext}
 
 Active: "${activeInitiative}"
 
-${foundUrls.length > 0 ? `URLs found in previous searches (can extract for details):\n${foundUrls.slice(-10).join('\n')}\n` : ''}
+Search for information. If previous searches were too generic, try MORE SPECIFIC queries.`;
 
-Choose the right tool:
-- search: Find NEW information (don't repeat previous queries!)
-- extract: Scrape specific URLs for detailed content (contacts, team pages, pricing)
-
-If previous searches were too generic, try a MORE SPECIFIC query or extract URLs for details.`;
-
-    // Add search request to conversation
     researchMessages.push({ role: 'user', content: searchPrompt });
 
-    const gatherResult = await generateText({
+    const searchResult = await generateText({
       model,
       system: systemPrompt,
       messages: researchMessages,
-      tools: { search, extract },
+      tools: { search },
       toolChoice: 'required',
       abortSignal
     });
 
-    trackUsage(gatherResult.usage);
-    const gatherToolCall = gatherResult.toolCalls?.[0];
-    const toolUsed = (gatherToolCall as any)?.toolName || 'search';
-    toolSequence.push(toolUsed);
+    trackUsage(searchResult.usage);
+    toolSequence.push('search');
     searchCount++;
 
-    // Process results based on which tool was used
-    let searchResultData: any[] = [];
-    let queryArgs: any[] = [];
+    const searchToolCall = searchResult.toolCalls?.[0];
+    const queryArgs = (searchToolCall as any)?.args?.queries || [];
 
-    let isExtract = false;
+    emitProgress('search_started', {
+      count: queryArgs.length,
+      totalSearches: searchCount,
+      activeInitiative,
+      queries: queryArgs
+    });
 
-    if (toolUsed === 'search') {
-      queryArgs = (gatherToolCall as any)?.args?.queries || [];
-      emitProgress('search_started', {
-        count: queryArgs.length,
-        totalSearches: searchCount,
-        activeInitiative,
-        queries: queryArgs
-      });
-
-      const searchOutput = gatherResult.toolResults?.[0];
-      searchResultData = (searchOutput as any)?.output?.results || [];
-    } else if (toolUsed === 'extract') {
-      isExtract = true;
-      const extractArgs = (gatherToolCall as any)?.args || {};
-      const urls = extractArgs.urls || [];
-
-      emitProgress('extract_started', {
-        count: urls.length,
-        totalSearches: searchCount,
-        activeInitiative,
-        urls,
-        purpose: extractArgs.purpose
-      });
-
-      const extractOutput = gatherResult.toolResults?.[0];
-      const extractResults = (extractOutput as any)?.output?.results || [];
-      const failedResults = (extractOutput as any)?.output?.failed || [];
-
-      // Emit extract_completed with dedicated format
-      emitProgress('extract_completed', {
-        totalSearches: searchCount,
-        activeInitiative,
-        results: extractResults.map((r: any) => ({
-          url: r.url,
-          content: r.content || 'No content extracted',
-          status: 'success'
-        })),
-        failed: failedResults,
-        purpose: extractArgs.purpose
-      });
-
-      // Convert extract results to search-like format for memory/downstream processing
-      searchResultData = extractResults.map((r: any) => ({
-        query: `Extracted from ${r.url}`,
-        purpose: extractArgs.purpose,
-        answer: r.content?.substring(0, 1000) || 'No content',
-        results: [{ title: r.url, url: r.url, content: r.content }],
-        status: 'success'
-      }));
-      queryArgs = [{ query: `Extract: ${urls.join(', ')}`, purpose: extractArgs.purpose }];
-    }
+    const searchOutput = searchResult.toolResults?.[0];
+    const searchResultData = (searchOutput as any)?.output?.results || [];
 
     const completedQueries = searchResultData.map((sr: any) => ({
       query: sr.query,
@@ -492,29 +493,17 @@ If previous searches were too generic, try a MORE SPECIFIC query or extract URLs
       status: sr.status === 'success' ? 'complete' : 'error'
     }));
 
-    // Track URLs found for potential extraction
-    for (const sq of completedQueries) {
-      for (const source of sq.sources || []) {
-        if (source.url && !foundUrls.includes(source.url)) {
-          foundUrls.push(source.url);
-        }
-      }
-    }
-
     // Add search results to conversation memory
     const searchResultsSummary = completedQueries.map((q: any) =>
       `Query: ${q.query}\nAnswer: ${q.answer?.substring(0, 300) || 'No answer'}\nSources: ${q.sources?.map((s: any) => s.url).join(', ') || 'none'}`
     ).join('\n\n');
     researchMessages.push({ role: 'assistant', content: `Search results:\n${searchResultsSummary}` });
 
-    // Only emit search_completed for search (extract has its own event)
-    if (!isExtract) {
-      emitProgress('search_completed', {
-        totalSearches: searchCount,
-        activeInitiative,
-        queries: completedQueries
-      });
-    }
+    emitProgress('search_completed', {
+      totalSearches: searchCount,
+      activeInitiative,
+      queries: completedQueries
+    });
 
     // Save searches to memory
     if (memory) {
@@ -558,8 +547,6 @@ If previous searches were too generic, try a MORE SPECIFIC query or extract URLs
     await checkAborted();
     console.log(`[Research] ITERATION ${iterationCount}: REFLECT`);
 
-    emitProgress('phase_change', { phase: 'reflecting' });
-    emitProgress('reasoning_started');
 
     // Get fresh state after search
     const [freshSession] = await db
@@ -570,35 +557,28 @@ If previous searches were too generic, try a MORE SPECIFIC query or extract URLs
     const freshMemory = parseResearchMemory(freshSession?.brain || '');
     const freshList = freshMemory?.explorationList || [];
     const freshListContext = freshList.map((item, idx) => {
-      const status = item.done ? 'done' : 'pending';
+      const status = item.done ? '✓ DONE' : 'PENDING';
       let line = `${idx}. ${item.item} [${status}]`;
+      if (item.doneWhen) {
+        line += `\n   DONE WHEN: ${item.doneWhen}`;
+      }
       if (item.subtasks) {
         for (let subIdx = 0; subIdx < item.subtasks.length; subIdx++) {
           const sub = item.subtasks[subIdx];
-          line += `\n   ${idx}.${subIdx} ${sub.item} [${sub.done ? 'done' : 'pending'}]`;
+          line += `\n   ${idx}.${subIdx} ${sub.item} [${sub.done ? '✓' : 'pending'}]`;
         }
       }
       return line;
     }).join('\n');
 
-    // Build reflect prompt
+    // Build reflect prompt - simple, tool description has the guidance
     const reflectPrompt = `OBJECTIVE: ${researchBrief.objective}
 
 Current initiatives:
 ${freshListContext}
 
-Reflect on the search results above. Ask yourself:
-- Is this SPECIFIC enough? Or just generic names anyone could Google?
-- Do I have what the objective asks for? (e.g., if it needs "contacts", do I have actual names/emails?)
-- Should I EXTRACT some of the URLs found to get more details?
-
-If results are generic, either:
-1. Search with a MORE SPECIFIC query (e.g., "Head of Content at iHeartMedia LinkedIn")
-2. Extract a promising URL for detailed info
-
-Operations:
-- {action: "done", target: 0, note: "why this is useful"}
-- {action: "add", target: "0", item: "More specific question", note: "why needed"}`;
+Reflect on the search results. Check each initiative against its DONE WHEN criteria.
+Call the reflect tool.`;
 
     // Add reflect request to conversation
     researchMessages.push({ role: 'user', content: reflectPrompt });
@@ -641,11 +621,114 @@ Operations:
   }
 
   // ============================================================
-  // PHASE 3: FINISH
+  // PHASE 3: ADVERSARIAL REVIEW (gate before finish)
   // ============================================================
 
   console.log('[Research] ═══════════════════════════════════════════════════');
-  console.log('[Research] PHASE 3: FINISH');
+  console.log('[Research] PHASE 3: ADVERSARIAL REVIEW');
+  console.log('[Research] ═══════════════════════════════════════════════════');
+
+  await checkAborted();
+
+  // Get state for review
+  const [reviewSession] = await db
+    .select({ brain: chatSessions.brain })
+    .from(chatSessions)
+    .where(eq(chatSessions.id, chatSessionId));
+
+  const reviewMemory = parseResearchMemory(reviewSession?.brain || '');
+  const reviewSearches = reviewMemory?.cycles?.flatMap(c => c.searches) || [];
+  const reviewSummary = reviewSearches.slice(-10).map(s =>
+    `Q: ${s.query}\nA: ${s.answer?.substring(0, 300) || 'N/A'}`
+  ).join('\n\n');
+
+  const reviewerPrompt = `You are a hostile reviewer. Your job is to block weak conclusions.
+Assume the researcher is wrong unless proven otherwise.
+
+OBJECTIVE: ${researchBrief.objective}
+
+RESEARCH CONDUCTED:
+${reviewSummary}
+
+CURRENT INITIATIVES:
+${reviewMemory?.explorationList?.map((i, idx) => `${idx}. ${i.item} [${i.done ? 'DONE' : 'pending'}]`).join('\n') || 'None'}
+
+Evaluate harshly. Is this research sufficient to deliver an actionable answer?
+- If weak, vague, or lacks actionable specifics → FAIL
+- If solid evidence supports a clear answer → PASS`;
+
+  const reviewResult = await generateText({
+    model,
+    system: reviewerPrompt,
+    prompt: `Review this research. Use the review tool to deliver your verdict.`,
+    tools: { review: reviewTool },
+    toolChoice: { type: 'tool', toolName: 'review' },
+    abortSignal
+  });
+
+  trackUsage(reviewResult.usage);
+  toolSequence.push('review');
+
+  const reviewOutput = reviewResult.toolResults?.[0];
+  const reviewVerdict = (reviewOutput as any)?.output || { verdict: 'pass', critique: '', missing: [] };
+
+  console.log(`[Research] Review verdict: ${reviewVerdict.verdict}`);
+
+  // If review fails and we have iterations left, force another cycle
+  if (reviewVerdict.verdict === 'fail' && iterationCount < MAX_ITERATIONS - 1) {
+    console.log('[Research] Review failed - forcing additional research cycle');
+    emitProgress('review_rejected', {
+      critique: reviewVerdict.critique,
+      missing: reviewVerdict.missing
+    });
+
+    // Add critique to conversation and loop back
+    researchMessages.push({
+      role: 'user',
+      content: `REVIEWER REJECTION: ${reviewVerdict.critique}\nMissing: ${reviewVerdict.missing.join(', ')}\n\nAddress these gaps.`
+    });
+
+    // Force one more search/reflect cycle
+    iterationCount++;
+
+    // Quick search to address gaps
+    const gapSearchResult = await generateText({
+      model,
+      system: systemPrompt,
+      messages: researchMessages,
+      tools: { search },
+      toolChoice: 'required',
+      abortSignal
+    });
+    trackUsage(gapSearchResult.usage);
+    toolSequence.push('search');
+    searchCount++;
+
+    const gapSearchOutput = gapSearchResult.toolResults?.[0];
+    const gapResults = ((gapSearchOutput as any)?.output?.results || []).map((sr: any) => ({
+      query: sr.query,
+      answer: sr.answer || '',
+      sources: (sr.results || []).map((r: any) => ({ title: r.title, url: r.url }))
+    }));
+
+    emitProgress('search_completed', {
+      totalSearches: searchCount,
+      activeInitiative: 'Addressing reviewer gaps',
+      queries: gapResults
+    });
+
+    researchMessages.push({
+      role: 'assistant',
+      content: `Additional search results:\n${gapResults.map((q: any) => `Q: ${q.query}\nA: ${q.answer}`).join('\n\n')}`
+    });
+  }
+
+  // ============================================================
+  // PHASE 4: FINISH
+  // ============================================================
+
+  console.log('[Research] ═══════════════════════════════════════════════════');
+  console.log('[Research] PHASE 4: FINISH');
   console.log('[Research] ═══════════════════════════════════════════════════');
 
   await checkAborted();
@@ -662,6 +745,11 @@ Operations:
     `Q: ${s.query}\nA: ${s.answer?.substring(0, 300) || 'N/A'}`
   ).join('\n\n');
 
+  // Build reviewer context for finish
+  const reviewerContext = reviewVerdict.verdict === 'pass'
+    ? `REVIEWER APPROVED: ${reviewVerdict.critique}`
+    : `REVIEWER NOTES (address these): ${reviewVerdict.critique}${reviewVerdict.missing?.length ? `\nGaps identified: ${reviewVerdict.missing.join(', ')}` : ''}`;
+
   const finishResult = await generateText({
     model,
     system: systemPrompt,
@@ -669,10 +757,12 @@ Operations:
 
 ${searchSummary}
 
+${reviewerContext}
+
 Synthesize your final answer for the objective:
 "${researchBrief.objective}"
 
-Provide a comprehensive, actionable answer.`,
+Address the reviewer's notes in your synthesis. Provide an actionable answer.`,
     tools: { finish: finishTool },
     toolChoice: { type: 'tool', toolName: 'finish' },
     abortSignal

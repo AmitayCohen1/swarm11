@@ -55,8 +55,8 @@ export async function analyzeUserMessage(
         objective: z.string().describe("Clear, specific research objective. Include what to find and what the user will do with it."),
         initiatives: z.array(z.object({
           question: z.string().describe("Specific question to answer. Must be standalone and searchable."),
-          doneWhen: z.string().describe("Concrete criteria for when this is DONE. Not generic - specific. e.g. '3+ company names with decision-maker emails' or 'Pricing for at least 2 competitors'")
-        })).min(1).max(3).describe("1-3 research initiatives. Each must have clear done criteria.")
+          doneWhen: z.string().describe("When there's ENOUGH SIGNAL to decide - either found what's needed OR learned why this path doesn't work. e.g. 'Identified specific candidate with opening signal' or 'Determined if this market has accessible buyers'")
+        })).length(1).describe("ONE focused initiative. Agent can add more during research.")
       }).optional().describe('Required for start_research.'),
 
       reasoning: z.string().describe('Brief reasoning for your decision')
@@ -72,6 +72,8 @@ export async function analyzeUserMessage(
   1. What exactly do we need to research? What type of results are they interested in?
   2. What will they do with the results? This tells us what level of detail is needed.
   3. What does useful output look like? Make it tangible and actionable.
+  4. What should research OPTIMIZE FOR? Don't assume - ask if unclear.
+     The relevant tradeoffs depend on the request. Figure out what matters for THIS user.
 
   DECISION TYPES:
   1. multi_choice_select - Use to choose between options. Present 2-4 options.
@@ -79,32 +81,19 @@ export async function analyzeUserMessage(
   3. start_research - Use when you have a clear, specific objective.
 
   RULES:
-  - Ask only ONE question at a time - short and specific.
+  - Ask only ONE question at a time - short and specific. Be direct and concise.
   - If you give options, use multi_choice_select.
   - Don't invent information or assume.
 
   WHEN STARTING RESEARCH:
-  Create 1-3 initiatives with CONCRETE done criteria.
+  Create ONE focused initiative with concrete doneWhen criteria.
+  The agent can add more initiatives during research if needed.
 
-  The research agent is NOT Google. It should find things the user CAN'T easily Google themselves.
-  Generic results like "Spotify, NPR, iHeartMedia" are WORTHLESS - anyone can Google that.
-
-  GOOD initiatives have specific doneWhen criteria:
-  ✅ question: "Which mid-size podcast networks focus on news/politics?"
-     doneWhen: "5+ networks with <1M but >100K listeners, NOT the obvious big names"
-
-  ✅ question: "Who are the content decision-makers at these networks?"
-     doneWhen: "Actual names and titles for 3+ companies, ideally with LinkedIn or email"
-
-  ✅ question: "What fact-checking tools do media companies currently use?"
-     doneWhen: "2+ specific tools with pricing, not just 'they use various tools'"
-
-  BAD initiatives (too vague):
-  ❌ doneWhen: "Find relevant companies" (what makes them relevant?)
-  ❌ doneWhen: "Get contact info" (how many? what kind?)
-  ❌ doneWhen: "Research the market" (what specifically?)
-
-  The doneWhen criteria tell the research agent EXACTLY when to stop digging.
+  doneWhen = enough SIGNAL to decide (success OR learned why it won't work):
+  ✅ "Identified candidate with opening signal, or concluded this pool lacks quality"
+  ✅ "Found accessible decision-maker, or determined this market is gated"
+  ❌ "Find 5 companies" (count-based, ignores signal quality)
+  ❌ "Research the market" (no clear decision point)
   `;
   
 

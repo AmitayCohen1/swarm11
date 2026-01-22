@@ -6,34 +6,23 @@
 import type { ResearchMemory, ResearchCycle, SearchResult } from '../types/research-memory';
 
 /**
- * Parse brain content - handles both legacy markdown and new JSON format
+ * Parse brain content from JSON
  */
 export function parseResearchMemory(brain: string): ResearchMemory | null {
   if (!brain || !brain.trim()) {
     return null;
   }
 
-  // Try parsing as JSON first
-  const trimmed = brain.trim();
-  if (trimmed.startsWith('{')) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (parsed.version === 1 && parsed.objective) {
-        return parsed as ResearchMemory;
-      }
-    } catch {
-      // Not valid JSON, fall through to legacy handling
+  try {
+    const parsed = JSON.parse(brain.trim());
+    if (parsed.version === 1 && parsed.objective) {
+      return parsed as ResearchMemory;
     }
+  } catch {
+    // Invalid JSON
   }
 
-  // Legacy markdown format - wrap it
-  return {
-    version: 1,
-    objective: 'Legacy research session',
-    cycles: [],
-    queriesRun: [],
-    legacyBrain: brain
-  };
+  return null;
 }
 
 /**
@@ -139,13 +128,7 @@ export function formatForOrchestrator(memory: ResearchMemory | null, maxChars: n
 
   const parts: string[] = [];
 
-  // Objective
   parts.push(`**Objective:** ${memory.objective}`);
-
-  // Legacy brain content (if present)
-  if (memory.legacyBrain) {
-    parts.push(`\n**Previous Research:**\n${memory.legacyBrain.substring(0, maxChars / 2)}`);
-  }
 
   // Recent cycles summary
   if (memory.cycles.length > 0) {
