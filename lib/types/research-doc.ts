@@ -38,7 +38,7 @@ export const SectionSchema = z.object({
 export type Section = z.infer<typeof SectionSchema>;
 
 /**
- * Research strategy
+ * Strategy entry (single point in time)
  */
 export const StrategySchema = z.object({
   approach: z.string(),
@@ -49,6 +49,19 @@ export const StrategySchema = z.object({
 export type Strategy = z.infer<typeof StrategySchema>;
 
 /**
+ * Strategy log entry with timestamp
+ */
+export const StrategyLogEntrySchema = z.object({
+  id: z.string(),
+  timestamp: z.string(),
+  approach: z.string(),
+  rationale: z.string(),
+  nextActions: z.array(z.string()),
+});
+
+export type StrategyLogEntry = z.infer<typeof StrategyLogEntrySchema>;
+
+/**
  * Research Document v4
  */
 export const ResearchDocSchema = z.object({
@@ -56,7 +69,7 @@ export const ResearchDocSchema = z.object({
   objective: z.string(),
   doneWhen: z.string(),
   sections: z.array(SectionSchema),
-  strategy: StrategySchema,
+  strategyLog: z.array(StrategyLogEntrySchema),  // Strategy as a log
   queriesRun: z.array(z.string()),
   lastUpdated: z.string(),
 });
