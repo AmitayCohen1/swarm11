@@ -92,10 +92,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   const planTool = tool({
     description: `Create your research plan. CALL THIS FIRST.
 
-Create 1-2 initiatives. Each must be:
-- SINGLE QUESTION: One specific thing to find out
-- STANDALONE: No "within those" or "based on above"
-- SEARCHABLE: Can be answered with 1-3 web searches
+Create first few main initiatives (1-5). Initiatives should be very short and specific.
 
 GOOD INITIATIVES (specific, single-question):
 ✅ "Which podcast networks have over 10M monthly listeners?"
@@ -108,9 +105,7 @@ BAD INITIATIVES (too broad, vague, or dependent):
 ❌ "Research the podcast industry landscape" (too vague - not a specific question)
 ❌ "Understand customer segments and their pain points" (multiple questions bundled)
 
-RULE: If an initiative has "and" in it, it's probably too broad. Split it.
-
-Start with 1-2 narrow initiatives. Add more via reflect() as you learn.`,
+ Add more via reflect() as you learn.`,
     inputSchema: z.object({
       list: z.array(z.object({
         item: z.string().describe('SPECIFIC single-question initiative. No "and". e.g. "Which podcast networks have 10M+ listeners?"'),
@@ -537,7 +532,7 @@ DO NOT CALL if you still need more information.
 Provide your final synthesized answer addressing the objective.`,
     inputSchema: z.object({
       confidenceLevel: z.enum(['low', 'medium', 'high']).describe('How confident are you in the completeness?'),
-      finalAnswer: z.string().describe('Complete answer to the research objective - concise and actionable')
+      finalAnswer: z.string().describe('Complete answer to the research objective.')
     }),
     execute: async ({ confidenceLevel, finalAnswer }) => {
       console.log(`[Research] FINISH called - confidence: ${confidenceLevel}`);
@@ -586,12 +581,17 @@ Provide your final synthesized answer addressing the objective.`,
   };
 
   // Build structured instructions from the research brief
+
+  console.log(`[Research] PREVIOUS RESEARCH: ${formatForOrchestrator(parseResearchMemory(existingBrain), 5000)}`);
   const instructions = `
+  You are an autonomous research agent. Research rellenlesy until you have either a really good result or you looked in any place, any direction, and there is no more to look.
 You are researching: ${researchBrief.objective}
 
 SUCCESS CRITERIA: ${researchBrief.successCriteria}
 
 OUTPUT FORMAT: ${researchBrief.outputFormat || 'Whatever fits the data best'}
+
+
 ${existingBrain ? `
 PREVIOUS RESEARCH:
 ${formatForOrchestrator(parseResearchMemory(existingBrain), 5000)}
