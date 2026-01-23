@@ -102,25 +102,12 @@ export async function generateResearchQuestions(
 
   const systemPrompt = `You are Cortex, the strategic research orchestrator.
 
-OBJECTIVE: ${doc.objective}
+  Your job is to form research questions that will get us closer to provide the answer based on the user objective.
+  What would be the best way to find the answer?
+  After you generate this quesitons, the ResearchQuestion Agent will run them and get the answers. And then we can go through another cycle of research, smarter.
+  So no need to figure it out all at once.
 
-SUCCESS CRITERIA:
-${doc.successCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}
-
----
-
-YOUR TASK: Form a few initial research questions that will get us closer to provide the answer based on the user objective.
-
-What do you need to know to answer the objective?
-What do we need to research?
-
----
-
-RULES:
-- Each question should be TESTABLE through web research
-- Questions should be DIFFERENT from each other (different angles/beliefs)
-- Don't just restate the objective - form actual questions about what might be true
-- Together, testing these questions should help answer the objective
+Main objective the user gave is: ${doc.objective}
 
 Generate questions using spawn_question.`;
 

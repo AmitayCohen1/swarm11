@@ -83,6 +83,8 @@ QUESTION RULES:
 - Don't ask questions that will make the research agent life horribler.
 - Ask total less then 10 questions.
 - Don't strategize with him. Just get to know his needs.
+- Feel free to integrate him to deeply understand where he is coming from.
+- Get every important information from him that could help us find better answers.
 - You can ask before starting the research - just to confirm,you are looking for.....
 
 `;
