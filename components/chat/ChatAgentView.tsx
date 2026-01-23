@@ -8,8 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import SessionsSidebar from './SessionsSidebar';
-import ResearchLog from './ExplorationList';
-import EventLog from './EventLog';
+import ResearchProgress from './ResearchProgress';
 import {
   Send,
   StopCircle,
@@ -613,7 +612,8 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
     );
   };
 
-  const showDocument = isResearching || researchDoc;
+  // Show research progress inline when researching
+  const showResearchProgress = isResearching || (researchDoc && 'initiatives' in researchDoc && (researchDoc as any).initiatives?.length > 0);
 
   return (
     <div className={cn("h-screen w-full flex overflow-hidden font-sans selection:bg-blue-100 dark:selection:bg-blue-500/30", isDarkMode ? 'dark' : '')}>
@@ -625,11 +625,8 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
         onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
       />
 
-      {/* Chat Panel - 50% when document is showing */}
-      <div className={cn(
-        "flex flex-col bg-white dark:bg-[#0a0a0a] border-r border-slate-200/60 dark:border-white/5 transition-all duration-300",
-        showDocument ? "w-1/2" : "flex-1"
-      )}>
+      {/* Chat Panel - Full width, research progress inline */}
+      <div className="flex-1 flex flex-col bg-white dark:bg-[#0a0a0a] border-r border-slate-200/60 dark:border-white/5">
 
         {/* Header */}
         <header className="h-14 flex items-center justify-between px-4 border-b border-slate-200/60 dark:border-white/5 bg-white/80 dark:bg-black/40 backdrop-blur-md z-30">
@@ -676,7 +673,7 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
         {/* Chat Content */}
         <main className="flex-1 overflow-hidden relative">
           <ScrollArea className="h-full scroll-smooth">
-            <div className="py-6 px-4 space-y-6">
+            <div className="py-6 px-4 space-y-6 max-w-4xl mx-auto">
               {messages.map((msg, idx) => {
                 if (msg.metadata?.type === 'research_iteration') return null;
 
@@ -783,6 +780,13 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
                 );
               })}
 
+              {/* Research Progress - Inline */}
+              {showResearchProgress && researchDoc && (
+                <div className="animate-in fade-in duration-500">
+                  <ResearchProgress doc={researchDoc} />
+                </div>
+              )}
+
               {/* Thinking Indicator */}
               {status === 'processing' && (
                 <div className="flex items-start gap-4 animate-pulse">
@@ -814,7 +818,7 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
 
         {/* Input Area */}
         <footer className="p-4 bg-white dark:bg-[#0a0a0a] border-t border-slate-200/60 dark:border-white/5 z-40">
-          <form onSubmit={handleSend} className="relative group">
+          <form onSubmit={handleSend} className="relative group max-w-4xl mx-auto">
             <div className="relative flex items-center gap-2 p-2 rounded-2xl bg-slate-50 dark:bg-white/3 border border-slate-200 dark:border-white/10 focus-within:border-blue-500/50 transition-all duration-300">
               <Input
                 type="text"
@@ -842,40 +846,6 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
         </footer>
       </div>
 
-      {/* Main Document Area - clean doc style */}
-      {showDocument && (
-        <div className="flex-1 h-full bg-white dark:bg-[#111] flex flex-col overflow-hidden">
-          {/* Minimal status bar */}
-          {stage && (
-            <div className="h-8 flex items-center justify-center text-xs text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-white/5">
-              {stage === 'searching' && 'Searching...'}
-              {stage === 'reflecting' && 'Analyzing...'}
-              {stage === 'synthesizing' && 'Finishing...'}
-            </div>
-          )}
-
-          {/* Document Content - like a doc editor */}
-          <div className="flex-1 overflow-y-auto">
-            <div className="max-w-3xl mx-auto px-8 py-12">
-              <ResearchLog doc={researchDoc || undefined} />
-            </div>
-          </div>
-
-          {/* Event Log - minimal footer */}
-          {eventLog.length > 0 && (
-            <div className="border-t border-slate-100 dark:border-white/5 px-4 py-2 bg-slate-50 dark:bg-black/20">
-              <details className="text-xs text-slate-400">
-                <summary className="cursor-pointer hover:text-slate-600 dark:hover:text-slate-300">
-                  Activity ({eventLog.length})
-                </summary>
-                <div className="mt-2 max-h-32 overflow-y-auto">
-                  <EventLog events={eventLog} />
-                </div>
-              </details>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

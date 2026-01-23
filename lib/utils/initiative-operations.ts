@@ -266,6 +266,30 @@ export function addQueryToInitiative(
 }
 
 /**
+ * Add full search result to initiative
+ */
+export function addSearchResultToInitiative(
+  doc: CortexDoc,
+  initiativeId: string,
+  query: string,
+  answer: string,
+  sources: { url: string; title?: string }[] = []
+): CortexDoc {
+  return {
+    ...doc,
+    initiatives: doc.initiatives.map(i =>
+      i.id === initiativeId
+        ? {
+            ...i,
+            queriesRun: i.queriesRun.includes(query) ? i.queriesRun : [...i.queriesRun, query],
+            searchResults: [...(i.searchResults || []), { query, answer, sources }],
+          }
+        : i
+    ),
+  };
+}
+
+/**
  * Check if a query has been run in an initiative
  */
 export function hasQueryBeenRunInInitiative(
@@ -277,6 +301,30 @@ export function hasQueryBeenRunInInitiative(
   if (!initiative) return false;
   const normalized = query.toLowerCase().trim();
   return initiative.queriesRun.some(q => q.toLowerCase().trim() === normalized);
+}
+
+/**
+ * Add a cycle reflection to an initiative
+ */
+export function addReflectionToInitiative(
+  doc: CortexDoc,
+  initiativeId: string,
+  cycle: number,
+  learned: string,
+  nextStep: string,
+  status: 'continue' | 'done'
+): CortexDoc {
+  return {
+    ...doc,
+    initiatives: doc.initiatives.map(i =>
+      i.id === initiativeId
+        ? {
+            ...i,
+            reflections: [...(i.reflections || []), { cycle, learned, nextStep, status }],
+          }
+        : i
+    ),
+  };
 }
 
 // ============================================================

@@ -28,6 +28,30 @@ export const InitiativeRecommendationSchema = z.enum(['promising', 'dead_end', '
 export type InitiativeRecommendation = z.infer<typeof InitiativeRecommendationSchema>;
 
 /**
+ * Search result - query + answer pair
+ */
+export const SearchResultSchema = z.object({
+  query: z.string(),
+  answer: z.string(),
+  sources: z.array(z.object({
+    url: z.string(),
+    title: z.string().optional(),
+  })).default([]),
+});
+export type SearchResult = z.infer<typeof SearchResultSchema>;
+
+/**
+ * Cycle reflection - what was learned and what's next
+ */
+export const CycleReflectionSchema = z.object({
+  cycle: z.number(),
+  learned: z.string(),           // "Found 3 training vendors with audio content"
+  nextStep: z.string(),          // "Will search for contact info" or "Have enough, finishing"
+  status: z.enum(['continue', 'done']),
+});
+export type CycleReflection = z.infer<typeof CycleReflectionSchema>;
+
+/**
  * Single initiative - explores one research angle
  */
 export const InitiativeSchema = z.object({
@@ -42,7 +66,9 @@ export const InitiativeSchema = z.object({
   cycles: z.number().default(0),                   // How many research→reflect loops
   maxCycles: z.number().default(5),                // Cap (default 5)
   findings: z.array(FindingSchema).default([]),    // Accumulated facts
-  queriesRun: z.array(z.string()).default([]),     // For dedup
+  queriesRun: z.array(z.string()).default([]),     // For dedup (legacy)
+  searchResults: z.array(SearchResultSchema).default([]), // Full search results with answers
+  reflections: z.array(CycleReflectionSchema).default([]), // What was learned each cycle
   confidence: InitiativeConfidenceSchema.default(null),
   recommendation: InitiativeRecommendationSchema.default(null),
   summary: z.string().optional(),                  // Final summary when done
@@ -141,6 +167,8 @@ export function createInitiative(
     maxCycles,
     findings: [],
     queriesRun: [],
+    searchResults: [],
+    reflections: [],
     confidence: null,
     recommendation: null,
   };

@@ -15,6 +15,8 @@ import {
   editFindingInInitiative,
   disqualifyFindingInInitiative,
   addQueryToInitiative,
+  addSearchResultToInitiative,
+  addReflectionToInitiative,
   incrementInitiativeCycle,
   completeInitiative,
   formatInitiativeForAgent,
@@ -127,23 +129,37 @@ export async function executeInitiativeCycle(
 
   // Tool: Reflect - assess progress and decide next steps
   const reflectTool = tool({
-    description: 'Reflect on progress. Assess if hypothesis is being confirmed/rejected, and what to search next.',
+    description: 'Reflect on progress. Summarize what you learned and what you will do next.',
     inputSchema: z.object({
-      assessment: z.string().describe('Brief assessment of current findings'),
+      learned: z.string().describe('What you learned this cycle (e.g., "Found 3 podcast agencies with audio content")'),
+      nextStep: z.string().describe('What you will do next (e.g., "Will search for pricing info") or "Have enough findings, finishing"'),
       hypothesisStatus: z.enum(['confirming', 'rejecting', 'uncertain']).describe('Is the hypothesis being confirmed or rejected?'),
       noveltyRemaining: z.enum(['high', 'medium', 'low']).describe('How much new info can we still find?'),
       nextSearches: z.array(z.string()).max(3).describe('0-3 specific searches to run next (empty if done)'),
     }),
-    execute: async ({ assessment, hypothesisStatus, noveltyRemaining, nextSearches }) => {
+    execute: async ({ learned, nextStep, hypothesisStatus, noveltyRemaining, nextSearches }) => {
+      const shouldContinue = nextSearches.length > 0 && noveltyRemaining !== 'low';
+
+      // Save reflection to the initiative
+      doc = addReflectionToInitiative(
+        doc,
+        initiativeId,
+        cycleNumber,
+        learned,
+        nextStep,
+        shouldContinue ? 'continue' : 'done'
+      );
+
       onProgress?.({
         type: 'initiative_reflection',
         initiativeId,
-        assessment,
+        learned,
+        nextStep,
         hypothesisStatus,
         noveltyRemaining,
         nextSearches
       });
-      return { assessment, hypothesisStatus, noveltyRemaining, nextSearches };
+      return { learned, nextStep, hypothesisStatus, noveltyRemaining, nextSearches };
     }
   });
 
@@ -211,8 +227,12 @@ ${formatInitiativeForAgent(currentInitiative)}
 YOUR WORKFLOW (research→reflect loop):
 1. SEARCH for information to answer your research question
 2. ADD FINDINGS as you discover relevant facts (keep them SHORT - 1-2 lines)
-3. REFLECT periodically to assess progress and plan next searches
+3. REFLECT to share what you learned and what you'll do next
 4. DONE when: question answered, novelty exhausted, or you have enough findings
+
+REFLECT FORMAT - Be clear and concise:
+- learned: "Found 3 podcast production companies offering full audio services"
+- nextStep: "Will search for pricing and contact info" or "Have enough, finishing"
 
 STOP CONDITIONS (call done when any is true):
 - Research question is sufficiently answered
@@ -292,7 +312,8 @@ ${currentInitiative.queriesRun.slice(-10).join('\n') || '(none)'}`;
 
         for (const sr of searchResults) {
           queriesExecuted.push(sr.query);
-          doc = addQueryToInitiative(doc, initiativeId, sr.query);
+          const sources = sr.results?.map((r: any) => ({ url: r.url, title: r.title })) || [];
+          doc = addSearchResultToInitiative(doc, initiativeId, sr.query, sr.answer || '', sources);
         }
 
         onProgress?.({
@@ -325,7 +346,7 @@ ${currentInitiative.queriesRun.slice(-10).join('\n') || '(none)'}`;
       if (tc.toolName === 'reflect') {
         const toolResult = result.toolResults?.find((tr: any) => tr.toolCallId === tc.toolCallId);
         reflectionResult = (toolResult as any)?.output || (toolResult as any)?.result || {};
-        assistantActions.push(`Reflected: ${reflectionResult.hypothesisStatus}, novelty=${reflectionResult.noveltyRemaining}`);
+        assistantActions.push(`Reflected: learned="${reflectionResult.learned}", next="${reflectionResult.nextStep}"`);
       }
 
       if (tc.toolName === 'done') {
