@@ -238,9 +238,11 @@ YOUR WORKFLOW:
 1. Focus on the CURRENT PHASE - work through phases in order
 2. Search for information related to the current phase's goal
 3. Add findings (short facts) to the current phase
-4. When a phase has enough findings (3-5 solid ones), complete it
-5. The next phase will auto-start
-6. Call 'done' when all phases are completed or you've exhausted productive avenues
+4. When a phase has enough findings (3-5 solid ones), call complete_phase
+5. The next phase will auto-start - continue working on it
+6. ONLY call 'done' when ALL phases show status=done
+
+IMPORTANT: Do NOT call done while phases remain incomplete. Keep working until every phase is done.
 
 You can add new phases if you discover important areas not covered by the existing plan.
 
@@ -389,12 +391,14 @@ ${doc.queriesRun.slice(-15).join('\n') || '(none)'}`;
     if (!result.toolCalls || result.toolCalls.length === 0) {
       messages.push({
         role: 'user',
-        content: 'Continue searching and adding findings, or call done if you have enough.'
+        content: `Continue searching and adding findings. ${remainingPhases.length} phases still need work.`
       });
     } else {
       messages.push({
         role: 'user',
-        content: 'Continue. Search for more, add findings, complete phases when ready, or call done when finished.'
+        content: allPhasesComplete
+          ? 'All phases complete. You may call done now.'
+          : `Continue. ${remainingPhases.length} phases remaining. Complete the current phase before moving on.`
       });
     }
   }
