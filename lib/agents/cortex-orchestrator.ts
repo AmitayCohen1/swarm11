@@ -18,7 +18,6 @@ import {
   generateResearchQuestions,
   evaluateResearchQuestions,
   synthesizeFinalAnswer,
-  adversarialReview,
 } from './cortex-agent';
 import { runResearchQuestionToCompletion } from './question-agent';
 import type { CortexDoc } from '@/lib/types/research-question';
@@ -334,87 +333,26 @@ export async function executeCortexResearch(
       break;
     }
 
-    if (evalResult.nextAction.action === 'continue') {
-      // Continue running pending questions (will be picked up next loop)
-      if (getPendingResearchQuestions(doc).length === 0) {
-        log('PHASE3', 'No pending questions, forcing synthesis');
-        break;
-      }
-      log('PHASE3', 'Decision: CONTINUE - running more questions');
-      continue;
-    }
-
-    if (evalResult.nextAction.action === 'drill_down') {
-      const { questionId, name, description, goal } = evalResult.nextAction;
-      log('PHASE3', `Decision: DRILL_DOWN from ${questionId}`, { name, description, goal });
-      doc = addResearchQuestion(doc, name, description, goal, 5);
-      await saveDocToDb(doc);
-      continue;
-    }
-
     if (evalResult.nextAction.action === 'spawn_new') {
-      const { name, description, goal } = evalResult.nextAction;
-      log('PHASE3', 'Decision: SPAWN_NEW', { name, description, goal });
-      doc = addResearchQuestion(doc, name, description, goal, 5);
+      const { name, question, goal } = evalResult.nextAction;
+      log('PHASE3', 'Decision: SPAWN_NEW', { name, question, goal });
+      doc = addResearchQuestion(doc, name, question, goal, 5);
       await saveDocToDb(doc);
       continue;
     }
   }
 
   // ============================================================
-  // PHASE 4: ADVERSARIAL REVIEW (optional)
+  // PHASE 4: SYNTHESIZE
   // ============================================================
 
   log('PHASE4', '══════════════════════════════════════════════════════════');
-  log('PHASE4', 'ADVERSARIAL REVIEW');
-
-  await checkAborted();
-  emitProgress('review_started');
-
-  log('PHASE4', 'Running adversarial review...');
-
-  const reviewResult = await adversarialReview({
-    doc,
-    abortSignal,
-    onProgress: emitProgress
-  });
-
-  totalCreditsUsed += reviewResult.creditsUsed;
-
-  emitProgress('review_completed', {
-    verdict: reviewResult.verdict,
-    critique: reviewResult.critique,
-    missing: reviewResult.missing
-  });
-
-  log('PHASE4', `Review verdict: ${reviewResult.verdict}`, {
-    critique: reviewResult.critique,
-    missing: reviewResult.missing
-  });
-
-  // If review fails and we haven't hit max rounds, could add more questions
-  // For v1, we proceed to synthesis regardless
-  if (reviewResult.verdict === 'fail') {
-    log('PHASE4', 'Review FAILED - proceeding to synthesis anyway');
-    emitProgress('review_rejected', {
-      critique: reviewResult.critique,
-      missing: reviewResult.missing
-    });
-  } else {
-    log('PHASE4', 'Review PASSED');
-  }
-
-  // ============================================================
-  // PHASE 5: SYNTHESIZE
-  // ============================================================
-
-  log('PHASE5', '══════════════════════════════════════════════════════════');
-  log('PHASE5', 'SYNTHESIZE FINAL ANSWER');
+  log('PHASE4', 'SYNTHESIZE FINAL ANSWER');
 
   await checkAborted();
   emitProgress('synthesizing_started');
 
-  log('PHASE5', 'Generating final synthesis...');
+  log('PHASE4', 'Generating final synthesis...');
 
   const synthResult = await synthesizeFinalAnswer({
     doc,
@@ -427,7 +365,7 @@ export async function executeCortexResearch(
 
   await saveDocToDb(doc);
 
-  log('PHASE5', 'Synthesis complete', {
+  log('PHASE4', 'Synthesis complete', {
     confidence: synthResult.confidence,
     answerLength: synthResult.finalAnswer.length
   });

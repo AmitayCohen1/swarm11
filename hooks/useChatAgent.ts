@@ -37,7 +37,7 @@ interface CycleReflection {
 interface ResearchQuestion {
   id: string;
   name: string;
-  description: string;
+  question: string;
   goal: string;
   status: 'pending' | 'running' | 'done';
   cycles: number;
@@ -615,6 +615,21 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
               if (parsed.version === 1) {
                 console.log('[brain_update] Setting researchDoc from brain:', parsed);
                 setResearchDoc(parsed as CortexDoc);
+                // Insert a single "anchor" message so ResearchProgress appears inline in the chat flow.
+                // This prevents other messages (e.g., reviewer) from visually stacking "above" the research UI.
+                setMessages(prev => {
+                  const alreadyHasAnchor = prev.some(m => m.metadata?.type === 'research_progress');
+                  if (alreadyHasAnchor) return prev;
+                  return [
+                    ...prev,
+                    {
+                      role: 'assistant' as const,
+                      content: '',
+                      timestamp: new Date().toISOString(),
+                      metadata: { type: 'research_progress' }
+                    }
+                  ];
+                });
               }
             } catch {
               // Invalid JSON

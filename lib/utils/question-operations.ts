@@ -66,14 +66,14 @@ export function parseCortexDoc(json: string): CortexDoc | null {
 export function addResearchQuestion(
   doc: CortexDoc,
   name: string,
-  description: string,
+  question: string,
   goal: string,
   maxCycles: number = 10
 ): CortexDoc {
-  const question = createResearchQuestion(name, description, goal, maxCycles);
+  const newQuestion = createResearchQuestion(name, question, goal, maxCycles);
   return {
     ...doc,
-    questions: [...doc.questions, question],
+    questions: [...doc.questions, newQuestion],
   };
 }
 
@@ -371,7 +371,7 @@ export function formatCortexDocForAgent(doc: CortexDoc): string {
     for (const init of doc.questions) {
       const statusIcon = init.status === 'done' ? '✓' : init.status === 'running' ? '→' : '○';
       parts.push(`\n### [${init.id}] ${statusIcon} ${init.name}`);
-      parts.push(`**Description:** ${init.description}`);
+      parts.push(`**Question:** ${init.question}`);
       parts.push(`**Goal:** ${init.goal}`);
       parts.push(`**Cycles:** ${init.cycles}/${init.maxCycles}`);
 
@@ -417,21 +417,21 @@ export function formatCortexDocForAgent(doc: CortexDoc): string {
 /**
  * Format question for agent context (single question view)
  */
-export function formatResearchQuestionForAgent(question: ResearchQuestion): string {
+export function formatResearchQuestionForAgent(q: ResearchQuestion): string {
   const parts: string[] = [];
 
-  parts.push(`# ResearchQuestion: ${question.name}\n`);
-  parts.push(`**ID:** ${question.id}`);
-  parts.push(`**Description:** ${question.description}`);
-  parts.push(`**Goal:** ${question.goal}`);
-  parts.push(`**Status:** ${question.status}`);
-  parts.push(`**Cycles:** ${question.cycles}/${question.maxCycles}`);
+  parts.push(`# ResearchQuestion: ${q.name}\n`);
+  parts.push(`**ID:** ${q.id}`);
+  parts.push(`**Question:** ${q.question}`);
+  parts.push(`**Goal:** ${q.goal}`);
+  parts.push(`**Status:** ${q.status}`);
+  parts.push(`**Cycles:** ${q.cycles}/${q.maxCycles}`);
 
-  if (question.confidence) parts.push(`**Confidence:** ${question.confidence}`);
-  if (question.recommendation) parts.push(`**Recommendation:** ${question.recommendation}`);
+  if (q.confidence) parts.push(`**Confidence:** ${q.confidence}`);
+  if (q.recommendation) parts.push(`**Recommendation:** ${q.recommendation}`);
 
-  const activeFindings = question.findings.filter(f => f.status !== 'disqualified');
-  const disqualifiedFindings = question.findings.filter(f => f.status === 'disqualified');
+  const activeFindings = q.findings.filter(f => f.status !== 'disqualified');
+  const disqualifiedFindings = q.findings.filter(f => f.status === 'disqualified');
 
   if (activeFindings.length > 0 || disqualifiedFindings.length > 0) {
     parts.push('\n## Findings');
@@ -450,7 +450,7 @@ export function formatResearchQuestionForAgent(question: ResearchQuestion): stri
     parts.push('(none yet)');
   }
 
-  const searches = question.searchResults || [];
+  const searches = q.searchResults || [];
   if (searches.length > 0) {
     parts.push('\n## Search Results');
     searches.forEach((sr, i) => {
@@ -467,7 +467,7 @@ export function formatResearchQuestionForAgent(question: ResearchQuestion): stri
     });
   }
 
-  const reflections = question.reflections || [];
+  const reflections = q.reflections || [];
   if (reflections.length > 0) {
     parts.push('\n## Previous Reflections');
     reflections.forEach(r => {

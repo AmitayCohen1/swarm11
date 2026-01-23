@@ -443,7 +443,7 @@ function ReasoningContent({ reflection }: { reflection: string }) {
       <div className="absolute left-3.5 top-0 bottom-0 w-px bg-slate-200 dark:bg-white/10 group-last:bg-transparent" />
       <div className="absolute left-[9px] top-3 w-2.5 h-2.5 rounded-full border-2 border-purple-300 dark:border-purple-500/40 bg-white dark:bg-[#0a0a0a]" />
 
-      <div className="p-4 rounded-2xl bg-gradient-to-br from-purple-50/50 to-indigo-50/50 dark:from-purple-500/5 dark:to-indigo-500/5 border border-purple-100/50 dark:border-purple-500/10 shadow-sm">
+      <div className="p-4 rounded-2xl bg-linear-to-br from-purple-50/50 to-indigo-50/50 dark:from-purple-500/5 dark:to-indigo-500/5 border border-purple-100/50 dark:border-purple-500/10 shadow-sm">
         <div className="flex items-start gap-3">
           <div className="w-5 h-5 rounded-md bg-purple-100 dark:bg-purple-500/20 flex items-center justify-center shrink-0 mt-0.5">
             <Brain className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
@@ -475,8 +475,8 @@ function ReviewResult({ verdict, critique, missing }: {
       <div className={cn(
         "p-4 rounded-2xl border shadow-sm",
         isPassing
-          ? "bg-gradient-to-br from-emerald-50/50 to-green-50/50 dark:from-emerald-500/5 dark:to-green-500/5 border-emerald-100/50 dark:border-emerald-500/20"
-          : "bg-gradient-to-br from-amber-50/50 to-orange-50/50 dark:from-amber-500/5 dark:to-orange-500/5 border-amber-100/50 dark:border-amber-500/20"
+          ? "bg-linear-to-br from-emerald-50/50 to-green-50/50 dark:from-emerald-500/5 dark:to-green-500/5 border-emerald-100/50 dark:border-emerald-500/20"
+          : "bg-linear-to-br from-amber-50/50 to-orange-50/50 dark:from-amber-500/5 dark:to-orange-500/5 border-amber-100/50 dark:border-amber-500/20"
       )}>
         <div className="flex items-start gap-3">
           <div className={cn(
@@ -558,6 +558,15 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // When CortexDoc tabs are visible, they already show searches/questions; avoid duplicating them in the chat timeline.
+  const hasCortexTabs = Boolean(
+    researchDoc &&
+    typeof researchDoc === 'object' &&
+    'questions' in (researchDoc as any) &&
+    Array.isArray((researchDoc as any).questions) &&
+    (researchDoc as any).questions.length > 0
+  );
 
   // Check if there's a pending multi-select (last assistant message is multi_choice_select)
   const hasPendingMultiSelect = (() => {
@@ -696,6 +705,7 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
 
                 // Metadata-driven messages (process steps)
                 if (msg.metadata?.type === 'search_batch') {
+                  if (hasCortexTabs) return null;
                   return <SearchBatch key={idx} queries={msg.metadata.queries || []} />;
                 }
                 if (msg.metadata?.type === 'extract_batch') {
@@ -710,10 +720,18 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
                   );
                 }
                 if (msg.metadata?.type === 'research_query') {
+                  if (hasCortexTabs) return null;
                   return <ResearchQuery key={idx} msg={msg} />;
                 }
                                 if (msg.metadata?.type === 'reasoning') {
                   return <ReasoningContent key={idx} reflection={msg.metadata.reflection || ''} />;
+                }
+                if (msg.metadata?.type === 'research_progress') {
+                  return (
+                    <div key={idx} className="animate-in fade-in duration-500">
+                      {researchDoc && <ResearchProgress doc={researchDoc} />}
+                    </div>
+                  );
                 }
                 if (msg.metadata?.type === 'review_result') {
                   return (
@@ -781,11 +799,7 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
               })}
 
               {/* Research Progress - Inline */}
-              {showResearchProgress && researchDoc && (
-                <div className="animate-in fade-in duration-500">
-                  <ResearchProgress doc={researchDoc} />
-                </div>
-              )}
+              {/* Research progress is rendered inline via a special 'research_progress' message */}
 
               {/* Final Answer - Always below research progress */}
               {messages.filter(m => m.metadata?.kind === 'final').map((msg, idx) => (

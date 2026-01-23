@@ -18,6 +18,28 @@ import {
   ChevronRight,
 } from 'lucide-react';
 
+function toShortQuestion(text: string): string {
+  const raw = (text || '').trim();
+  if (!raw) return '';
+
+  // Prefer the first explicit question, if present.
+  const qIdx = raw.indexOf('?');
+  if (qIdx !== -1) {
+    return raw.slice(0, qIdx + 1).trim();
+  }
+
+  // Otherwise, take the first sentence-ish chunk.
+  const stop = Math.min(
+    ...[raw.indexOf('.'), raw.indexOf('!'), raw.indexOf('\n')].filter(i => i !== -1)
+  );
+  if (Number.isFinite(stop)) {
+    return raw.slice(0, stop + 1).trim();
+  }
+
+  // Fallback: truncate long statements.
+  return raw.length > 120 ? `${raw.slice(0, 117).trim()}...` : raw;
+}
+
 // Types
 interface Finding {
   id: string;
@@ -45,7 +67,7 @@ interface CycleReflection {
 interface ResearchQuestion {
   id: string;
   name: string;
-  description: string;
+  question: string;
   goal: string;
   status: 'pending' | 'running' | 'done';
   cycles: number;
@@ -107,6 +129,7 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
     status: doc.status
   });
 
+  // Tab UX: toggle between questions/initiatives.
   const [activeTab, setActiveTab] = useState<string | null>(null);
 
   // Update active tab when questions change
@@ -128,11 +151,11 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
   const buildIntroMessage = () => {
     if (doc.questions.length === 0) return null;
 
-    const parts = [`I'll explore ${doc.questions.length} research angle${doc.questions.length > 1 ? 's' : ''}:`];
+    const parts = [`I'll test ${doc.questions.length} hypothesis${doc.questions.length > 1 ? 'es' : ''}:`];
 
     doc.questions.forEach((init, i) => {
       parts.push(`\n${i + 1}. **${init.name}**`);
-      parts.push(`   ${init.description}`);
+      parts.push(`   ${init.question}`);
       parts.push(`   → ${init.goal}`);
     });
 
@@ -155,7 +178,7 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-4 p-4 rounded-xl bg-gradient-to-br from-purple-50/50 to-indigo-50/50 dark:from-purple-500/5 dark:to-indigo-500/5 border border-purple-100/50 dark:border-purple-500/10"
+          className="mb-4 p-4 rounded-xl bg-linear-to-br from-purple-50/50 to-indigo-50/50 dark:from-purple-500/5 dark:to-indigo-500/5 border border-purple-100/50 dark:border-purple-500/10"
         >
           <div className="flex items-start gap-3">
             <Brain className="w-5 h-5 text-purple-600 dark:text-purple-400 shrink-0 mt-0.5" />
@@ -179,7 +202,7 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
         </motion.div>
       )}
 
-      {/* ResearchQuestion Tabs */}
+      {/* Question Tabs */}
       {doc.questions.length > 0 && (
         <div className="mb-4">
           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
@@ -187,7 +210,9 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
               const isActive = question.id === activeTab;
               const isDone = question.status === 'done';
               const isRunning = question.status === 'running';
-              const name = question.name || 'Research';
+              const shortQ = toShortQuestion(question.question);
+              const label = shortQ || (question.question || '').trim() || question.name || 'Research question';
+              const category = (question.name || '').trim();
 
               return (
                 <button
@@ -211,7 +236,15 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
                   ) : (
                     <Circle className="w-4 h-4" />
                   )}
-                  <span className="max-w-[150px] truncate">{name}</span>
+                  <span className="max-w-[260px] truncate" title={label}>{label}</span>
+                  {category && (
+                    <span className={cn(
+                      "text-[10px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wide",
+                      isActive ? "bg-white/20 text-white/80 dark:bg-black/20 dark:text-black/60" : "bg-slate-200 dark:bg-white/10 text-slate-500 dark:text-slate-400"
+                    )}>
+                      {category}
+                    </span>
+                  )}
                   {(question.searchResults?.length || 0) > 0 && (
                     <span className={cn(
                       "text-xs px-1.5 py-0.5 rounded-full",
@@ -229,7 +262,7 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
         </div>
       )}
 
-      {/* Active ResearchQuestion Content */}
+      {/* Active Question Content */}
       {activeResearchQuestion && (
         <motion.div
           key={activeResearchQuestion.id}
@@ -238,12 +271,23 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
           transition={{ duration: 0.2 }}
           className="p-4 rounded-2xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10"
         >
-          {/* ResearchQuestion Header */}
+          {/* Header */}
           <div className="mb-4 pb-3 border-b border-slate-100 dark:border-white/5">
             <div className="flex items-center gap-2 mb-1">
+              {(() => {
+                const shortQ = toShortQuestion(activeResearchQuestion.question);
+                const title = shortQ || (activeResearchQuestion.question || '').trim() || activeResearchQuestion.name;
+                return (
               <h3 className="font-semibold text-slate-800 dark:text-slate-100">
-                {activeResearchQuestion.name}
+                {title}
               </h3>
+                );
+              })()}
+              {activeResearchQuestion.name && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wide bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-slate-400">
+                  {activeResearchQuestion.name}
+                </span>
+              )}
               {activeResearchQuestion.confidence && (
                 <span className={cn(
                   "text-xs px-2 py-0.5 rounded-full font-medium",
@@ -257,13 +301,13 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
                 </span>
               )}
             </div>
-            {/* Description - why this question matters */}
-            <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">
-              {activeResearchQuestion.description}
-            </p>
-            {/* Goal - what we're looking to achieve */}
+            {activeResearchQuestion.question && (
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">
+                <span className="font-medium">Details:</span> {activeResearchQuestion.question}
+              </p>
+            )}
             <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              Goal: {activeResearchQuestion.goal}
+              Testing: {activeResearchQuestion.goal}
             </p>
             <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
               <span>{activeResearchQuestion.cycles}/{activeResearchQuestion.maxCycles} cycles</span>
@@ -272,7 +316,7 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
             </div>
           </div>
 
-          {/* Research Timeline */}
+          {/* Timeline */}
           <div className="space-y-4">
             {(activeResearchQuestion.searchResults?.length || 0) === 0 && activeResearchQuestion.status === 'running' && (
               <p className="text-sm text-slate-400 dark:text-slate-500 italic text-center py-4">
@@ -287,7 +331,6 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
                   animate={{ opacity: 1, y: 0 }}
                   className="space-y-2"
                 >
-                  {/* Always visible: Query */}
                   <CollapsibleTrigger className="w-full text-left group">
                     <div className="flex items-start gap-2">
                       <ChevronRight className="w-4 h-4 text-slate-400 mt-0.5 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
@@ -298,7 +341,6 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
                     </div>
                   </CollapsibleTrigger>
 
-                  {/* Collapsible: Answer + Sources */}
                   <CollapsibleContent>
                     <div className="ml-10 p-3 rounded-lg bg-slate-50 dark:bg-white/3 border border-slate-100 dark:border-white/5">
                       <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
@@ -331,7 +373,6 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
                     </div>
                   </CollapsibleContent>
 
-                  {/* Always visible: Learned + Next Action (under search results) */}
                   {(sr.learned || sr.nextAction) && (
                     <div className="ml-10 p-2 rounded-lg bg-indigo-50/50 dark:bg-indigo-500/5 border border-indigo-100/50 dark:border-indigo-500/10 space-y-1">
                       {sr.learned && (
@@ -352,7 +393,6 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
               </Collapsible>
             ))}
 
-            {/* Summary when done */}
             {activeResearchQuestion.status === 'done' && activeResearchQuestion.summary && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}

@@ -73,30 +73,30 @@ export async function generateResearchQuestions(
   log('generateResearchQuestions', `Generating ${count} questions for: ${doc.objective}`);
 
   const spawnResearchQuestionTool = tool({
-    description: 'Spawn a new research question to explore a specific angle',
+    description: 'Spawn a new research question',
     inputSchema: z.object({
-      name: z.string().describe('Short name for this question (2-5 words). E.g., "Corporate Training Providers", "Healthcare Communication Platforms"'),
-      description: z.string().describe('What this question is about and why it matters. E.g., "These companies produce large volumes of audio training content where accuracy is critical for compliance"'),
-      goal: z.string().describe('What we\'re looking to achieve/answer. E.g., "Find corporate training companies that use audio content and might need fact-checking tools"'),
-      maxCycles: z.number().min(1).max(20).default(10).describe('Max research→reflect cycles (default 10)'),
+      name: z.string().describe('Short name (2-5 words). E.g., "Podcast Networks", "Recent Funding"'),
+      question: z.string().describe('The research question to answer. Short and clear.'),
+      goal: z.string().describe('What we need to find out. E.g., "Find podcast networks that produce fact-heavy content"'),
+      maxCycles: z.number().min(1).max(20).default(10).describe('Max search→reflect cycles (default 10)'),
     }),
-    execute: async ({ name, description, goal, maxCycles }) => {
-      doc = addResearchQuestion(doc, name, description, goal, maxCycles);
-      const newInit = doc.questions[doc.questions.length - 1];
-      questionIds.push(newInit.id);
+    execute: async ({ name, question, goal, maxCycles }) => {
+      doc = addResearchQuestion(doc, name, question, goal, maxCycles);
+      const newQ = doc.questions[doc.questions.length - 1];
+      questionIds.push(newQ.id);
 
-      doc = addCortexDecision(doc, 'spawn', `Spawning question: ${name} - ${description}`, newInit.id);
+      doc = addCortexDecision(doc, 'spawn', `Research question: ${name} - ${question}`, newQ.id);
 
       onProgress?.({
         type: 'question_spawned',
-        questionId: newInit.id,
+        questionId: newQ.id,
         name,
-        description,
+        question,
         goal,
         maxCycles
       });
 
-      return { success: true, questionId: newInit.id, name };
+      return { success: true, questionId: newQ.id, name };
     }
   });
 
@@ -109,64 +109,52 @@ ${doc.successCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}
 
 ---
 
-IMPORTANT CONTEXT:
-This is a LONG-RUNNING autonomous research process. The system will run for as long as needed -
-potentially hours - exploring each question thoroughly. There is no rush.
+YOUR TASK: Form a few initial research questions that will get us closer to provide the answer based on the user objective.
 
-Take the time to think deeply about the BEST angles to explore. Quality matters more than speed.
-Each question will be researched extensively with multiple search cycles, so choose angles that
-will yield the most valuable and relevant results.
-
-Think strategically:
-- What angles are most likely to find actionable, relevant information?
-- What diverse perspectives will give the most complete picture?
-- Which directions might uncover insights the user hasn't thought of?
+What do you need to know to answer the objective?
+What do we need to research?
 
 ---
 
-YOUR TASK: Generate ${count} DIVERSE research angles to explore this objective.
-
-Each question needs THREE things:
-1. NAME - Short name (2-5 words) for this question
-2. DESCRIPTION - What this question is about and why it matters
-3. GOAL - What we're looking to achieve/answer
-
-EXAMPLE (for "find B2B customers for audio fact-checking tool"):
-
-ResearchQuestion 1:
-- Name: "Corporate Training Providers"
-- Description: "These companies produce large volumes of audio training content where accuracy is critical for compliance and effective learning"
-- Goal: "Find corporate training companies that use audio content and might need fact-checking tools"
-
-ResearchQuestion 2:
-- Name: "Healthcare Communication Platforms"
-- Description: "Healthcare platforms handle sensitive verbal information including medical advice where factual errors can have serious consequences"
-- Goal: "Identify healthcare communication companies processing audio that could benefit from fact verification"
-
-ResearchQuestion 3:
-- Name: "Legal Deposition Services"
-- Description: "Legal firms and transcription services record and review depositions where accurate audio records are legally vital"
-- Goal: "Find legal deposition and transcription providers who might need audio fact-checking capabilities"
-
 RULES:
-- Each question must be DIFFERENT (cover different segments/approaches)
-- Description must explain WHAT this is and WHY it matters
-- Goal must be specific and achievable through research
-- Don't overlap too much between questions
+- Each question should be TESTABLE through web research
+- Questions should be DIFFERENT from each other (different angles/beliefs)
+- Don't just restate the objective - form actual questions about what might be true
+- Together, testing these questions should help answer the objective
 
-Generate exactly ${count} questions using spawn_question for each.`;
+Generate questions using spawn_question.`;
 
   onProgress?.({ type: 'cortex_generating_questions', count });
 
-  const result = await generateText({
-    model,
-    system: systemPrompt,
-    prompt: `Generate ${count} diverse questions to explore the research objective. Use spawn_question for each one.`,
-    tools: { spawn_question: spawnResearchQuestionTool },
-    abortSignal
-  });
+  // Loop to ensure we get the requested number of questions
+  // The LLM might only call the tool once per turn, so we retry until we have enough
+  let attempts = 0;
+  const maxAttempts = count + 2;
 
-  creditsUsed = Math.ceil((result.usage?.totalTokens || 0) / 1000);
+  while (questionIds.length < count && attempts < maxAttempts) {
+    attempts++;
+    const remaining = count - questionIds.length;
+
+    const result = await generateText({
+      model,
+      system: systemPrompt,
+      prompt: questionIds.length === 0
+        ? `Form ${count} questions. Call spawn_question for each question.`
+        : `You've created ${questionIds.length} questions so far. Create ${remaining} more. Call spawn_question for each.`,
+      tools: { spawn_question: spawnResearchQuestionTool },
+      abortSignal
+    });
+
+    creditsUsed += Math.ceil((result.usage?.totalTokens || 0) / 1000);
+
+    // If no tool calls were made, break to avoid infinite loop
+    if (!result.toolCalls || result.toolCalls.length === 0) {
+      log('generateResearchQuestions', `No tool calls made on attempt ${attempts}, breaking`);
+      break;
+    }
+  }
+
+  log('generateResearchQuestions', `Generated ${questionIds.length} questions after ${attempts} attempts`);
 
   onProgress?.({
     type: 'cortex_questions_generated',
@@ -250,9 +238,9 @@ Sources: ${sr.sources.map(s => s.url).join(', ') || 'none'}`
 
 OVERALL RESEARCH OBJECTIVE: ${doc.objective}
 
-THIS INITIATIVE:
+THIS RESEARCH QUESTION:
 - Name: ${question.name}
-- Description: ${question.description}
+- Question: ${question.question}
 - Goal: ${question.goal}
 - Cycles completed: ${question.cycles}
 
@@ -329,9 +317,7 @@ interface EvaluateResearchQuestionsConfig {
 }
 
 type CortexNextAction =
-  | { action: 'continue'; questionIds: string[] }
-  | { action: 'drill_down'; questionId: string; name: string; description: string; goal: string }
-  | { action: 'spawn_new'; name: string; description: string; goal: string }
+  | { action: 'spawn_new'; name: string; question: string; goal: string }
   | { action: 'synthesize' };
 
 interface EvaluateResearchQuestionsResult {
@@ -367,24 +353,15 @@ export async function evaluateResearchQuestions(
   const decideTool = tool({
     description: 'Decide what to do next based on question results',
     inputSchema: z.object({
-      decision: z.enum(['continue', 'drill_down', 'spawn_new', 'synthesize']).describe(
-        'continue=run more pending questions, drill_down=dive deeper into promising area, spawn_new=add new question, synthesize=we have enough, create final answer'
+      decision: z.enum(['spawn_new', 'synthesize']).describe(
+        'spawn_new=need to research something new, synthesize=we have enough, finish research'
       ),
       reasoning: z.string().describe('Why this decision'),
 
-      // For continue
-      questionIds: z.array(z.string()).optional().describe('Which pending questions to run (for continue)'),
-
-      // For drill_down
-      drillDownResearchQuestionId: z.string().optional().describe('Which question to drill into'),
-      drillDownName: z.string().optional().describe('New focused question name (2-5 words)'),
-      drillDownDescription: z.string().optional().describe('What this drill-down is about and why'),
-      drillDownGoal: z.string().optional().describe('What we\'re looking to achieve with this drill-down'),
-
       // For spawn_new
       newName: z.string().optional().describe('Name for new question (2-5 words)'),
-      newDescription: z.string().optional().describe('What this question is about and why'),
-      newGoal: z.string().optional().describe('What we\'re looking to achieve'),
+      newQuestion: z.string().optional().describe('The research question to answer'),
+      newGoal: z.string().optional().describe('What we need to find out'),
     }),
     execute: async (params) => params
   });
@@ -412,15 +389,12 @@ ${getResearchQuestionsSummary(doc)}
 EVALUATE and DECIDE what to do next:
 
 OPTIONS:
-1. CONTINUE - Run pending questions (if any remain)
-2. DRILL_DOWN - One question is promising, create a focused follow-up
-3. SPAWN_NEW - Need to explore a completely new angle
-4. SYNTHESIZE - We have enough findings to answer the objective
+1. SPAWN_NEW - Need to research something new to answer the objective
+2. SYNTHESIZE - We have enough findings, finish the research
 
 DECISION CRITERIA:
 - Have we satisfied the success criteria?
 - Are the findings sufficient to answer the objective?
-- Is there a promising angle that deserves deeper exploration?
 - Are there gaps that need new questions?
 
 Be decisive. Don't over-research - synthesize when you have enough.`;
@@ -444,36 +418,14 @@ Be decisive. Don't over-research - synthesize when you have enough.`;
   let nextAction: CortexNextAction;
 
   switch (params.decision) {
-    case 'continue':
-      const idsToRun = params.questionIds || pending.map(i => i.id);
-      nextAction = { action: 'continue', questionIds: idsToRun };
-      doc = addCortexDecision(doc, 'spawn', `Continuing with questions: ${idsToRun.join(', ')}`);
-      break;
-
-    case 'drill_down':
-      nextAction = {
-        action: 'drill_down',
-        questionId: params.drillDownResearchQuestionId || '',
-        name: params.drillDownName || '',
-        description: params.drillDownDescription || '',
-        goal: params.drillDownGoal || ''
-      };
-      doc = addCortexDecision(
-        doc,
-        'drill_down',
-        `Drilling down: ${params.drillDownName} - ${params.drillDownDescription}`,
-        params.drillDownResearchQuestionId
-      );
-      break;
-
     case 'spawn_new':
       nextAction = {
         action: 'spawn_new',
         name: params.newName || '',
-        description: params.newDescription || '',
+        question: params.newQuestion || '',
         goal: params.newGoal || ''
       };
-      doc = addCortexDecision(doc, 'spawn', `Spawning new: ${params.newName} - ${params.newDescription}`);
+      doc = addCortexDecision(doc, 'spawn', `Spawning new: ${params.newName} - ${params.newQuestion}`);
       break;
 
     case 'synthesize':
@@ -602,90 +554,3 @@ SYNTHESIZE a comprehensive final answer:
   };
 }
 
-// ============================================================
-// Adversarial Review (optional enhancement)
-// ============================================================
-
-interface ReviewConfig {
-  doc: CortexDoc;
-  abortSignal?: AbortSignal;
-  onProgress?: (update: any) => void;
-}
-
-interface ReviewResult {
-  verdict: 'pass' | 'fail';
-  critique: string;
-  missing: string[];
-  creditsUsed: number;
-}
-
-/**
- * Adversarial review of the research (optional quality gate)
- */
-export async function adversarialReview(
-  config: ReviewConfig
-): Promise<ReviewResult> {
-  const { doc, abortSignal, onProgress } = config;
-  const model = openai('gpt-4.1');
-
-  log('adversarialReview', 'Starting review for:', doc.objective);
-
-  const reviewTool = tool({
-    description: 'Deliver your adversarial review verdict',
-    inputSchema: z.object({
-      verdict: z.enum(['pass', 'fail']).describe('pass = research is sufficient, fail = gaps remain'),
-      critique: z.string().describe('Why this passes or fails. Be specific.'),
-      missing: z.array(z.string()).describe('What specific gaps remain (empty if pass)')
-    }),
-    execute: async ({ verdict, critique, missing }) => ({ verdict, critique, missing })
-  });
-
-  const systemPrompt = `You are a hostile reviewer. Your job is to block weak conclusions.
-Assume the researcher is wrong unless proven otherwise.
-Golden word is: relevance. How "relevant" is the output to what was asked?
-
-OBJECTIVE: ${doc.objective}
-
-SUCCESS CRITERIA:
-${doc.successCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}
-
-RESEARCH DOCUMENT:
-${formatCortexDocForAgent(doc)}
-
-Evaluate harshly. Does the research actually address the objective and meet success criteria?
-- If the evidence is weak or irrelevant → FAIL
-- If success criteria are not met → FAIL
-- If solid evidence addresses the objective → PASS`;
-
-  onProgress?.({ type: 'cortex_review_started' });
-
-  const result = await generateText({
-    model,
-    system: systemPrompt,
-    prompt: 'Review this research. Use the review tool to deliver your verdict.',
-    tools: { review: reviewTool },
-    toolChoice: { type: 'tool', toolName: 'review' },
-    abortSignal
-  });
-
-  const creditsUsed = Math.ceil((result.usage?.totalTokens || 0) / 1000);
-
-  const toolCall = result.toolCalls?.[0] as any;
-  const output = toolCall?.input || toolCall?.args || {
-    verdict: 'pass',
-    critique: 'No review output',
-    missing: []
-  };
-
-  onProgress?.({
-    type: 'cortex_review_complete',
-    verdict: output.verdict,
-    critique: output.critique,
-    missing: output.missing
-  });
-
-  return {
-    ...output,
-    creditsUsed
-  };
-}

@@ -54,13 +54,13 @@ export const CycleReflectionSchema = z.object({
 export type CycleReflection = z.infer<typeof CycleReflectionSchema>;
 
 /**
- * Single question - explores one research angle
+ * Single research question - explores one angle of the research
  */
 export const ResearchQuestionSchema = z.object({
-  id: z.string(),                                  // init_xxx
-  name: z.string(),                                // Short name (e.g., "Corporate Training Providers")
-  description: z.string(),                         // What this question is about and why it matters
-  goal: z.string(),                                // What we're looking to achieve/answer
+  id: z.string(),                                  // q_xxx
+  name: z.string(),                                // Short name (e.g., "Podcast Networks")
+  question: z.string(),                            // The research question (e.g., "Which podcast networks produce fact-heavy content?")
+  goal: z.string(),                                // What we're looking to find out
   status: ResearchQuestionStatusSchema.default('pending'),
   cycles: z.number().default(0),                   // How many research→reflect loops
   maxCycles: z.number().default(10),               // Cap (default 10)
@@ -77,7 +77,7 @@ export type ResearchQuestion = z.infer<typeof ResearchQuestionSchema>;
 /**
  * Cortex decision action types
  */
-export const CortexActionSchema = z.enum(['spawn', 'drill_down', 'kill', 'synthesize']);
+export const CortexActionSchema = z.enum(['spawn', 'synthesize']);
 export type CortexAction = z.infer<typeof CortexActionSchema>;
 
 /**
@@ -148,14 +148,14 @@ export function generateFindingId(): string {
  */
 export function createResearchQuestion(
   name: string,
-  description: string,
+  question: string,
   goal: string,
   maxCycles: number = 10
 ): ResearchQuestion {
   return {
     id: generateResearchQuestionId(),
     name,
-    description,
+    question,
     goal,
     status: 'pending',
     cycles: 0,
