@@ -14,7 +14,6 @@ import {
   addFindingToInitiative,
   editFindingInInitiative,
   disqualifyFindingInInitiative,
-  addQueryToInitiative,
   addSearchResultToInitiative,
   addReflectionToInitiative,
   incrementInitiativeCycle,
@@ -127,6 +126,39 @@ export async function executeInitiativeCycle(
     }
   });
 
+  // Tool: Search reasoning - explain what was learned from search results
+  const searchReasoningTool = tool({
+    description: 'REQUIRED after each search. Explain what you learned and why it matters for the goal.',
+    inputSchema: z.object({
+      reasoning: z.string().describe('What did you learn from these searches? How does it help achieve the goal? Be specific.'),
+    }),
+    execute: async ({ reasoning }) => {
+      // Attach reasoning to the most recent search results that don't have reasoning yet
+      const init = getInitiative(doc, initiativeId);
+      if (init && init.searchResults) {
+        const updatedSearchResults = [...init.searchResults];
+        // Find recent results without reasoning and add it
+        for (let i = updatedSearchResults.length - 1; i >= 0; i--) {
+          if (!updatedSearchResults[i].reasoning) {
+            updatedSearchResults[i] = { ...updatedSearchResults[i], reasoning };
+            break; // Only update the most recent batch
+          }
+        }
+        doc = {
+          ...doc,
+          initiatives: doc.initiatives.map(i =>
+            i.id === initiativeId ? { ...i, searchResults: updatedSearchResults } : i
+          ),
+        };
+      }
+
+      onProgress?.({ type: 'initiative_search_reasoning', initiativeId, reasoning });
+      onProgress?.({ type: 'doc_updated', doc });
+
+      return { success: true, reasoning };
+    }
+  });
+
   // Tool: Reflect - assess progress and decide next steps
   const reflectTool = tool({
     description: 'Reflect on progress. Summarize what you learned and what you will do next.',
@@ -135,10 +167,10 @@ export async function executeInitiativeCycle(
       nextStep: z.string().describe('What you will do next (e.g., "Will search for pricing info") or "Have enough findings, finishing"'),
       hypothesisStatus: z.enum(['confirming', 'rejecting', 'uncertain']).describe('Is the hypothesis being confirmed or rejected?'),
       noveltyRemaining: z.enum(['high', 'medium', 'low']).describe('How much new info can we still find?'),
-      nextSearches: z.array(z.string()).max(3).describe('0-3 specific searches to run next (empty if done)'),
+      nextSearch: z.string().optional().describe('The ONE next search to run (human-readable question). Leave empty if done. Good: "Which corporate training companies use audio content?" Bad: "corporate training audio companies list"'),
     }),
-    execute: async ({ learned, nextStep, hypothesisStatus, noveltyRemaining, nextSearches }) => {
-      const shouldContinue = nextSearches.length > 0 && noveltyRemaining !== 'low';
+    execute: async ({ learned, nextStep, hypothesisStatus, noveltyRemaining, nextSearch }) => {
+      const shouldContinue = !!nextSearch && noveltyRemaining !== 'low';
 
       // Save reflection to the initiative
       doc = addReflectionToInitiative(
@@ -157,9 +189,13 @@ export async function executeInitiativeCycle(
         nextStep,
         hypothesisStatus,
         noveltyRemaining,
-        nextSearches
+        nextSearch
       });
-      return { learned, nextStep, hypothesisStatus, noveltyRemaining, nextSearches };
+
+      // Send doc update so UI shows reflection in real-time
+      onProgress?.({ type: 'doc_updated', doc });
+
+      return { learned, nextStep, hypothesisStatus, noveltyRemaining, nextSearch };
     }
   });
 
@@ -190,9 +226,9 @@ export async function executeInitiativeCycle(
   const cycleNumber = currentInitiative.cycles;
 
   log(initiativeId, `──── CYCLE ${cycleNumber}/${currentInitiative.maxCycles} START ────`);
-  log(initiativeId, `Angle: ${currentInitiative.angle}`);
-  log(initiativeId, `Rationale: ${currentInitiative.rationale}`);
-  log(initiativeId, `Question: ${currentInitiative.question}`);
+  log(initiativeId, `Name: ${currentInitiative.name}`);
+  log(initiativeId, `Description: ${currentInitiative.description}`);
+  log(initiativeId, `Goal: ${currentInitiative.goal}`);
   log(initiativeId, `Current findings: ${currentInitiative.findings.length}`);
 
   // Check if max cycles reached
@@ -215,20 +251,24 @@ OVERALL OBJECTIVE: ${objective}
 SUCCESS CRITERIA:
 ${successCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}
 
-YOUR RESEARCH ANGLE:
-- Angle: ${currentInitiative.angle}
-- Rationale: ${currentInitiative.rationale}
-- Question: ${currentInitiative.question}
+YOUR INITIATIVE:
+- Name: ${currentInitiative.name}
+- Description: ${currentInitiative.description}
+- Goal: ${currentInitiative.goal}
 
 ${formatInitiativeForAgent(currentInitiative)}
 
 ---
 
-YOUR WORKFLOW (research→reflect loop):
-1. SEARCH for information to answer your research question
-2. ADD FINDINGS as you discover relevant facts (keep them SHORT - 1-2 lines)
-3. REFLECT to share what you learned and what you'll do next
-4. DONE when: question answered, novelty exhausted, or you have enough findings
+YOUR WORKFLOW (search→reason→repeat):
+1. SEARCH - run ONE query at a time (not batches)
+2. SEARCH_REASONING (required) - explain what you learned and why it matters
+3. ADD FINDINGS - capture relevant facts (keep them SHORT)
+4. REFLECT - assess progress and decide the next search
+5. Repeat steps 1-4 until goal achieved or novelty exhausted
+6. DONE - when you have enough findings
+
+CRITICAL: One search at a time. After EVERY search, call search_reasoning before doing anything else.
 
 REFLECT FORMAT - Be clear and concise:
 - learned: "Found 3 podcast production companies offering full audio services"
@@ -245,15 +285,21 @@ GOOD: "NPR | Collin Campbell | SVP Podcasting | linkedin.com/in/collin"
 GOOD: "Pricing: Enterprise plan starts at $500/month"
 BAD: "NPR is a large media company that produces podcasts..." (too long)
 
+SEARCH QUERIES - ONE AT A TIME, HUMAN-READABLE:
+- Run ONE search, then call search_reasoning, then reflect
+- Write queries as questions a person would ask (goes to an LLM)
+Good: "Which podcast production companies offer fact-checking services?"
+Bad: "podcast fact-checking companies list"
+
 PREVIOUS QUERIES (avoid repeating):
-${currentInitiative.queriesRun.slice(-10).join('\n') || '(none)'}`;
+${(currentInitiative.searchResults || []).slice(-10).map(sr => sr.query).join('\n') || '(none)'}`;
 
   onProgress?.({
     type: 'initiative_cycle_started',
     initiativeId,
     cycle: cycleNumber,
-    angle: currentInitiative.angle,
-    question: currentInitiative.question
+    name: currentInitiative.name,
+    goal: currentInitiative.goal
   });
 
   const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
@@ -281,6 +327,7 @@ ${currentInitiative.queriesRun.slice(-10).join('\n') || '(none)'}`;
       messages,
       tools: {
         search,
+        search_reasoning: searchReasoningTool,
         add_finding: addFindingTool,
         edit_finding: editFindingTool,
         disqualify_finding: disqualifyFindingTool,
@@ -326,6 +373,9 @@ ${currentInitiative.queriesRun.slice(-10).join('\n') || '(none)'}`;
             sources: sr.results?.map((r: any) => ({ url: r.url, title: r.title })) || []
           }))
         });
+
+        // Send doc update so UI shows search results in real-time
+        onProgress?.({ type: 'doc_updated', doc });
 
         assistantActions.push(`Searched: ${queries.map((q: any) => q.query || q).join(', ')}`);
       }
@@ -374,7 +424,7 @@ ${currentInitiative.queriesRun.slice(-10).join('\n') || '(none)'}`;
 
     // Check reflection result for stopping conditions
     if (reflectionResult) {
-      const { hypothesisStatus, noveltyRemaining, nextSearches } = reflectionResult;
+      const { hypothesisStatus, noveltyRemaining, nextSearch } = reflectionResult;
 
       // Stop if hypothesis is clearly resolved and novelty is low
       if (
@@ -385,20 +435,15 @@ ${currentInitiative.queriesRun.slice(-10).join('\n') || '(none)'}`;
           role: 'user',
           content: 'Hypothesis appears resolved and novelty is low. Consider calling done to complete this initiative.'
         });
-      } else if (nextSearches && nextSearches.length > 0) {
+      } else if (nextSearch) {
         messages.push({
           role: 'user',
-          content: `Continue with next searches: ${nextSearches.join(', ')}`
-        });
-      } else if (nextSearches && nextSearches.length === 0) {
-        messages.push({
-          role: 'user',
-          content: 'No more searches suggested. If you have enough findings, call done.'
+          content: `Continue with next search: ${nextSearch}`
         });
       } else {
         messages.push({
           role: 'user',
-          content: 'Continue researching or call done if complete.'
+          content: 'No next search suggested. If you have enough findings, call done.'
         });
       }
     } else if (!result.toolCalls || result.toolCalls.length === 0) {

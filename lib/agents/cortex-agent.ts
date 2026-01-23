@@ -75,28 +75,28 @@ export async function generateInitiatives(
   const spawnInitiativeTool = tool({
     description: 'Spawn a new research initiative to explore a specific angle',
     inputSchema: z.object({
-      angle: z.string().describe('Short name for this research angle (2-5 words). E.g., "Podcast Production Agencies", "Enterprise Audio Teams"'),
-      rationale: z.string().describe('WHY this angle makes sense - the reasoning behind exploring it. E.g., "These companies already produce audio content and need fact-checking to maintain credibility"'),
-      question: z.string().describe('The specific research question to answer. E.g., "Which podcast agencies serve enterprise B2B clients and might need audio fact-checking?"'),
+      name: z.string().describe('Short name for this initiative (2-5 words). E.g., "Corporate Training Providers", "Healthcare Communication Platforms"'),
+      description: z.string().describe('What this initiative is about and why it matters. E.g., "These companies produce large volumes of audio training content where accuracy is critical for compliance"'),
+      goal: z.string().describe('What we\'re looking to achieve/answer. E.g., "Find corporate training companies that use audio content and might need fact-checking tools"'),
       maxCycles: z.number().min(1).max(10).default(5).describe('Max research→reflect cycles (default 5)'),
     }),
-    execute: async ({ angle, rationale, question, maxCycles }) => {
-      doc = addInitiative(doc, angle, rationale, question, maxCycles);
+    execute: async ({ name, description, goal, maxCycles }) => {
+      doc = addInitiative(doc, name, description, goal, maxCycles);
       const newInit = doc.initiatives[doc.initiatives.length - 1];
       initiativeIds.push(newInit.id);
 
-      doc = addCortexDecision(doc, 'spawn', `Spawning initiative: ${angle} - ${rationale}`, newInit.id);
+      doc = addCortexDecision(doc, 'spawn', `Spawning initiative: ${name} - ${description}`, newInit.id);
 
       onProgress?.({
         type: 'initiative_spawned',
         initiativeId: newInit.id,
-        angle,
-        rationale,
-        question,
+        name,
+        description,
+        goal,
         maxCycles
       });
 
-      return { success: true, initiativeId: newInit.id, angle };
+      return { success: true, initiativeId: newInit.id, name };
     }
   });
 
@@ -112,31 +112,31 @@ ${doc.successCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}
 YOUR TASK: Generate ${count} DIVERSE research angles to explore this objective.
 
 Each initiative needs THREE things:
-1. ANGLE - Short name (2-5 words) for what you're exploring
-2. RATIONALE - WHY this angle makes sense (the reasoning/connection to the goal)
-3. QUESTION - The specific research question to answer
+1. NAME - Short name (2-5 words) for this initiative
+2. DESCRIPTION - What this initiative is about and why it matters
+3. GOAL - What we're looking to achieve/answer
 
 EXAMPLE (for "find B2B customers for audio fact-checking tool"):
 
 Initiative 1:
-- Angle: "Podcast Production Agencies"
-- Rationale: "These companies produce audio content for enterprise clients and need fact-checking to protect their clients' brand reputation"
-- Question: "Which podcast agencies serve B2B/enterprise clients and might need audio verification tools?"
+- Name: "Corporate Training Providers"
+- Description: "These companies produce large volumes of audio training content where accuracy is critical for compliance and effective learning"
+- Goal: "Find corporate training companies that use audio content and might need fact-checking tools"
 
 Initiative 2:
-- Angle: "Newsroom Audio Teams"
-- Rationale: "News organizations with podcast/radio divisions face legal and reputational risks from inaccurate audio content"
-- Question: "Which digital newsrooms have dedicated audio teams and a history of publishing corrections?"
+- Name: "Healthcare Communication Platforms"
+- Description: "Healthcare platforms handle sensitive verbal information including medical advice where factual errors can have serious consequences"
+- Goal: "Identify healthcare communication companies processing audio that could benefit from fact verification"
 
 Initiative 3:
-- Angle: "Media Monitoring Platforms"
-- Rationale: "These B2B companies already sell to newsrooms and could integrate or resell fact-checking as an add-on"
-- Question: "Which media monitoring companies offer audio analysis and might want to add fact-checking capabilities?"
+- Name: "Legal Deposition Services"
+- Description: "Legal firms and transcription services record and review depositions where accurate audio records are legally vital"
+- Goal: "Find legal deposition and transcription providers who might need audio fact-checking capabilities"
 
 RULES:
-- Each angle must be DIFFERENT (cover different segments/approaches)
-- Rationale must explain WHY this angle connects to the goal
-- Question must be specific and answerable through research
+- Each initiative must be DIFFERENT (cover different segments/approaches)
+- Description must explain WHAT this is and WHY it matters
+- Goal must be specific and achievable through research
 - Don't overlap too much between initiatives
 
 Generate exactly ${count} initiatives using spawn_initiative for each.`;
@@ -158,7 +158,7 @@ Generate exactly ${count} initiatives using spawn_initiative for each.`;
     count: initiativeIds.length,
     initiatives: doc.initiatives.filter(i => initiativeIds.includes(i.id)).map(i => ({
       id: i.id,
-      hypothesis: i.hypothesis,
+      name: i.name,
       goal: i.goal
     }))
   });
@@ -178,8 +178,8 @@ interface EvaluateInitiativesConfig {
 
 type CortexNextAction =
   | { action: 'continue'; initiativeIds: string[] }
-  | { action: 'drill_down'; initiativeId: string; angle: string; rationale: string; question: string }
-  | { action: 'spawn_new'; angle: string; rationale: string; question: string }
+  | { action: 'drill_down'; initiativeId: string; name: string; description: string; goal: string }
+  | { action: 'spawn_new'; name: string; description: string; goal: string }
   | { action: 'synthesize' };
 
 interface EvaluateInitiativesResult {
@@ -225,14 +225,14 @@ export async function evaluateInitiatives(
 
       // For drill_down
       drillDownInitiativeId: z.string().optional().describe('Which initiative to drill into'),
-      drillDownAngle: z.string().optional().describe('New focused angle name (2-5 words)'),
-      drillDownRationale: z.string().optional().describe('Why drill deeper into this area'),
-      drillDownQuestion: z.string().optional().describe('New focused research question'),
+      drillDownName: z.string().optional().describe('New focused initiative name (2-5 words)'),
+      drillDownDescription: z.string().optional().describe('What this drill-down is about and why'),
+      drillDownGoal: z.string().optional().describe('What we\'re looking to achieve with this drill-down'),
 
       // For spawn_new
-      newAngle: z.string().optional().describe('Angle name for new initiative (2-5 words)'),
-      newRationale: z.string().optional().describe('Why this new angle is needed'),
-      newQuestion: z.string().optional().describe('Research question for new initiative'),
+      newName: z.string().optional().describe('Name for new initiative (2-5 words)'),
+      newDescription: z.string().optional().describe('What this initiative is about and why'),
+      newGoal: z.string().optional().describe('What we\'re looking to achieve'),
     }),
     execute: async (params) => params
   });
@@ -302,14 +302,14 @@ Be decisive. Don't over-research - synthesize when you have enough.`;
       nextAction = {
         action: 'drill_down',
         initiativeId: params.drillDownInitiativeId || '',
-        angle: params.drillDownAngle || '',
-        rationale: params.drillDownRationale || '',
-        question: params.drillDownQuestion || ''
+        name: params.drillDownName || '',
+        description: params.drillDownDescription || '',
+        goal: params.drillDownGoal || ''
       };
       doc = addCortexDecision(
         doc,
         'drill_down',
-        `Drilling down: ${params.drillDownAngle} - ${params.drillDownRationale}`,
+        `Drilling down: ${params.drillDownName} - ${params.drillDownDescription}`,
         params.drillDownInitiativeId
       );
       break;
@@ -317,11 +317,11 @@ Be decisive. Don't over-research - synthesize when you have enough.`;
     case 'spawn_new':
       nextAction = {
         action: 'spawn_new',
-        angle: params.newAngle || '',
-        rationale: params.newRationale || '',
-        question: params.newQuestion || ''
+        name: params.newName || '',
+        description: params.newDescription || '',
+        goal: params.newGoal || ''
       };
-      doc = addCortexDecision(doc, 'spawn', `Spawning new: ${params.newAngle} - ${params.newRationale}`);
+      doc = addCortexDecision(doc, 'spawn', `Spawning new: ${params.newName} - ${params.newDescription}`);
       break;
 
     case 'synthesize':

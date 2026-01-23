@@ -56,13 +56,6 @@ export function parseCortexDoc(json: string): CortexDoc | null {
   return null;
 }
 
-/**
- * Parse brain content to CortexDoc
- */
-export function parseBrainToCortexDoc(brain: string): CortexDoc | null {
-  return parseCortexDoc(brain);
-}
-
 // ============================================================
 // Initiative Operations
 // ============================================================
@@ -72,12 +65,12 @@ export function parseBrainToCortexDoc(brain: string): CortexDoc | null {
  */
 export function addInitiative(
   doc: CortexDoc,
-  angle: string,
-  rationale: string,
-  question: string,
+  name: string,
+  description: string,
+  goal: string,
   maxCycles: number = 5
 ): CortexDoc {
-  const initiative = createInitiative(angle, rationale, question, maxCycles);
+  const initiative = createInitiative(name, description, goal, maxCycles);
   return {
     ...doc,
     initiatives: [...doc.initiatives, initiative],
@@ -248,24 +241,6 @@ export function disqualifyFindingInInitiative(
 }
 
 /**
- * Add query to initiative's queriesRun list
- */
-export function addQueryToInitiative(
-  doc: CortexDoc,
-  initiativeId: string,
-  query: string
-): CortexDoc {
-  return {
-    ...doc,
-    initiatives: doc.initiatives.map(i =>
-      i.id === initiativeId && !i.queriesRun.includes(query)
-        ? { ...i, queriesRun: [...i.queriesRun, query] }
-        : i
-    ),
-  };
-}
-
-/**
  * Add full search result to initiative
  */
 export function addSearchResultToInitiative(
@@ -273,7 +248,8 @@ export function addSearchResultToInitiative(
   initiativeId: string,
   query: string,
   answer: string,
-  sources: { url: string; title?: string }[] = []
+  sources: { url: string; title?: string }[] = [],
+  reasoning?: string
 ): CortexDoc {
   return {
     ...doc,
@@ -281,8 +257,7 @@ export function addSearchResultToInitiative(
       i.id === initiativeId
         ? {
             ...i,
-            queriesRun: i.queriesRun.includes(query) ? i.queriesRun : [...i.queriesRun, query],
-            searchResults: [...(i.searchResults || []), { query, answer, sources }],
+            searchResults: [...(i.searchResults || []), { query, answer, sources, reasoning }],
           }
         : i
     ),
@@ -300,7 +275,7 @@ export function hasQueryBeenRunInInitiative(
   const initiative = getInitiative(doc, initiativeId);
   if (!initiative) return false;
   const normalized = query.toLowerCase().trim();
-  return initiative.queriesRun.some(q => q.toLowerCase().trim() === normalized);
+  return (initiative.searchResults || []).some(sr => sr.query.toLowerCase().trim() === normalized);
 }
 
 /**
@@ -395,9 +370,9 @@ export function formatCortexDocForAgent(doc: CortexDoc): string {
     parts.push('\n## Research Angles');
     for (const init of doc.initiatives) {
       const statusIcon = init.status === 'done' ? '✓' : init.status === 'running' ? '→' : '○';
-      parts.push(`\n### [${init.id}] ${statusIcon} ${init.angle}`);
-      parts.push(`**Rationale:** ${init.rationale}`);
-      parts.push(`**Question:** ${init.question}`);
+      parts.push(`\n### [${init.id}] ${statusIcon} ${init.name}`);
+      parts.push(`**Description:** ${init.description}`);
+      parts.push(`**Goal:** ${init.goal}`);
       parts.push(`**Cycles:** ${init.cycles}/${init.maxCycles}`);
 
       if (init.confidence) parts.push(`**Confidence:** ${init.confidence}`);
@@ -419,8 +394,8 @@ export function formatCortexDocForAgent(doc: CortexDoc): string {
         parts.push('(researching...)');
       }
 
-      if (init.queriesRun.length > 0) {
-        parts.push(`\n**Queries Run:** ${init.queriesRun.length}`);
+      if ((init.searchResults || []).length > 0) {
+        parts.push(`\n**Searches:** ${init.searchResults.length}`);
       }
     }
   } else {
@@ -445,10 +420,10 @@ export function formatCortexDocForAgent(doc: CortexDoc): string {
 export function formatInitiativeForAgent(initiative: Initiative): string {
   const parts: string[] = [];
 
-  parts.push(`# Research Angle: ${initiative.angle}\n`);
+  parts.push(`# Initiative: ${initiative.name}\n`);
   parts.push(`**ID:** ${initiative.id}`);
-  parts.push(`**Rationale:** ${initiative.rationale}`);
-  parts.push(`**Question:** ${initiative.question}`);
+  parts.push(`**Description:** ${initiative.description}`);
+  parts.push(`**Goal:** ${initiative.goal}`);
   parts.push(`**Status:** ${initiative.status}`);
   parts.push(`**Cycles:** ${initiative.cycles}/${initiative.maxCycles}`);
 
@@ -475,12 +450,13 @@ export function formatInitiativeForAgent(initiative: Initiative): string {
     parts.push('(none yet)');
   }
 
-  if (initiative.queriesRun.length > 0) {
-    parts.push('\n## Queries Run');
-    const recentQueries = initiative.queriesRun.slice(-10);
-    recentQueries.forEach(q => parts.push(`- ${q}`));
-    if (initiative.queriesRun.length > 10) {
-      parts.push(`... and ${initiative.queriesRun.length - 10} more`);
+  const searches = initiative.searchResults || [];
+  if (searches.length > 0) {
+    parts.push('\n## Recent Searches');
+    const recentSearches = searches.slice(-10);
+    recentSearches.forEach(sr => parts.push(`- ${sr.query}`));
+    if (searches.length > 10) {
+      parts.push(`... and ${searches.length - 10} more`);
     }
   }
 
@@ -502,7 +478,7 @@ export function getInitiativesSummary(doc: CortexDoc): string {
   for (const init of doc.initiatives) {
     const statusIcon = init.status === 'done' ? '✓' : init.status === 'running' ? '→' : '○';
     const findingCount = init.findings.filter(f => f.status === 'active').length;
-    parts.push(`- ${statusIcon} **${init.angle}**: ${init.question} (${findingCount} findings)`);
+    parts.push(`- ${statusIcon} **${init.name}**: ${init.goal} (${findingCount} findings)`);
   }
 
   return parts.join('\n');

@@ -674,7 +674,7 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
         <main className="flex-1 overflow-hidden relative">
           <ScrollArea className="h-full scroll-smooth">
             <div className="py-6 px-4 space-y-6 max-w-4xl mx-auto">
-              {messages.map((msg, idx) => {
+              {messages.filter(m => m.metadata?.kind !== 'final').map((msg, idx) => {
                 if (msg.metadata?.type === 'research_iteration') return null;
 
                 const isUser = msg.role === 'user';
@@ -786,6 +786,38 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
                   <ResearchProgress doc={researchDoc} />
                 </div>
               )}
+
+              {/* Final Answer - Always below research progress */}
+              {messages.filter(m => m.metadata?.kind === 'final').map((msg, idx) => (
+                <div key={`final-${idx}`} className="flex items-start gap-4 animate-in fade-in slide-in-from-left-4 duration-500 mt-6 pt-6 border-t border-slate-200 dark:border-white/10">
+                  <div className="w-9 h-9 rounded-2xl bg-green-600 flex items-center justify-center shrink-0 shadow-lg shadow-green-500/20">
+                    <Sparkles className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="flex-1 pt-1.5 space-y-2">
+                    <div className="prose prose-slate dark:prose-invert max-w-none text-slate-800 dark:text-slate-100">
+                      <ReactMarkdown
+                        components={{
+                          p: ({ node, ...props }) => <p {...props} className="text-base md:text-lg leading-relaxed mb-4 last:mb-0" />,
+                          ul: ({ node, ...props }) => <ul {...props} className="mb-4 space-y-2 list-none" />,
+                          ol: ({ node, ...props }) => <ol {...props} className="mb-4 space-y-2 list-decimal list-inside" />,
+                          li: ({ node, ...props }) => (
+                            <li className="flex items-start gap-2 text-base md:text-lg">
+                              <span className="mt-2.5 w-1.5 h-1.5 rounded-full bg-green-400 shrink-0" />
+                              <span {...props} />
+                            </li>
+                          ),
+                          h1: ({ node, ...props }) => <h1 {...props} className="text-2xl font-black mb-4 tracking-tight" />,
+                          h2: ({ node, ...props }) => <h2 {...props} className="text-xl font-bold mb-3 tracking-tight" />,
+                          h3: ({ node, ...props }) => <h3 {...props} className="text-lg font-bold mb-2 tracking-tight" />,
+                          strong: ({ node, ...props }) => <strong {...props} className="font-bold text-slate-900 dark:text-white" />,
+                        }}
+                      >
+                        {msg.content}
+                      </ReactMarkdown>
+                    </div>
+                  </div>
+                </div>
+              ))}
 
               {/* Thinking Indicator */}
               {status === 'processing' && (

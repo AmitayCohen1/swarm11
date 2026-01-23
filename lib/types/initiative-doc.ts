@@ -28,11 +28,12 @@ export const InitiativeRecommendationSchema = z.enum(['promising', 'dead_end', '
 export type InitiativeRecommendation = z.infer<typeof InitiativeRecommendationSchema>;
 
 /**
- * Search result - query + answer pair
+ * Search result - query + answer + reasoning
  */
 export const SearchResultSchema = z.object({
   query: z.string(),
   answer: z.string(),
+  reasoning: z.string().optional(),              // What we learned from this search and why it matters
   sources: z.array(z.object({
     url: z.string(),
     title: z.string().optional(),
@@ -56,17 +57,13 @@ export type CycleReflection = z.infer<typeof CycleReflectionSchema>;
  */
 export const InitiativeSchema = z.object({
   id: z.string(),                                  // init_xxx
-  angle: z.string(),                               // Short name for this angle (e.g., "Podcast Agencies")
-  rationale: z.string(),                           // WHY this angle makes sense
-  question: z.string(),                            // The specific research question
-  // Legacy field - keep for backwards compatibility
-  hypothesis: z.string().optional(),               // Deprecated - use angle/rationale/question
-  goal: z.string().optional(),                     // Deprecated - use question
+  name: z.string(),                                // Short name (e.g., "Corporate Training Providers")
+  description: z.string(),                         // What this initiative is about and why it matters
+  goal: z.string(),                                // What we're looking to achieve/answer
   status: InitiativeStatusSchema.default('pending'),
   cycles: z.number().default(0),                   // How many research→reflect loops
   maxCycles: z.number().default(5),                // Cap (default 5)
   findings: z.array(FindingSchema).default([]),    // Accumulated facts
-  queriesRun: z.array(z.string()).default([]),     // For dedup (legacy)
   searchResults: z.array(SearchResultSchema).default([]), // Full search results with answers
   reflections: z.array(CycleReflectionSchema).default([]), // What was learned each cycle
   confidence: InitiativeConfidenceSchema.default(null),
@@ -149,24 +146,20 @@ export function generateFindingId(): string {
  * Create a new initiative
  */
 export function createInitiative(
-  angle: string,
-  rationale: string,
-  question: string,
+  name: string,
+  description: string,
+  goal: string,
   maxCycles: number = 5
 ): Initiative {
   return {
     id: generateInitiativeId(),
-    angle,
-    rationale,
-    question,
-    // Legacy fields for backwards compatibility
-    hypothesis: angle,
-    goal: question,
+    name,
+    description,
+    goal,
     status: 'pending',
     cycles: 0,
     maxCycles,
     findings: [],
-    queriesRun: [],
     searchResults: [],
     reflections: [],
     confidence: null,

@@ -25,7 +25,7 @@ import type { CortexDoc } from '@/lib/types/initiative-doc';
 import {
   initializeCortexDoc,
   serializeCortexDoc,
-  parseBrainToCortexDoc,
+  parseCortexDoc,
   addInitiative,
   startInitiative,
   getPendingInitiatives,
@@ -154,7 +154,7 @@ export async function executeCortexResearch(
   await checkAborted();
 
   let doc: CortexDoc;
-  const existingDoc = parseBrainToCortexDoc(existingBrain);
+  const existingDoc = parseCortexDoc(existingBrain);
 
   if (existingDoc && existingDoc.version === 1) {
     log('PHASE1', 'Resuming from existing CortexDoc', {
@@ -204,7 +204,7 @@ export async function executeCortexResearch(
     await saveDocToDb(doc);
 
     log('PHASE2', `Generated ${genResult.initiativeIds.length} initiatives:`,
-      doc.initiatives.map(i => ({ id: i.id, hypothesis: i.hypothesis }))
+      doc.initiatives.map(i => ({ id: i.id, name: i.name }))
     );
   } else {
     log('PHASE2', `Using ${doc.initiatives.length} existing initiatives`);
@@ -245,7 +245,7 @@ export async function executeCortexResearch(
       await checkAborted();
 
       log('PHASE3', `┌─ INITIATIVE ${idx + 1}/${pending.length}: ${initiative.id}`);
-      log('PHASE3', `│  Hypothesis: ${initiative.hypothesis}`);
+      log('PHASE3', `│  Name: ${initiative.name}`);
       log('PHASE3', `│  Goal: ${initiative.goal}`);
 
       // Mark as running
@@ -254,7 +254,7 @@ export async function executeCortexResearch(
 
       emitProgress('initiative_started', {
         initiativeId: initiative.id,
-        hypothesis: initiative.hypothesis,
+        name: initiative.name,
         goal: initiative.goal
       });
 
@@ -283,7 +283,7 @@ export async function executeCortexResearch(
       const completedInit = doc.initiatives.find(i => i.id === initiative.id);
       log('PHASE3', `└─ INITIATIVE COMPLETE: ${initiative.id}`, {
         findings: completedInit?.findings.length || 0,
-        queriesRun: initResult.queriesExecuted.length,
+        searches: initResult.queriesExecuted.length,
         confidence: completedInit?.confidence,
         recommendation: completedInit?.recommendation
       });
@@ -329,17 +329,17 @@ export async function executeCortexResearch(
     }
 
     if (evalResult.nextAction.action === 'drill_down') {
-      const { initiativeId, angle, rationale, question } = evalResult.nextAction;
-      log('PHASE3', `Decision: DRILL_DOWN from ${initiativeId}`, { angle, rationale, question });
-      doc = addInitiative(doc, angle, rationale, question, 5);
+      const { initiativeId, name, description, goal } = evalResult.nextAction;
+      log('PHASE3', `Decision: DRILL_DOWN from ${initiativeId}`, { name, description, goal });
+      doc = addInitiative(doc, name, description, goal, 5);
       await saveDocToDb(doc);
       continue;
     }
 
     if (evalResult.nextAction.action === 'spawn_new') {
-      const { angle, rationale, question } = evalResult.nextAction;
-      log('PHASE3', 'Decision: SPAWN_NEW', { angle, rationale, question });
-      doc = addInitiative(doc, angle, rationale, question, 5);
+      const { name, description, goal } = evalResult.nextAction;
+      log('PHASE3', 'Decision: SPAWN_NEW', { name, description, goal });
+      doc = addInitiative(doc, name, description, goal, 5);
       await saveDocToDb(doc);
       continue;
     }

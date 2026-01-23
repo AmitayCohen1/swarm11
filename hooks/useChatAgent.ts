@@ -435,14 +435,14 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
 
         // Initiative lifecycle events
         if (update.type === 'initiative_started') {
-          const angle = (update as any).angle || (update as any).hypothesis || '';
-          addEvent('initiative_started', 'Angle started', angle.substring(0, 50), 'phase');
+          const name = (update as any).name || '';
+          addEvent('initiative_started', 'Initiative started', name.substring(0, 50), 'phase');
         }
 
         if (update.type === 'initiative_cycle_started') {
           const cycle = (update as any).cycle || 0;
-          const angle = (update as any).angle || (update as any).hypothesis || '';
-          addEvent('initiative_cycle', `Cycle ${cycle}`, angle.substring(0, 40), 'phase');
+          const name = (update as any).name || '';
+          addEvent('initiative_cycle', `Cycle ${cycle}`, name.substring(0, 40), 'phase');
         }
 
         if (update.type === 'initiative_finding_added') {
@@ -450,9 +450,9 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
         }
 
         if (update.type === 'initiative_reflection') {
-          const status = (update as any).hypothesisStatus || '';
-          const novelty = (update as any).noveltyRemaining || '';
-          addEvent('reflection', `Reflection: ${status}`, `Novelty: ${novelty}`, 'reflect');
+          const learned = (update as any).learned || '';
+          const nextStep = (update as any).nextStep || '';
+          addEvent('reflection', `Learned: ${learned.substring(0, 30)}`, nextStep.substring(0, 40), 'reflect');
         }
 
         if (update.type === 'initiative_completed') {
@@ -491,8 +491,8 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
         }
 
         if (update.type === 'initiative_spawned') {
-          const angle = (update as any).angle || (update as any).hypothesis || '';
-          addEvent('spawn', 'New angle', angle.substring(0, 50), 'plan');
+          const name = (update as any).name || '';
+          addEvent('spawn', 'New initiative', name.substring(0, 50), 'plan');
         }
 
         if (update.type === 'extract_started') {

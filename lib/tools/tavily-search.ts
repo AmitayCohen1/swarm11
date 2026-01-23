@@ -20,12 +20,12 @@ Each query needs:
 - query: A clear, specific question a human would ask
 - purpose: What you're trying to learn
 
-Run 1-2 queries at a time. Specific beats broad.`,
+Run ONE query at a time. After each query, reflect on what you learned before searching again.`,
   inputSchema: z.object({
     queries: z.array(z.object({
       query: z.string(),
       purpose: z.string()
-    })).min(1).max(3)
+    })).min(1).max(1)
   }),
   execute: async ({ queries }) => {
     const results = await Promise.all(
