@@ -116,8 +116,13 @@ export async function executeCortexResearch(
     }
   };
 
-  const emitProgress = (type: string, data: any = {}) => {
+  const emitProgress = async (type: string, data: any = {}) => {
     onProgress?.({ type, ...data });
+
+    // Save to DB on every doc_updated event for real-time persistence
+    if (type === 'doc_updated' && data.doc) {
+      await saveDocToDb(data.doc);
+    }
   };
 
   const saveDocToDb = async (doc: CortexDoc) => {

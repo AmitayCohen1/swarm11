@@ -244,17 +244,35 @@ export async function executeInitiativeCycle(
     return { doc, shouldContinue: false, queriesExecuted, creditsUsed };
   }
 
-  const systemPrompt = `You are an Initiative Agent exploring ONE research angle.
+  // Get sibling initiatives for context
+  const allInitiatives = doc.initiatives;
+  const siblingInfo = allInitiatives.map((init, i) => {
+    const isCurrent = init.id === initiativeId;
+    const status = init.status === 'done' ? '✓' : init.status === 'running' ? '→' : '○';
+    return `${status} ${i + 1}. ${init.name}${isCurrent ? ' (YOU)' : ''}`;
+  }).join('\n');
 
+  const systemPrompt = `You are an Initiative Agent exploring ONE angle of a larger research effort.
+
+═══════════════════════════════════════════════════════════════
 OVERALL OBJECTIVE: ${objective}
+═══════════════════════════════════════════════════════════════
 
-SUCCESS CRITERIA:
+SUCCESS CRITERIA (for the whole research):
 ${successCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}
+
+───────────────────────────────────────────────────────────────
+RESEARCH ANGLES (you are ONE of ${allInitiatives.length}):
+${siblingInfo}
+───────────────────────────────────────────────────────────────
 
 YOUR INITIATIVE:
 - Name: ${currentInitiative.name}
 - Description: ${currentInitiative.description}
 - Goal: ${currentInitiative.goal}
+
+Your job: Contribute findings that help achieve the OVERALL OBJECTIVE.
+Other initiatives are exploring different angles. Focus on YOUR angle.
 
 ${formatInitiativeForAgent(currentInitiative)}
 
