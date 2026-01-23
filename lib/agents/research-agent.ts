@@ -196,9 +196,9 @@ export async function executeResearchCycle(config: ResearchAgentConfig): Promise
 
   // Tool: Signal done
   const doneTool = tool({
-    description: 'Signal that research is complete or you have exhausted useful avenues',
+    description: 'Signal that research is complete. ONLY call this when ALL phases are done. Do NOT call if phases remain incomplete.',
     inputSchema: z.object({
-      reason: z.string().describe('Why stopping - what you found or why further research is not productive'),
+      reason: z.string().describe('Summary of what was accomplished across all phases'),
     }),
     execute: async ({ reason }) => {
       onProgress?.({ type: 'research_cycle_done', reason });
@@ -213,10 +213,12 @@ export async function executeResearchCycle(config: ResearchAgentConfig): Promise
   const currentPhase = getCurrentPhase(doc);
   const donePhases = doc.phases.filter(p => p.status === 'done');
   const remainingPhases = doc.phases.filter(p => p.status !== 'done');
+  const allPhasesComplete = remainingPhases.length === 0 && donePhases.length > 0;
+
   const phaseContext = currentPhase
-    ? `CURRENT PHASE: [${currentPhase.id}] ${currentPhase.title}\nGoal: ${currentPhase.goal}`
-    : remainingPhases.length === 0 && donePhases.length > 0
-      ? 'All phases completed!'
+    ? `CURRENT PHASE: [${currentPhase.id}] ${currentPhase.title}\nGoal: ${currentPhase.goal}\n\nPHASE PROGRESS: ${donePhases.length}/${doc.phases.length} complete. ${remainingPhases.length} remaining.`
+    : allPhasesComplete
+      ? 'ALL PHASES COMPLETED! You may now call done.'
       : 'No phases defined';
 
   const systemPrompt = `You are a Research Agent. You search for information and update the document with findings.
