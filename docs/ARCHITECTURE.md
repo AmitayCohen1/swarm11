@@ -5,7 +5,7 @@
 A three-tier autonomous research system:
 
 ```
-User → Intake Agent → Cortex Orchestrator → Initiative Agents → Web Search
+User → Intake Agent → Cortex Orchestrator → ResearchQuestion Agents → Web Search
                               ↓
                     CortexDoc (Brain/Memory)
 ```
@@ -47,13 +47,13 @@ User → Intake Agent → Cortex Orchestrator → Initiative Agents → Web Sear
 ```
 PHASE 1: Initialize CortexDoc
     ↓
-PHASE 2: Generate 3 Initiatives (if none exist)
+PHASE 2: Generate 3 ResearchQuestions (if none exist)
     ↓
-PHASE 3: Execute Initiatives (sequential in v1)
+PHASE 3: Execute ResearchQuestions (sequential in v1)
     │
-    ├─→ Run initiative to completion
+    ├─→ Run question to completion
     │       ↓
-    │   Initiative Agent loop
+    │   ResearchQuestion Agent loop
     │       ↓
     └─→ Evaluate: continue / drill_down / spawn_new / synthesize
     ↓
@@ -65,8 +65,8 @@ PHASE 5: Synthesize Final Answer
 **Evaluation Decisions:**
 | Action | When |
 |--------|------|
-| `continue` | More pending initiatives to run |
-| `drill_down` | Initiative found something worth deeper exploration |
+| `continue` | More pending questions to run |
+| `drill_down` | ResearchQuestion found something worth deeper exploration |
 | `spawn_new` | Gap identified, need new angle |
 | `synthesize` | Sufficient evidence gathered |
 
@@ -75,9 +75,9 @@ Every `doc_updated` event triggers immediate DB persistence.
 
 ---
 
-### 3. Initiative Agent (`lib/agents/initiative-agent.ts`)
+### 3. ResearchQuestion Agent (`lib/agents/question-agent.ts`)
 
-**Purpose:** Execute one research initiative with enforced reasoning.
+**Purpose:** Execute one research question with enforced reasoning.
 
 **Strict Tool Flow:**
 ```
@@ -107,15 +107,15 @@ awaitingReasoning = false;
 | `edit_finding` | Update existing finding | When NOT awaiting reasoning |
 | `disqualify_finding` | Mark finding as invalid | When NOT awaiting reasoning |
 | `reflect` | Cycle-level reflection | When NOT awaiting reasoning |
-| `done` | Complete this initiative | When NOT awaiting reasoning |
+| `done` | Complete this question | When NOT awaiting reasoning |
 
 **Context Provided:**
 - Overall research objective
 - Success criteria (for whole research)
-- List of ALL sibling initiatives with status
+- List of ALL sibling questions with status
 - ALL previous search results (no truncation)
 - ALL previous reflections
-- Current initiative details (name, description, goal)
+- Current question details (name, description, goal)
 
 ---
 
@@ -126,8 +126,8 @@ awaitingReasoning = false;
 **Functions:**
 | Function | Purpose |
 |----------|---------|
-| `generateInitiatives()` | Create 3 research angles from objective |
-| `evaluateInitiatives()` | Decide next action after running initiatives |
+| `generateResearchQuestions()` | Create 3 research angles from objective |
+| `evaluateResearchQuestions()` | Decide next action after running questions |
 | `synthesizeFinalAnswer()` | Combine findings into final answer |
 | `adversarialReview()` | Challenge findings before synthesis |
 
@@ -145,16 +145,16 @@ interface CortexDoc {
   objective: string;
   successCriteria: string[];
   status: 'running' | 'synthesizing' | 'complete';
-  initiatives: Initiative[];
+  questions: ResearchQuestion[];
   cortexLog: CortexDecision[];
   finalAnswer?: string;
 }
 ```
 
-### Initiative
+### ResearchQuestion
 
 ```typescript
-interface Initiative {
+interface ResearchQuestion {
   id: string;                    // e.g., "init-abc123"
   name: string;                  // Short label: "Market Analysis"
   description: string;           // Why this matters
@@ -207,7 +207,7 @@ interface CycleReflection {
 
 ---
 
-## Memory Operations (`lib/utils/initiative-operations.ts`)
+## Memory Operations (`lib/utils/question-operations.ts`)
 
 ### Document Operations
 | Function | Purpose |
@@ -216,35 +216,35 @@ interface CycleReflection {
 | `serializeCortexDoc(doc)` | JSON.stringify for storage |
 | `parseCortexDoc(json)` | Parse and validate |
 
-### Initiative Operations
+### ResearchQuestion Operations
 | Function | Purpose |
 |----------|---------|
-| `addInitiative(doc, name, desc, goal)` | Add new initiative |
-| `startInitiative(doc, id)` | Set status to running |
-| `completeInitiative(doc, id, summary, confidence, rec)` | Mark done |
-| `getPendingInitiatives(doc)` | Get pending initiatives |
-| `getRunningInitiatives(doc)` | Get running initiatives |
+| `addResearchQuestion(doc, name, desc, goal)` | Add new question |
+| `startResearchQuestion(doc, id)` | Set status to running |
+| `completeResearchQuestion(doc, id, summary, confidence, rec)` | Mark done |
+| `getPendingResearchQuestions(doc)` | Get pending questions |
+| `getRunningResearchQuestions(doc)` | Get running questions |
 
 ### Finding Operations
 | Function | Purpose |
 |----------|---------|
-| `addFindingToInitiative(doc, initId, content, sources)` | Add finding |
-| `editFindingInInitiative(doc, initId, findingId, content)` | Update finding |
-| `disqualifyFindingInInitiative(doc, initId, findingId, reason)` | Invalidate |
+| `addFindingToResearchQuestion(doc, initId, content, sources)` | Add finding |
+| `editFindingInResearchQuestion(doc, initId, findingId, content)` | Update finding |
+| `disqualifyFindingInResearchQuestion(doc, initId, findingId, reason)` | Invalidate |
 
 ### Search/Reflection Operations
 | Function | Purpose |
 |----------|---------|
-| `addSearchResultToInitiative(doc, initId, query, answer, sources, reasoning)` | Record search |
-| `addReflectionToInitiative(doc, initId, cycle, learned, nextStep, status)` | Record reflection |
-| `hasQueryBeenRunInInitiative(doc, initId, query)` | Dedup check |
+| `addSearchResultToResearchQuestion(doc, initId, query, answer, sources, reasoning)` | Record search |
+| `addReflectionToResearchQuestion(doc, initId, cycle, learned, nextStep, status)` | Record reflection |
+| `hasQueryBeenRunInResearchQuestion(doc, initId, query)` | Dedup check |
 
 ### Formatting
 | Function | Purpose |
 |----------|---------|
 | `formatCortexDocForAgent(doc)` | Full doc summary for agents |
-| `formatInitiativeForAgent(initiative)` | Single initiative detail |
-| `getInitiativesSummary(doc)` | Quick status overview |
+| `formatResearchQuestionForAgent(question)` | Single question detail |
+| `getResearchQuestionsSummary(doc)` | Quick status overview |
 
 ---
 
@@ -296,9 +296,9 @@ interface CycleReflection {
    ↓
 4. Cortex Orchestrator
    ├─→ Initialize CortexDoc
-   ├─→ Generate initiatives
-   ├─→ For each initiative:
-   │       └─→ Initiative Agent loop (search → reason → ...)
+   ├─→ Generate questions
+   ├─→ For each question:
+   │       └─→ ResearchQuestion Agent loop (search → reason → ...)
    │       └─→ Save to DB after each step
    │       └─→ Emit SSE events
    ├─→ Evaluate after all complete
@@ -316,15 +316,15 @@ interface CycleReflection {
 | Event | Data |
 |-------|------|
 | `cortex_initialized` | `{ objective, successCriteria, version }` |
-| `initiative_started` | `{ initiativeId, name, goal }` |
-| `search_completed` | `{ initiativeId, query, answer, sources }` |
-| `reasoning_completed` | `{ initiativeId, reasoning }` |
-| `reflection_completed` | `{ initiativeId, learned, nextStep }` |
-| `initiative_completed` | `{ initiativeId, confidence, recommendation }` |
+| `question_started` | `{ questionId, name, goal }` |
+| `search_completed` | `{ questionId, query, answer, sources }` |
+| `reasoning_completed` | `{ questionId, reasoning }` |
+| `reflection_completed` | `{ questionId, learned, nextStep }` |
+| `question_completed` | `{ questionId, confidence, recommendation }` |
 | `review_started` | `{}` |
 | `review_completed` | `{ verdict, critique, missing }` |
 | `synthesizing_started` | `{}` |
-| `research_complete` | `{ totalInitiatives, totalFindings, confidence }` |
+| `research_complete` | `{ totalResearchQuestions, totalFindings, confidence }` |
 
 ### State Updates
 | Event | Data |
@@ -342,20 +342,20 @@ lib/
 │   ├── intake-agent.ts           # Intent clarification
 │   ├── cortex-agent.ts           # Generate/evaluate/synthesize
 │   ├── cortex-orchestrator.ts    # Full flow management
-│   └── initiative-agent.ts       # Single initiative execution
+│   └── question-agent.ts       # Single question execution
 ├── types/
-│   └── initiative-doc.ts         # Zod schemas + types
+│   └── question-doc.ts         # Zod schemas + types
 ├── tools/
 │   └── tavily-search.ts          # Web search (1 query max)
 └── utils/
-    └── initiative-operations.ts  # CortexDoc helpers
+    └── question-operations.ts  # CortexDoc helpers
 
 hooks/
 └── useChatAgent.ts               # SSE + React state
 
 components/chat/
 ├── ChatAgentView.tsx             # Main chat UI
-└── ResearchProgress.tsx          # Tabbed initiative view
+└── ResearchProgress.tsx          # Tabbed question view
 
 app/api/chat/
 ├── start/route.ts                # Create session
@@ -391,10 +391,10 @@ This ensures every search gets explicit reasoning about what was learned.
 
 **Problem:** Truncating history loses important context for decisions.
 
-**Solution:** Initiative agents receive:
+**Solution:** ResearchQuestion agents receive:
 - ALL previous search results
 - ALL previous reflections
-- Full objective and sibling initiative list
+- Full objective and sibling question list
 
 Memory is cheap. Wrong decisions are expensive.
 
@@ -416,6 +416,6 @@ User sees real-time progress. Crash recovery is automatic.
 - **Framework:** Next.js 15 (App Router)
 - **Database:** Neon PostgreSQL + Drizzle ORM
 - **Auth:** Clerk
-- **AI:** OpenAI GPT-4.1 (intake/cortex), GPT-4.1-mini (initiatives)
+- **AI:** OpenAI GPT-4.1 (intake/cortex), GPT-4.1-mini (questions)
 - **Search:** Tavily API
 - **UI:** Tailwind + Framer Motion

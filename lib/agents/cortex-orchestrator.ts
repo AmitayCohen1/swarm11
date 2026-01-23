@@ -2,7 +2,7 @@
  * Cortex Orchestrator
  *
  * Manages the complete execution flow of the Cortex architecture:
- * Intake → Generate Initiatives → Run Initiatives → Evaluate → Synthesize
+ * Intake → Generate ResearchQuestions → Run ResearchQuestions → Evaluate → Synthesize
  *
  * Handles:
  * - DB persistence (brain field in chatSessions)
@@ -15,25 +15,25 @@ import { chatSessions, searchQueries } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import type { ResearchBrief } from './intake-agent';
 import {
-  generateInitiatives,
-  evaluateInitiatives,
+  generateResearchQuestions,
+  evaluateResearchQuestions,
   synthesizeFinalAnswer,
   adversarialReview,
 } from './cortex-agent';
-import { runInitiativeToCompletion } from './initiative-agent';
-import type { CortexDoc } from '@/lib/types/initiative-doc';
+import { runResearchQuestionToCompletion } from './question-agent';
+import type { CortexDoc } from '@/lib/types/research-question';
 import {
   initializeCortexDoc,
   serializeCortexDoc,
   parseCortexDoc,
-  addInitiative,
-  startInitiative,
-  getPendingInitiatives,
-  getRunningInitiatives,
-  getCompletedInitiatives,
+  addResearchQuestion,
+  startResearchQuestion,
+  getPendingResearchQuestions,
+  getRunningResearchQuestions,
+  getCompletedResearchQuestions,
   addCortexDecision,
   setDocStatus,
-} from '@/lib/utils/initiative-operations';
+} from '@/lib/utils/question-operations';
 
 interface CortexOrchestratorConfig {
   chatSessionId: string;
@@ -47,7 +47,7 @@ interface CortexOrchestratorConfig {
 
 interface CortexOrchestratorResult {
   completed: boolean;
-  totalInitiatives: number;
+  totalResearchQuestions: number;
   totalCycles: number;
   creditsUsed: number;
   output: {
@@ -119,7 +119,7 @@ export async function executeCortexResearch(
   const emitProgress = async (eventOrType: string | { type: string; [key: string]: any }, data: any = {}) => {
     // Support both calling conventions:
     // emitProgress('type', { data }) - from orchestrator
-    // emitProgress({ type: 'type', ...data }) - from initiative agent
+    // emitProgress({ type: 'type', ...data }) - from question agent
     let event: { type: string; [key: string]: any };
 
     if (typeof eventOrType === 'string') {
@@ -174,7 +174,7 @@ export async function executeCortexResearch(
 
   if (existingDoc && existingDoc.version === 1) {
     log('PHASE1', 'Resuming from existing CortexDoc', {
-      initiatives: existingDoc.initiatives.length,
+      questions: existingDoc.questions.length,
       status: existingDoc.status
     });
     doc = existingDoc;
@@ -204,11 +204,11 @@ export async function executeCortexResearch(
 
   await checkAborted();
 
-  // Only generate if no initiatives exist
-  if (doc.initiatives.length === 0) {
-    log('PHASE2', `Generating ${INITIAL_INITIATIVES} initiatives...`);
+  // Only generate if no questions exist
+  if (doc.questions.length === 0) {
+    log('PHASE2', `Generating ${INITIAL_INITIATIVES} questions...`);
 
-    const genResult = await generateInitiatives({
+    const genResult = await generateResearchQuestions({
       doc,
       count: INITIAL_INITIATIVES,
       abortSignal,
@@ -219,11 +219,11 @@ export async function executeCortexResearch(
     totalCreditsUsed += genResult.creditsUsed;
     await saveDocToDb(doc);
 
-    log('PHASE2', `Generated ${genResult.initiativeIds.length} initiatives:`,
-      doc.initiatives.map(i => ({ id: i.id, name: i.name }))
+    log('PHASE2', `Generated ${genResult.questionIds.length} questions:`,
+      doc.questions.map(i => ({ id: i.id, name: i.name }))
     );
   } else {
-    log('PHASE2', `Using ${doc.initiatives.length} existing initiatives`);
+    log('PHASE2', `Using ${doc.questions.length} existing questions`);
   }
 
   emitProgress('doc_updated', { doc });
@@ -243,43 +243,43 @@ export async function executeCortexResearch(
     log('PHASE3', `──────────────────────────────────────────────────────────`);
     log('PHASE3', `EVAL ROUND ${evalRound}/${MAX_EVAL_ROUNDS}`);
 
-    // Get initiatives to run
-    const pending = getPendingInitiatives(doc);
-    const running = getRunningInitiatives(doc);
-    const completed = getCompletedInitiatives(doc);
+    // Get questions to run
+    const pending = getPendingResearchQuestions(doc);
+    const running = getRunningResearchQuestions(doc);
+    const completed = getCompletedResearchQuestions(doc);
 
-    log('PHASE3', 'Initiative status:', {
+    log('PHASE3', 'ResearchQuestion status:', {
       pending: pending.length,
       running: running.length,
       completed: completed.length,
       pendingIds: pending.map(i => i.id)
     });
 
-    // Run pending initiatives (v1: sequential)
+    // Run pending questions (v1: sequential)
     for (let idx = 0; idx < pending.length; idx++) {
-      const initiative = pending[idx];
+      const question = pending[idx];
       await checkAborted();
 
-      log('PHASE3', `┌─ INITIATIVE ${idx + 1}/${pending.length}: ${initiative.id}`);
-      log('PHASE3', `│  Name: ${initiative.name}`);
-      log('PHASE3', `│  Goal: ${initiative.goal}`);
+      log('PHASE3', `┌─ INITIATIVE ${idx + 1}/${pending.length}: ${question.id}`);
+      log('PHASE3', `│  Name: ${question.name}`);
+      log('PHASE3', `│  Goal: ${question.goal}`);
 
       // Mark as running
-      doc = startInitiative(doc, initiative.id);
+      doc = startResearchQuestion(doc, question.id);
       await saveDocToDb(doc);
 
-      emitProgress('initiative_started', {
-        initiativeId: initiative.id,
-        name: initiative.name,
-        goal: initiative.goal
+      emitProgress('question_started', {
+        questionId: question.id,
+        name: question.name,
+        goal: question.goal
       });
 
-      log('PHASE3', `│  Running initiative to completion...`);
+      log('PHASE3', `│  Running question to completion...`);
 
       // Run to completion
-      const initResult = await runInitiativeToCompletion({
+      const initResult = await runResearchQuestionToCompletion({
         doc,
-        initiativeId: initiative.id,
+        questionId: question.id,
         objective: doc.objective,
         successCriteria: doc.successCriteria,
         abortSignal,
@@ -296,8 +296,8 @@ export async function executeCortexResearch(
       await saveDocToDb(doc);
       emitProgress('doc_updated', { doc });
 
-      const completedInit = doc.initiatives.find(i => i.id === initiative.id);
-      log('PHASE3', `└─ INITIATIVE COMPLETE: ${initiative.id}`, {
+      const completedInit = doc.questions.find(i => i.id === question.id);
+      log('PHASE3', `└─ INITIATIVE COMPLETE: ${question.id}`, {
         findings: completedInit?.findings.length || 0,
         searches: initResult.queriesExecuted.length,
         confidence: completedInit?.confidence,
@@ -311,9 +311,9 @@ export async function executeCortexResearch(
 
     await checkAborted();
 
-    log('PHASE3', 'Evaluating initiatives...');
+    log('PHASE3', 'Evaluating questions...');
 
-    const evalResult = await evaluateInitiatives({
+    const evalResult = await evaluateResearchQuestions({
       doc,
       abortSignal,
       onProgress: emitProgress
@@ -335,19 +335,19 @@ export async function executeCortexResearch(
     }
 
     if (evalResult.nextAction.action === 'continue') {
-      // Continue running pending initiatives (will be picked up next loop)
-      if (getPendingInitiatives(doc).length === 0) {
-        log('PHASE3', 'No pending initiatives, forcing synthesis');
+      // Continue running pending questions (will be picked up next loop)
+      if (getPendingResearchQuestions(doc).length === 0) {
+        log('PHASE3', 'No pending questions, forcing synthesis');
         break;
       }
-      log('PHASE3', 'Decision: CONTINUE - running more initiatives');
+      log('PHASE3', 'Decision: CONTINUE - running more questions');
       continue;
     }
 
     if (evalResult.nextAction.action === 'drill_down') {
-      const { initiativeId, name, description, goal } = evalResult.nextAction;
-      log('PHASE3', `Decision: DRILL_DOWN from ${initiativeId}`, { name, description, goal });
-      doc = addInitiative(doc, name, description, goal, 5);
+      const { questionId, name, description, goal } = evalResult.nextAction;
+      log('PHASE3', `Decision: DRILL_DOWN from ${questionId}`, { name, description, goal });
+      doc = addResearchQuestion(doc, name, description, goal, 5);
       await saveDocToDb(doc);
       continue;
     }
@@ -355,7 +355,7 @@ export async function executeCortexResearch(
     if (evalResult.nextAction.action === 'spawn_new') {
       const { name, description, goal } = evalResult.nextAction;
       log('PHASE3', 'Decision: SPAWN_NEW', { name, description, goal });
-      doc = addInitiative(doc, name, description, goal, 5);
+      doc = addResearchQuestion(doc, name, description, goal, 5);
       await saveDocToDb(doc);
       continue;
     }
@@ -392,7 +392,7 @@ export async function executeCortexResearch(
     missing: reviewResult.missing
   });
 
-  // If review fails and we haven't hit max rounds, could add more initiatives
+  // If review fails and we haven't hit max rounds, could add more questions
   // For v1, we proceed to synthesis regardless
   if (reviewResult.verdict === 'fail') {
     log('PHASE4', 'Review FAILED - proceeding to synthesis anyway');
@@ -436,8 +436,8 @@ export async function executeCortexResearch(
   // COMPLETE
   // ============================================================
 
-  const completedInits = getCompletedInitiatives(doc);
-  const activeFindings = doc.initiatives.reduce(
+  const completedInits = getCompletedResearchQuestions(doc);
+  const activeFindings = doc.questions.reduce(
     (sum, i) => sum + i.findings.filter(f => f.status === 'active').length,
     0
   );
@@ -445,8 +445,8 @@ export async function executeCortexResearch(
   log('DONE', '══════════════════════════════════════════════════════════');
   log('DONE', '========== CORTEX RESEARCH COMPLETE ==========');
   log('DONE', 'Final stats:', {
-    totalInitiatives: doc.initiatives.length,
-    completedInitiatives: completedInits.length,
+    totalResearchQuestions: doc.questions.length,
+    completedResearchQuestions: completedInits.length,
     totalFindings: activeFindings,
     totalCycles,
     totalCreditsUsed,
@@ -454,15 +454,15 @@ export async function executeCortexResearch(
   });
 
   emitProgress('research_complete', {
-    totalInitiatives: doc.initiatives.length,
-    completedInitiatives: completedInits.length,
+    totalResearchQuestions: doc.questions.length,
+    completedResearchQuestions: completedInits.length,
     totalFindings: activeFindings,
     confidence: synthResult.confidence
   });
 
   return {
     completed: true,
-    totalInitiatives: doc.initiatives.length,
+    totalResearchQuestions: doc.questions.length,
     totalCycles,
     creditsUsed: totalCreditsUsed,
     output: {

@@ -8,7 +8,7 @@ import { executeCortexResearch } from '@/lib/agents/cortex-orchestrator';
 import {
   initializeCortexDoc,
   serializeCortexDoc
-} from '@/lib/utils/initiative-operations';
+} from '@/lib/utils/question-operations';
 
 export const maxDuration = 300; // 5 minutes
 

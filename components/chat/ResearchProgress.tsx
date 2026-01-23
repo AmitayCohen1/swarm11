@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import {
@@ -15,7 +15,6 @@ import {
   Loader2,
   ExternalLink,
   Search,
-  Lightbulb,
   ChevronRight,
 } from 'lucide-react';
 
@@ -43,7 +42,7 @@ interface CycleReflection {
   status: 'continue' | 'done';
 }
 
-interface Initiative {
+interface ResearchQuestion {
   id: string;
   name: string;
   description: string;
@@ -63,7 +62,7 @@ interface CortexDecision {
   id: string;
   timestamp: string;
   action: 'spawn' | 'drill_down' | 'kill' | 'synthesize';
-  initiativeId?: string;
+  questionId?: string;
   reasoning: string;
 }
 
@@ -71,7 +70,7 @@ interface CortexDoc {
   version: 1;
   objective: string;
   successCriteria: string[];
-  initiatives: Initiative[];
+  questions: ResearchQuestion[];
   cortexLog: CortexDecision[];
   status: 'running' | 'synthesizing' | 'complete';
   finalAnswer?: string;
@@ -79,7 +78,7 @@ interface CortexDoc {
 
 // Type guard to check if doc is CortexDoc
 function isCortexDoc(doc: any): doc is CortexDoc {
-  return doc && 'initiatives' in doc && 'cortexLog' in doc;
+  return doc && 'questions' in doc && 'cortexLog' in doc;
 }
 
 interface ResearchProgressProps {
@@ -89,7 +88,7 @@ interface ResearchProgressProps {
 
 /**
  * Inline Research Progress Component
- * Shows tabbed initiatives with consolidated cortex reasoning
+ * Shows tabbed questions with consolidated cortex reasoning
  */
 export default function ResearchProgress({ doc: rawDoc, className }: ResearchProgressProps) {
   // Only render for CortexDoc (v1) format
@@ -101,39 +100,37 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
   const doc = rawDoc;
 
   // Debug: log when component renders with doc
-  const totalSearches = doc.initiatives.reduce((sum, i) => sum + (i.searchResults?.length || 0), 0);
+  const totalSearches = doc.questions.reduce((sum, i) => sum + (i.searchResults?.length || 0), 0);
   console.log('[ResearchProgress] Rendering with:', {
-    initiatives: doc.initiatives.length,
+    questions: doc.questions.length,
     totalSearches,
     status: doc.status
   });
 
-  const [activeTab, setActiveTab] = useState<string | null>(
-    doc.initiatives[0]?.id || null
-  );
+  const [activeTab, setActiveTab] = useState<string | null>(null);
 
-  // Update active tab when initiatives change
-  if (activeTab && !doc.initiatives.find(i => i.id === activeTab)) {
-    const firstInit = doc.initiatives[0];
-    if (firstInit && activeTab !== firstInit.id) {
-      setActiveTab(firstInit.id);
+  // Update active tab when questions change
+  useEffect(() => {
+    if (doc.questions.length === 0) {
+      setActiveTab(null);
+      return;
     }
-  }
 
-  // Set active tab to first initiative if not set
-  if (!activeTab && doc.initiatives.length > 0) {
-    setActiveTab(doc.initiatives[0].id);
-  }
+    // If no active tab or active tab no longer exists, set to first question
+    if (!activeTab || !doc.questions.find(q => q.id === activeTab)) {
+      setActiveTab(doc.questions[0].id);
+    }
+  }, [doc.questions, activeTab]);
 
-  const activeInitiative = doc.initiatives.find(i => i.id === activeTab);
+  const activeResearchQuestion = doc.questions.find(q => q.id === activeTab);
 
-  // Build consolidated intro message for all initiatives
+  // Build consolidated intro message for all questions
   const buildIntroMessage = () => {
-    if (doc.initiatives.length === 0) return null;
+    if (doc.questions.length === 0) return null;
 
-    const parts = [`I'll explore ${doc.initiatives.length} research angle${doc.initiatives.length > 1 ? 's' : ''}:`];
+    const parts = [`I'll explore ${doc.questions.length} research angle${doc.questions.length > 1 ? 's' : ''}:`];
 
-    doc.initiatives.forEach((init, i) => {
+    doc.questions.forEach((init, i) => {
       parts.push(`\n${i + 1}. **${init.name}**`);
       parts.push(`   ${init.description}`);
       parts.push(`   → ${init.goal}`);
@@ -153,7 +150,7 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
         </p>
       </div>
 
-      {/* Consolidated Cortex Intro - One message introducing all initiatives */}
+      {/* Consolidated Cortex Intro - One message introducing all questions */}
       {introMessage && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -182,20 +179,20 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
         </motion.div>
       )}
 
-      {/* Initiative Tabs */}
-      {doc.initiatives.length > 0 && (
+      {/* ResearchQuestion Tabs */}
+      {doc.questions.length > 0 && (
         <div className="mb-4">
           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-            {doc.initiatives.map((initiative) => {
-              const isActive = initiative.id === activeTab;
-              const isDone = initiative.status === 'done';
-              const isRunning = initiative.status === 'running';
-              const name = initiative.name || 'Research';
+            {doc.questions.map((question) => {
+              const isActive = question.id === activeTab;
+              const isDone = question.status === 'done';
+              const isRunning = question.status === 'running';
+              const name = question.name || 'Research';
 
               return (
                 <button
-                  key={initiative.id}
-                  onClick={() => setActiveTab(initiative.id)}
+                  key={question.id}
+                  onClick={() => setActiveTab(question.id)}
                   className={cn(
                     "flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition-all",
                     isActive
@@ -215,14 +212,14 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
                     <Circle className="w-4 h-4" />
                   )}
                   <span className="max-w-[150px] truncate">{name}</span>
-                  {(initiative.searchResults?.length || 0) > 0 && (
+                  {(question.searchResults?.length || 0) > 0 && (
                     <span className={cn(
                       "text-xs px-1.5 py-0.5 rounded-full",
                       isActive
                         ? "bg-white/20 text-white/80 dark:bg-black/20 dark:text-black/60"
                         : "bg-slate-200 dark:bg-white/10 text-slate-500 dark:text-slate-400"
                     )}>
-                      {initiative.searchResults?.length || 0}
+                      {question.searchResults?.length || 0}
                     </span>
                   )}
                 </button>
@@ -232,58 +229,58 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
         </div>
       )}
 
-      {/* Active Initiative Content */}
-      {activeInitiative && (
+      {/* Active ResearchQuestion Content */}
+      {activeResearchQuestion && (
         <motion.div
-          key={activeInitiative.id}
+          key={activeResearchQuestion.id}
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.2 }}
           className="p-4 rounded-2xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10"
         >
-          {/* Initiative Header */}
+          {/* ResearchQuestion Header */}
           <div className="mb-4 pb-3 border-b border-slate-100 dark:border-white/5">
             <div className="flex items-center gap-2 mb-1">
               <h3 className="font-semibold text-slate-800 dark:text-slate-100">
-                {activeInitiative.name}
+                {activeResearchQuestion.name}
               </h3>
-              {activeInitiative.confidence && (
+              {activeResearchQuestion.confidence && (
                 <span className={cn(
                   "text-xs px-2 py-0.5 rounded-full font-medium",
-                  activeInitiative.confidence === 'high'
+                  activeResearchQuestion.confidence === 'high'
                     ? "bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-400"
-                    : activeInitiative.confidence === 'medium'
+                    : activeResearchQuestion.confidence === 'medium'
                       ? "bg-yellow-100 dark:bg-yellow-500/20 text-yellow-700 dark:text-yellow-400"
                       : "bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-slate-400"
                 )}>
-                  {activeInitiative.confidence} confidence
+                  {activeResearchQuestion.confidence} confidence
                 </span>
               )}
             </div>
-            {/* Description - why this initiative matters */}
+            {/* Description - why this question matters */}
             <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">
-              {activeInitiative.description}
+              {activeResearchQuestion.description}
             </p>
             {/* Goal - what we're looking to achieve */}
             <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              Goal: {activeInitiative.goal}
+              Goal: {activeResearchQuestion.goal}
             </p>
             <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
-              <span>{activeInitiative.cycles}/{activeInitiative.maxCycles} cycles</span>
-              <span>{activeInitiative.searchResults?.length || 0} searches</span>
-              <span>{activeInitiative.findings.filter(f => f.status !== 'disqualified').length} findings</span>
+              <span>{activeResearchQuestion.cycles}/{activeResearchQuestion.maxCycles} cycles</span>
+              <span>{activeResearchQuestion.searchResults?.length || 0} searches</span>
+              <span>{activeResearchQuestion.findings.filter(f => f.status !== 'disqualified').length} findings</span>
             </div>
           </div>
 
           {/* Research Timeline */}
           <div className="space-y-4">
-            {(activeInitiative.searchResults?.length || 0) === 0 && activeInitiative.status === 'running' && (
+            {(activeResearchQuestion.searchResults?.length || 0) === 0 && activeResearchQuestion.status === 'running' && (
               <p className="text-sm text-slate-400 dark:text-slate-500 italic text-center py-4">
                 Researching...
               </p>
             )}
 
-            {activeInitiative.searchResults?.map((sr, i) => (
+            {activeResearchQuestion.searchResults?.map((sr, i) => (
               <Collapsible key={i} defaultOpen={false}>
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
@@ -355,31 +352,8 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
               </Collapsible>
             ))}
 
-            {/* Show latest reflection */}
-            {activeInitiative.reflections && activeInitiative.reflections.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="p-3 rounded-xl bg-amber-50/50 dark:bg-amber-500/5 border border-amber-200/50 dark:border-amber-500/10"
-              >
-                <div className="flex items-start gap-2">
-                  <Lightbulb className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
-                  <div className="space-y-1">
-                    <p className="text-sm text-slate-700 dark:text-slate-300">
-                      <span className="font-medium">Learned: </span>
-                      {activeInitiative.reflections[activeInitiative.reflections.length - 1].learned}
-                    </p>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                      <span className="font-medium">Next: </span>
-                      {activeInitiative.reflections[activeInitiative.reflections.length - 1].nextStep}
-                    </p>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
             {/* Summary when done */}
-            {activeInitiative.status === 'done' && activeInitiative.summary && (
+            {activeResearchQuestion.status === 'done' && activeResearchQuestion.summary && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -387,7 +361,7 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
               >
                 <p className="text-sm text-green-700 dark:text-green-400">
                   <span className="font-medium">Summary: </span>
-                  {activeInitiative.summary}
+                  {activeResearchQuestion.summary}
                 </p>
               </motion.div>
             )}

@@ -10,7 +10,7 @@ interface Message {
   metadata?: any;
 }
 
-// CortexDoc types - Initiative-based research
+// CortexDoc types - ResearchQuestion-based research
 interface Finding {
   id: string;
   content: string;
@@ -34,7 +34,7 @@ interface CycleReflection {
   status: 'continue' | 'done';
 }
 
-interface Initiative {
+interface ResearchQuestion {
   id: string;
   name: string;
   description: string;
@@ -54,7 +54,7 @@ interface CortexDecision {
   id: string;
   timestamp: string;
   action: 'spawn' | 'drill_down' | 'kill' | 'synthesize';
-  initiativeId?: string;
+  questionId?: string;
   reasoning: string;
 }
 
@@ -62,7 +62,7 @@ interface CortexDoc {
   version: 1;
   objective: string;
   successCriteria: string[];
-  initiatives: Initiative[];
+  questions: ResearchQuestion[];
   cortexLog: CortexDecision[];
   status: 'running' | 'synthesizing' | 'complete';
   finalAnswer?: string;
@@ -293,9 +293,9 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
               objective: update.doc.objective
             });
           }
-          const initCount = update.doc?.initiatives?.length || 0;
-          const searchCount = update.doc?.initiatives?.reduce((sum, i) => sum + (i.searchResults?.length || 0), 0) || 0;
-          addEvent('doc_updated', 'Document updated', `${initCount} initiatives, ${searchCount} searches`, 'info');
+          const initCount = update.doc?.questions?.length || 0;
+          const searchCount = update.doc?.questions?.reduce((sum, i) => sum + (i.searchResults?.length || 0), 0) || 0;
+          addEvent('doc_updated', 'Document updated', `${initCount} questions, ${searchCount} searches`, 'info');
         }
 
         if (update.type === 'phase_added') {
@@ -427,14 +427,14 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
 
         // ========== NEW CORTEX EVENTS ==========
 
-        // Initiative search events
-        if (update.type === 'initiative_search_started') {
+        // ResearchQuestion search events
+        if (update.type === 'question_search_started') {
           setStage('searching');
           const queries = (update as any).queries || [];
           addEvent('search_started', 'Searching...', queries.map((q: any) => q.query || q).join(', ').substring(0, 60), 'search');
         }
 
-        if (update.type === 'initiative_search_completed') {
+        if (update.type === 'question_search_completed') {
           setStage(null);
           const completedQueries = (update as any).queries || [];
           addEvent('search_completed', `Search complete`, `${completedQueries.length} queries`, 'search');
@@ -452,32 +452,32 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           }
         }
 
-        // Initiative lifecycle events
-        if (update.type === 'initiative_started') {
+        // ResearchQuestion lifecycle events
+        if (update.type === 'question_started') {
           const name = (update as any).name || '';
-          addEvent('initiative_started', 'Initiative started', name.substring(0, 50), 'phase');
+          addEvent('question_started', 'ResearchQuestion started', name.substring(0, 50), 'phase');
         }
 
-        if (update.type === 'initiative_cycle_started') {
+        if (update.type === 'question_cycle_started') {
           const cycle = (update as any).cycle || 0;
           const name = (update as any).name || '';
-          addEvent('initiative_cycle', `Cycle ${cycle}`, name.substring(0, 40), 'phase');
+          addEvent('question_cycle', `Cycle ${cycle}`, name.substring(0, 40), 'phase');
         }
 
-        if (update.type === 'initiative_finding_added') {
+        if (update.type === 'question_finding_added') {
           addEvent('finding_added', 'Finding added', (update as any).content?.substring(0, 50), 'log');
         }
 
-        if (update.type === 'initiative_reflection') {
+        if (update.type === 'question_reflection') {
           const learned = (update as any).learned || '';
           const nextStep = (update as any).nextStep || '';
           addEvent('reflection', `Learned: ${learned.substring(0, 30)}`, nextStep.substring(0, 40), 'reflect');
         }
 
-        if (update.type === 'initiative_completed') {
+        if (update.type === 'question_completed') {
           const confidence = (update as any).confidence || '';
           const recommendation = (update as any).recommendation || '';
-          addEvent('initiative_done', `Initiative complete (${confidence})`, recommendation, 'complete');
+          addEvent('question_done', `ResearchQuestion complete (${confidence})`, recommendation, 'complete');
         }
 
         // Cortex decision events
@@ -485,13 +485,13 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           addEvent('cortex_init', 'Cortex initialized', (update as any).objective?.substring(0, 50), 'info');
         }
 
-        if (update.type === 'cortex_generating_initiatives') {
-          addEvent('cortex_gen', 'Generating initiatives', `Creating ${(update as any).count || 3} research angles`, 'plan');
+        if (update.type === 'cortex_generating_questions') {
+          addEvent('cortex_gen', 'Generating questions', `Creating ${(update as any).count || 3} research angles`, 'plan');
         }
 
-        if (update.type === 'cortex_initiatives_generated') {
+        if (update.type === 'cortex_questions_generated') {
           const count = (update as any).count || 0;
-          addEvent('cortex_ready', `${count} initiatives ready`, 'Starting research...', 'plan');
+          addEvent('cortex_ready', `${count} questions ready`, 'Starting research...', 'plan');
         }
 
         if (update.type === 'cortex_evaluating') {
@@ -509,9 +509,9 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           addEvent('synthesizing', 'Synthesizing answer', 'Combining all findings...', 'complete');
         }
 
-        if (update.type === 'initiative_spawned') {
+        if (update.type === 'question_spawned') {
           const name = (update as any).name || '';
-          addEvent('spawn', 'New initiative', name.substring(0, 50), 'plan');
+          addEvent('spawn', 'New question', name.substring(0, 50), 'plan');
         }
 
         if (update.type === 'extract_started') {

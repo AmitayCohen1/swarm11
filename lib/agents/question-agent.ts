@@ -1,32 +1,33 @@
 /**
- * Initiative Agent
+ * ResearchQuestion Agent
  *
- * Runs research→reflect loop for a single initiative/hypothesis.
- * Each initiative explores one angle of the research objective.
+ * Runs research→reflect loop for a single question/hypothesis.
+ * Each question explores one angle of the research objective.
  */
 
 import { generateText, tool } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { search } from '@/lib/tools/tavily-search';
-import type { CortexDoc, Initiative } from '@/lib/types/initiative-doc';
+import type { CortexDoc, ResearchQuestion } from '@/lib/types/research-question';
 import {
-  addFindingToInitiative,
-  editFindingInInitiative,
-  disqualifyFindingInInitiative,
-  addSearchResultToInitiative,
-  addReflectionToInitiative,
-  incrementInitiativeCycle,
-  completeInitiative,
-  formatInitiativeForAgent,
-  getInitiative,
-} from '@/lib/utils/initiative-operations';
+  addFindingToResearchQuestion,
+  editFindingInResearchQuestion,
+  disqualifyFindingInResearchQuestion,
+  addSearchResultToResearchQuestion,
+  addReflectionToResearchQuestion,
+  incrementResearchQuestionCycle,
+  completeResearchQuestion,
+  formatResearchQuestionForAgent,
+  getResearchQuestion,
+} from '@/lib/utils/question-operations';
+import { summarizeResearchQuestion } from './cortex-agent';
 
 // Logging helper
-const log = (initiativeId: string, message: string, data?: any) => {
+const log = (questionId: string, message: string, data?: any) => {
   const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
-  const shortId = initiativeId.substring(0, 12);
-  const prefix = `[Initiative ${timestamp}] [${shortId}]`;
+  const shortId = questionId.substring(0, 12);
+  const prefix = `[ResearchQuestion ${timestamp}] [${shortId}]`;
   if (data) {
     console.log(`${prefix} ${message}`, typeof data === 'string' ? data : JSON.stringify(data, null, 2));
   } else {
@@ -34,9 +35,9 @@ const log = (initiativeId: string, message: string, data?: any) => {
   }
 };
 
-interface InitiativeAgentConfig {
+interface ResearchQuestionAgentConfig {
   doc: CortexDoc;
-  initiativeId: string;
+  questionId: string;
   objective: string;
   successCriteria: string[];
   maxIterations?: number;
@@ -44,22 +45,22 @@ interface InitiativeAgentConfig {
   onProgress?: (update: any) => void;
 }
 
-interface InitiativeAgentResult {
+interface ResearchQuestionAgentResult {
   doc: CortexDoc;
-  shouldContinue: boolean;  // Whether to continue the initiative (more cycles)
+  shouldContinue: boolean;  // Whether to continue the question (more cycles)
   queriesExecuted: string[];
   creditsUsed: number;
 }
 
 /**
- * Execute a single cycle of research→reflect for an initiative
+ * Execute a single cycle of research→reflect for an question
  */
-export async function executeInitiativeCycle(
-  config: InitiativeAgentConfig
-): Promise<InitiativeAgentResult> {
+export async function executeResearchQuestionCycle(
+  config: ResearchQuestionAgentConfig
+): Promise<ResearchQuestionAgentResult> {
   const {
     doc: initialDoc,
-    initiativeId,
+    questionId,
     objective,
     successCriteria,
     maxIterations = 10,
@@ -72,9 +73,9 @@ export async function executeInitiativeCycle(
   let creditsUsed = 0;
   const queriesExecuted: string[] = [];
 
-  const initiative = getInitiative(doc, initiativeId);
-  if (!initiative) {
-    console.warn(`[InitiativeAgent] Initiative ${initiativeId} not found`);
+  const question = getResearchQuestion(doc, questionId);
+  if (!question) {
+    console.warn(`[ResearchQuestionAgent] ResearchQuestion ${questionId} not found`);
     return { doc, shouldContinue: false, queriesExecuted, creditsUsed };
   }
 
@@ -82,9 +83,9 @@ export async function executeInitiativeCycle(
     creditsUsed += Math.ceil((usage?.totalTokens || 0) / 1000);
   };
 
-  // Tool: Add finding to this initiative
+  // Tool: Add finding to this question
   const addFindingTool = tool({
-    description: 'Add a finding to this initiative. Each finding should be ONE short fact (1-2 lines).',
+    description: 'Add a finding to this question. Each finding should be ONE short fact (1-2 lines).',
     inputSchema: z.object({
       content: z.string().describe('The finding - keep it SHORT. Example: "NPR | Collin Campbell | SVP Podcasting | linkedin.com/in/collin"'),
       sourceUrl: z.string().optional().describe('Source URL if available'),
@@ -92,8 +93,8 @@ export async function executeInitiativeCycle(
     }),
     execute: async ({ content, sourceUrl, sourceTitle }) => {
       const sources = sourceUrl ? [{ url: sourceUrl, title: sourceTitle || sourceUrl }] : [];
-      doc = addFindingToInitiative(doc, initiativeId, content, sources);
-      onProgress?.({ type: 'initiative_finding_added', initiativeId, content });
+      doc = addFindingToResearchQuestion(doc, questionId, content, sources);
+      onProgress?.({ type: 'question_finding_added', questionId, content });
       return { success: true, message: `Added finding` };
     }
   });
@@ -106,8 +107,8 @@ export async function executeInitiativeCycle(
       content: z.string().describe('New content for the finding'),
     }),
     execute: async ({ findingId, content }) => {
-      doc = editFindingInInitiative(doc, initiativeId, findingId, content);
-      onProgress?.({ type: 'initiative_finding_edited', initiativeId, findingId });
+      doc = editFindingInResearchQuestion(doc, questionId, findingId, content);
+      onProgress?.({ type: 'question_finding_edited', questionId, findingId });
       return { success: true, message: `Edited ${findingId}` };
     }
   });
@@ -120,8 +121,8 @@ export async function executeInitiativeCycle(
       reason: z.string().describe('Why ruled out (e.g., "Just took new role", "Founded own company")'),
     }),
     execute: async ({ findingId, reason }) => {
-      doc = disqualifyFindingInInitiative(doc, initiativeId, findingId, reason);
-      onProgress?.({ type: 'initiative_finding_disqualified', initiativeId, findingId, reason });
+      doc = disqualifyFindingInResearchQuestion(doc, questionId, findingId, reason);
+      onProgress?.({ type: 'question_finding_disqualified', questionId, findingId, reason });
       return { success: true, message: `Disqualified ${findingId}: ${reason}` };
     }
   });
@@ -135,7 +136,7 @@ export async function executeInitiativeCycle(
     }),
     execute: async ({ learned, nextAction }) => {
       // Attach reasoning to the most recent search results that don't have reasoning yet
-      const init = getInitiative(doc, initiativeId);
+      const init = getResearchQuestion(doc, questionId);
       if (init && init.searchResults) {
         const updatedSearchResults = [...init.searchResults];
         // Find recent results without reasoning and add it
@@ -147,47 +148,47 @@ export async function executeInitiativeCycle(
         }
         doc = {
           ...doc,
-          initiatives: doc.initiatives.map(i =>
-            i.id === initiativeId ? { ...i, searchResults: updatedSearchResults } : i
+          questions: doc.questions.map(i =>
+            i.id === questionId ? { ...i, searchResults: updatedSearchResults } : i
           ),
         };
       }
 
-      onProgress?.({ type: 'initiative_search_reasoning', initiativeId, learned, nextAction });
+      onProgress?.({ type: 'question_search_reasoning', questionId, learned, nextAction });
       onProgress?.({ type: 'doc_updated', doc });
 
       return { success: true, learned, nextAction };
     }
   });
 
-  // Tool: Reflect - assess progress and decide next steps
+  // Tool: Reflect - assess progress and decide next steps (can also signal done)
   const reflectTool = tool({
-    description: 'Reflect on progress. Summarize what you learned and what you will do next.',
+    description: 'Reflect on progress. Set status="done" when research is complete (hypothesis resolved, novelty exhausted, or enough findings).',
     inputSchema: z.object({
       learned: z.string().describe('What you learned this cycle (e.g., "Found 3 podcast agencies with audio content")'),
-      nextStep: z.string().describe('What you will do next (e.g., "Will search for pricing info") or "Have enough findings, finishing"'),
+      nextStep: z.string().describe('What you will do next (e.g., "Will search for pricing info") or why you\'re done (e.g., "Have enough findings to answer the goal")'),
+      status: z.enum(['continue', 'done']).describe('continue=keep researching, done=this question is complete'),
       hypothesisStatus: z.enum(['confirming', 'rejecting', 'uncertain']).describe('Is the hypothesis being confirmed or rejected?'),
       noveltyRemaining: z.enum(['high', 'medium', 'low']).describe('How much new info can we still find?'),
-      nextSearch: z.string().optional().describe('The ONE next search to run (human-readable question). Leave empty if done. Good: "Which corporate training companies use audio content?" Bad: "corporate training audio companies list"'),
+      nextSearch: z.string().optional().describe('The ONE next search to run (only if status=continue). Human-readable question. Good: "Which corporate training companies use audio content?" Bad: "corporate training audio companies list"'),
     }),
-    execute: async ({ learned, nextStep, hypothesisStatus, noveltyRemaining, nextSearch }) => {
-      const shouldContinue = !!nextSearch && noveltyRemaining !== 'low';
-
-      // Save reflection to the initiative
-      doc = addReflectionToInitiative(
+    execute: async ({ learned, nextStep, status, hypothesisStatus, noveltyRemaining, nextSearch }) => {
+      // Save reflection to the question
+      doc = addReflectionToResearchQuestion(
         doc,
-        initiativeId,
+        questionId,
         cycleNumber,
         learned,
         nextStep,
-        shouldContinue ? 'continue' : 'done'
+        status
       );
 
       onProgress?.({
-        type: 'initiative_reflection',
-        initiativeId,
+        type: 'question_reflection',
+        questionId,
         learned,
         nextStep,
+        status,
         hypothesisStatus,
         noveltyRemaining,
         nextSearch
@@ -196,64 +197,109 @@ export async function executeInitiativeCycle(
       // Send doc update so UI shows reflection in real-time
       onProgress?.({ type: 'doc_updated', doc });
 
-      return { learned, nextStep, hypothesisStatus, noveltyRemaining, nextSearch };
-    }
-  });
+      // If done, call the summarize agent to create a comprehensive summary
+      if (status === 'done') {
+        log(questionId, 'Calling summarize agent...');
+        onProgress?.({ type: 'question_summarizing', questionId });
 
-  // Tool: Done - signal initiative is complete
-  const doneTool = tool({
-    description: 'Signal that this initiative is complete. Use when: hypothesis confirmed/rejected, novelty exhausted, or max cycles reached.',
-    inputSchema: z.object({
-      summary: z.string().describe('Summary of what was found'),
-      confidence: z.enum(['low', 'medium', 'high']).describe('How confident are we in the findings?'),
-      recommendation: z.enum(['promising', 'dead_end', 'needs_more']).describe('Should cortex pursue this angle further?'),
-    }),
-    execute: async ({ summary, confidence, recommendation }) => {
-      doc = completeInitiative(doc, initiativeId, summary, confidence, recommendation);
-      onProgress?.({
-        type: 'initiative_completed',
-        initiativeId,
-        summary,
-        confidence,
-        recommendation
-      });
-      return { done: true, summary, confidence, recommendation };
+        const summaryResult = await summarizeResearchQuestion({
+          doc,
+          questionId,
+          abortSignal,
+          onProgress
+        });
+
+        // Update doc with summary results
+        doc = completeResearchQuestion(
+          summaryResult.doc,
+          questionId,
+          summaryResult.summary,
+          summaryResult.confidence,
+          summaryResult.recommendation
+        );
+
+        creditsUsed += summaryResult.creditsUsed;
+
+        onProgress?.({
+          type: 'question_completed',
+          questionId,
+          summary: summaryResult.summary,
+          confidence: summaryResult.confidence,
+          recommendation: summaryResult.recommendation
+        });
+
+        onProgress?.({ type: 'doc_updated', doc });
+
+        return {
+          learned,
+          nextStep,
+          status,
+          done: true,
+          summary: summaryResult.summary,
+          confidence: summaryResult.confidence,
+          recommendation: summaryResult.recommendation
+        };
+      }
+
+      return { learned, nextStep, status, hypothesisStatus, noveltyRemaining, nextSearch };
     }
   });
 
   // Increment cycle counter
-  doc = incrementInitiativeCycle(doc, initiativeId);
-  const currentInitiative = getInitiative(doc, initiativeId)!;
-  const cycleNumber = currentInitiative.cycles;
+  doc = incrementResearchQuestionCycle(doc, questionId);
+  const currentResearchQuestion = getResearchQuestion(doc, questionId)!;
+  const cycleNumber = currentResearchQuestion.cycles;
 
-  log(initiativeId, `──── CYCLE ${cycleNumber}/${currentInitiative.maxCycles} START ────`);
-  log(initiativeId, `Name: ${currentInitiative.name}`);
-  log(initiativeId, `Description: ${currentInitiative.description}`);
-  log(initiativeId, `Goal: ${currentInitiative.goal}`);
-  log(initiativeId, `Current findings: ${currentInitiative.findings.length}`);
+  log(questionId, `──── CYCLE ${cycleNumber}/${currentResearchQuestion.maxCycles} START ────`);
+  log(questionId, `Name: ${currentResearchQuestion.name}`);
+  log(questionId, `Description: ${currentResearchQuestion.description}`);
+  log(questionId, `Goal: ${currentResearchQuestion.goal}`);
+  log(questionId, `Current findings: ${currentResearchQuestion.findings.length}`);
 
   // Check if max cycles reached
-  if (cycleNumber > currentInitiative.maxCycles) {
-    log(initiativeId, `MAX CYCLES REACHED - forcing completion`);
-    doc = completeInitiative(
+  if (cycleNumber > currentResearchQuestion.maxCycles) {
+    log(questionId, `MAX CYCLES REACHED - calling summarizer`);
+    onProgress?.({ type: 'question_summarizing', questionId });
+
+    const summaryResult = await summarizeResearchQuestion({
       doc,
-      initiativeId,
-      'Max cycles reached - stopping',
-      'low',
-      'needs_more'
+      questionId,
+      abortSignal,
+      onProgress
+    });
+
+    doc = completeResearchQuestion(
+      summaryResult.doc,
+      questionId,
+      summaryResult.summary,
+      summaryResult.confidence,
+      summaryResult.recommendation
     );
+
+    creditsUsed += summaryResult.creditsUsed;
+
+    onProgress?.({
+      type: 'question_completed',
+      questionId,
+      summary: summaryResult.summary,
+      confidence: summaryResult.confidence,
+      recommendation: summaryResult.recommendation
+    });
+
+    onProgress?.({ type: 'doc_updated', doc });
+
     return { doc, shouldContinue: false, queriesExecuted, creditsUsed };
   }
 
-  // Get sibling initiatives for context
-  const allInitiatives = doc.initiatives;
-  const siblingInfo = allInitiatives.map((init, i) => {
-    const isCurrent = init.id === initiativeId;
+  // Get sibling questions for context
+  const allResearchQuestions = doc.questions;
+  const siblingInfo = allResearchQuestions.map((init, i) => {
+    const isCurrent = init.id === questionId;
     const status = init.status === 'done' ? '✓' : init.status === 'running' ? '→' : '○';
     return `${status} ${i + 1}. ${init.name}${isCurrent ? ' (YOU)' : ''}`;
   }).join('\n');
 
-  const systemPrompt = `You are an Initiative Agent exploring ONE angle of a larger research effort.
+  const systemPrompt = `You are an ResearchQuestion Agent exploring ONE angle of a larger research effort.
 
 ═══════════════════════════════════════════════════════════════
 OVERALL OBJECTIVE: ${objective}
@@ -263,19 +309,19 @@ SUCCESS CRITERIA (for the whole research):
 ${successCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}
 
 ───────────────────────────────────────────────────────────────
-RESEARCH ANGLES (you are ONE of ${allInitiatives.length}):
+RESEARCH ANGLES (you are ONE of ${allResearchQuestions.length}):
 ${siblingInfo}
 ───────────────────────────────────────────────────────────────
 
 YOUR INITIATIVE:
-- Name: ${currentInitiative.name}
-- Description: ${currentInitiative.description}
-- Goal: ${currentInitiative.goal}
+- Name: ${currentResearchQuestion.name}
+- Description: ${currentResearchQuestion.description}
+- Goal: ${currentResearchQuestion.goal}
 
 Your job: Contribute findings that help achieve the OVERALL OBJECTIVE.
-Other initiatives are exploring different angles. Focus on YOUR angle.
+Other questions are exploring different angles. Focus on YOUR angle.
 
-${formatInitiativeForAgent(currentInitiative)}
+${formatResearchQuestionForAgent(currentResearchQuestion)}
 
 ---
 
@@ -283,21 +329,23 @@ YOUR WORKFLOW (search→reason→repeat):
 1. SEARCH - run ONE query at a time (not batches)
 2. SEARCH_REASONING (required) - explain what you learned and why it matters
 3. ADD FINDINGS - capture relevant facts (keep them SHORT)
-4. REFLECT - assess progress and decide the next search
+4. REFLECT - assess progress and decide the next search (or set status="done" to finish)
 5. Repeat steps 1-4 until goal achieved or novelty exhausted
-6. DONE - when you have enough findings
 
 CRITICAL: One search at a time. After EVERY search, call search_reasoning before doing anything else.
 
 REFLECT FORMAT - Be clear and concise:
 - learned: "Found 3 podcast production companies offering full audio services"
-- nextStep: "Will search for pricing and contact info" or "Have enough, finishing"
+- nextStep: "Will search for pricing and contact info" (or why you're done)
+- status: "continue" or "done"
 
-STOP CONDITIONS (call done when any is true):
+When status="done", a dedicated summarizer will analyze ALL your search results and create a comprehensive summary. You don't need to summarize yourself - just say why you're done.
+
+STOP CONDITIONS (set status="done" when any is true):
 - Research question is sufficiently answered
 - No new useful information is being found (novelty exhausted)
 - You've gathered enough findings (5-10 solid ones)
-- Cycle ${cycleNumber}/${currentInitiative.maxCycles} - approaching limit
+- Cycle ${cycleNumber}/${currentResearchQuestion.maxCycles} - approaching limit
 
 FINDINGS - BE CONCISE:
 GOOD: "NPR | Collin Campbell | SVP Podcasting | linkedin.com/in/collin"
@@ -311,20 +359,20 @@ Good: "Which podcast production companies offer fact-checking services?"
 Bad: "podcast fact-checking companies list"
 
 PREVIOUS QUERIES (avoid repeating):
-${(currentInitiative.searchResults || []).slice(-10).map(sr => sr.query).join('\n') || '(none)'}`;
+${(currentResearchQuestion.searchResults || []).slice(-10).map(sr => sr.query).join('\n') || '(none)'}`;
 
   onProgress?.({
-    type: 'initiative_cycle_started',
-    initiativeId,
+    type: 'question_cycle_started',
+    questionId,
     cycle: cycleNumber,
-    name: currentInitiative.name,
-    goal: currentInitiative.goal
+    name: currentResearchQuestion.name,
+    goal: currentResearchQuestion.goal
   });
 
   const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
   messages.push({
     role: 'user',
-    content: `Execute cycle ${cycleNumber} for this initiative. Search for info, add findings, then reflect to decide if more research is needed.`
+    content: `Execute cycle ${cycleNumber} for this question. Search for info, add findings, then reflect to decide if more research is needed.`
   });
 
   let shouldContinue = true;
@@ -335,24 +383,25 @@ ${(currentInitiative.searchResults || []).slice(-10).map(sr => sr.query).join('\
   // Main loop
   for (let i = 0; i < maxIterations; i++) {
     if (abortSignal?.aborted) {
-      log(initiativeId, `ABORTED at iteration ${i}`);
+      log(questionId, `ABORTED at iteration ${i}`);
       break;
     }
 
-    log(initiativeId, `Iteration ${i + 1}/${maxIterations} - calling LLM...`);
+    log(questionId, `Iteration ${i + 1}/${maxIterations} - calling LLM...`);
 
     // After a search, ONLY allow search_reasoning (enforce search → reason flow)
-    const availableTools = awaitingReasoning
-      ? { search_reasoning: searchReasoningTool }
-      : {
-          search,
-          search_reasoning: searchReasoningTool,
-          add_finding: addFindingTool,
-          edit_finding: editFindingTool,
-          disqualify_finding: disqualifyFindingTool,
-          reflect: reflectTool,
-          done: doneTool,
-        };
+    const allTools = {
+      search,
+      search_reasoning: searchReasoningTool,
+      add_finding: addFindingTool,
+      edit_finding: editFindingTool,
+      disqualify_finding: disqualifyFindingTool,
+      reflect: reflectTool,
+    };
+
+    const reasoningOnlyTools = {
+      search_reasoning: searchReasoningTool,
+    };
 
     const result = await generateText({
       model,
@@ -360,15 +409,14 @@ ${(currentInitiative.searchResults || []).slice(-10).map(sr => sr.query).join('\
         ? `${systemPrompt}\n\n⚠️ You just completed a search. You MUST call search_reasoning NOW to explain what you learned.`
         : systemPrompt,
       messages,
-      tools: availableTools,
-      maxSteps: 1, // Execute ONE tool call then return - enforces search → reason flow
+      tools: awaitingReasoning ? reasoningOnlyTools : allTools,
       abortSignal
     });
 
     trackUsage(result.usage);
     iterationsDone++;
 
-    log(initiativeId, `LLM responded with ${result.toolCalls?.length || 0} tool calls`);
+    log(questionId, `LLM responded with ${result.toolCalls?.length || 0} tool calls`);
 
     const assistantActions: string[] = [];
     let reflectionResult: any = null;
@@ -379,7 +427,7 @@ ${(currentInitiative.searchResults || []).slice(-10).map(sr => sr.query).join('\
 
       if (tc.toolName === 'search') {
         const queries = tc.input?.queries || tc.args?.queries || [];
-        onProgress?.({ type: 'initiative_search_started', initiativeId, queries });
+        onProgress?.({ type: 'question_search_started', questionId, queries });
 
         const toolResult = result.toolResults?.find((tr: any) => tr.toolCallId === tc.toolCallId);
         const toolOutput = (toolResult as any)?.output || (toolResult as any)?.result || {};
@@ -388,12 +436,12 @@ ${(currentInitiative.searchResults || []).slice(-10).map(sr => sr.query).join('\
         for (const sr of searchResults) {
           queriesExecuted.push(sr.query);
           const sources = sr.results?.map((r: any) => ({ url: r.url, title: r.title })) || [];
-          doc = addSearchResultToInitiative(doc, initiativeId, sr.query, sr.answer || '', sources);
+          doc = addSearchResultToResearchQuestion(doc, questionId, sr.query, sr.answer || '', sources);
         }
 
         onProgress?.({
-          type: 'initiative_search_completed',
-          initiativeId,
+          type: 'question_search_completed',
+          questionId,
           count: searchResults.length,
           queries: searchResults.map((sr: any) => ({
             query: sr.query,
@@ -437,21 +485,20 @@ ${(currentInitiative.searchResults || []).slice(-10).map(sr => sr.query).join('\
       if (tc.toolName === 'reflect') {
         const toolResult = result.toolResults?.find((tr: any) => tr.toolCallId === tc.toolCallId);
         reflectionResult = (toolResult as any)?.output || (toolResult as any)?.result || {};
-        assistantActions.push(`Reflected: learned="${reflectionResult.learned}", next="${reflectionResult.nextStep}"`);
-      }
+        assistantActions.push(`Reflected: learned="${reflectionResult.learned}", next="${reflectionResult.nextStep}", status=${reflectionResult.status}`);
 
-      if (tc.toolName === 'done') {
-        const toolResult = result.toolResults?.find((tr: any) => tr.toolCallId === tc.toolCallId);
-        const doneResult = (toolResult as any)?.output || (toolResult as any)?.result || {};
-        shouldContinue = false;
-        doneSignaled = true;
-        assistantActions.push(`Done: ${doneResult.summary}`);
+        // Check if reflect signaled done
+        if (reflectionResult.status === 'done' || reflectionResult.done) {
+          shouldContinue = false;
+          doneSignaled = true;
+          assistantActions.push(`ResearchQuestion complete: ${reflectionResult.summary || 'Summarized by dedicated agent'}`);
+        }
       }
     }
 
     // Update conversation
     if (assistantActions.length > 0) {
-      log(initiativeId, `Actions: ${assistantActions.join(' | ')}`);
+      log(questionId, `Actions: ${assistantActions.join(' | ')}`);
       messages.push({
         role: 'assistant',
         content: assistantActions.join('\n')
@@ -459,7 +506,7 @@ ${(currentInitiative.searchResults || []).slice(-10).map(sr => sr.query).join('\
     }
 
     if (doneSignaled) {
-      log(initiativeId, `DONE signaled - exiting loop`);
+      log(questionId, `DONE signaled - exiting loop`);
       break;
     }
 
@@ -474,7 +521,7 @@ ${(currentInitiative.searchResults || []).slice(-10).map(sr => sr.query).join('\
       ) {
         messages.push({
           role: 'user',
-          content: 'Hypothesis appears resolved and novelty is low. Consider calling done to complete this initiative.'
+          content: 'Hypothesis appears resolved and novelty is low. Consider calling reflect with status="done" to complete this question.'
         });
       } else if (nextSearch) {
         messages.push({
@@ -484,7 +531,7 @@ ${(currentInitiative.searchResults || []).slice(-10).map(sr => sr.query).join('\
       } else {
         messages.push({
           role: 'user',
-          content: 'No next search suggested. If you have enough findings, call done.'
+          content: 'No next search suggested. If you have enough findings, call reflect with status="done".'
         });
       }
     } else if (awaitingReasoning) {
@@ -497,7 +544,7 @@ ${(currentInitiative.searchResults || []).slice(-10).map(sr => sr.query).join('\
       // No tool calls - prompt to continue
       messages.push({
         role: 'user',
-        content: 'Continue searching and adding findings, or call done if complete.'
+        content: 'Continue searching and adding findings, or call reflect with status="done" if complete.'
       });
     } else {
       messages.push({
@@ -507,9 +554,9 @@ ${(currentInitiative.searchResults || []).slice(-10).map(sr => sr.query).join('\
     }
   }
 
-  const finalInit = getInitiative(doc, initiativeId);
-  log(initiativeId, `──── CYCLE ${cycleNumber} COMPLETE ────`);
-  log(initiativeId, `Stats:`, {
+  const finalInit = getResearchQuestion(doc, questionId);
+  log(questionId, `──── CYCLE ${cycleNumber} COMPLETE ────`);
+  log(questionId, `Stats:`, {
     iterations: iterationsDone,
     queriesExecuted: queriesExecuted.length,
     findings: finalInit?.findings.length || 0,
@@ -517,8 +564,8 @@ ${(currentInitiative.searchResults || []).slice(-10).map(sr => sr.query).join('\
   });
 
   onProgress?.({
-    type: 'initiative_cycle_completed',
-    initiativeId,
+    type: 'question_cycle_completed',
+    questionId,
     cycle: cycleNumber,
     iterations: iterationsDone,
     queriesExecuted: queriesExecuted.length,
@@ -534,26 +581,26 @@ ${(currentInitiative.searchResults || []).slice(-10).map(sr => sr.query).join('\
 }
 
 /**
- * Run a full initiative until completion (multiple cycles)
+ * Run a full question until completion (multiple cycles)
  */
-export async function runInitiativeToCompletion(
-  config: InitiativeAgentConfig
-): Promise<InitiativeAgentResult> {
+export async function runResearchQuestionToCompletion(
+  config: ResearchQuestionAgentConfig
+): Promise<ResearchQuestionAgentResult> {
   let doc = config.doc;
   let totalCreditsUsed = 0;
   const allQueries: string[] = [];
 
-  const initiative = getInitiative(doc, config.initiativeId);
-  if (!initiative) {
+  const question = getResearchQuestion(doc, config.questionId);
+  if (!question) {
     return { doc, shouldContinue: false, queriesExecuted: [], creditsUsed: 0 };
   }
 
-  const maxCycles = initiative.maxCycles;
+  const maxCycles = question.maxCycles;
 
   for (let cycle = 0; cycle < maxCycles; cycle++) {
     if (config.abortSignal?.aborted) break;
 
-    const result = await executeInitiativeCycle({
+    const result = await executeResearchQuestionCycle({
       ...config,
       doc,
     });
@@ -567,17 +614,38 @@ export async function runInitiativeToCompletion(
     }
   }
 
-  // If we exhausted cycles without done being called, force completion
-  const finalInitiative = getInitiative(doc, config.initiativeId);
-  if (finalInitiative && finalInitiative.status !== 'done') {
-    const activeFindings = finalInitiative.findings.filter(f => f.status === 'active');
-    doc = completeInitiative(
+  // If we exhausted cycles without done being called, force completion with summarizer
+  const finalResearchQuestion = getResearchQuestion(doc, config.questionId);
+  if (finalResearchQuestion && finalResearchQuestion.status !== 'done') {
+    log(config.questionId, 'Max cycles reached - calling summarizer');
+    config.onProgress?.({ type: 'question_summarizing', questionId: config.questionId });
+
+    const summaryResult = await summarizeResearchQuestion({
       doc,
-      config.initiativeId,
-      `Max cycles reached with ${activeFindings.length} findings`,
-      activeFindings.length >= 3 ? 'medium' : 'low',
-      activeFindings.length >= 5 ? 'promising' : 'needs_more'
+      questionId: config.questionId,
+      abortSignal: config.abortSignal,
+      onProgress: config.onProgress
+    });
+
+    doc = completeResearchQuestion(
+      summaryResult.doc,
+      config.questionId,
+      summaryResult.summary,
+      summaryResult.confidence,
+      summaryResult.recommendation
     );
+
+    totalCreditsUsed += summaryResult.creditsUsed;
+
+    config.onProgress?.({
+      type: 'question_completed',
+      questionId: config.questionId,
+      summary: summaryResult.summary,
+      confidence: summaryResult.confidence,
+      recommendation: summaryResult.recommendation
+    });
+
+    config.onProgress?.({ type: 'doc_updated', doc });
   }
 
   return {

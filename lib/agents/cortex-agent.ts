@@ -2,27 +2,27 @@
  * Cortex Agent
  *
  * The orchestrating intelligence that:
- * 1. Generates diverse initiatives from the objective
- * 2. Evaluates initiative results
+ * 1. Generates diverse questions from the objective
+ * 2. Evaluates question results
  * 3. Decides next actions (drill down, spawn new, synthesize)
  */
 
 import { generateText, tool } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
-import type { CortexDoc, Initiative } from '@/lib/types/initiative-doc';
+import type { CortexDoc, ResearchQuestion } from '@/lib/types/research-question';
 import {
-  addInitiative,
+  addResearchQuestion,
   addCortexDecision,
   setDocStatus,
   setFinalAnswer,
   formatCortexDocForAgent,
-  getInitiativesSummary,
+  getResearchQuestionsSummary,
   getAllActiveFindings,
-  getCompletedInitiatives,
-  getRunningInitiatives,
-  getPendingInitiatives,
-} from '@/lib/utils/initiative-operations';
+  getCompletedResearchQuestions,
+  getRunningResearchQuestions,
+  getPendingResearchQuestions,
+} from '@/lib/utils/question-operations';
 
 // Logging helper
 const log = (fn: string, message: string, data?: any) => {
@@ -42,61 +42,61 @@ interface CortexAgentConfig {
 }
 
 // ============================================================
-// Initiative Generation
+// ResearchQuestion Generation
 // ============================================================
 
-interface GenerateInitiativesConfig {
+interface GenerateResearchQuestionsConfig {
   doc: CortexDoc;
   count?: number;
   abortSignal?: AbortSignal;
   onProgress?: (update: any) => void;
 }
 
-interface GenerateInitiativesResult {
+interface GenerateResearchQuestionsResult {
   doc: CortexDoc;
-  initiativeIds: string[];
+  questionIds: string[];
   creditsUsed: number;
 }
 
 /**
- * Generate diverse initiatives for the research objective
+ * Generate diverse questions for the research objective
  */
-export async function generateInitiatives(
-  config: GenerateInitiativesConfig
-): Promise<GenerateInitiativesResult> {
+export async function generateResearchQuestions(
+  config: GenerateResearchQuestionsConfig
+): Promise<GenerateResearchQuestionsResult> {
   const { doc: initialDoc, count = 3, abortSignal, onProgress } = config;
   const model = openai('gpt-4.1');
   let doc = initialDoc;
   let creditsUsed = 0;
-  const initiativeIds: string[] = [];
+  const questionIds: string[] = [];
 
-  log('generateInitiatives', `Generating ${count} initiatives for: ${doc.objective}`);
+  log('generateResearchQuestions', `Generating ${count} questions for: ${doc.objective}`);
 
-  const spawnInitiativeTool = tool({
-    description: 'Spawn a new research initiative to explore a specific angle',
+  const spawnResearchQuestionTool = tool({
+    description: 'Spawn a new research question to explore a specific angle',
     inputSchema: z.object({
-      name: z.string().describe('Short name for this initiative (2-5 words). E.g., "Corporate Training Providers", "Healthcare Communication Platforms"'),
-      description: z.string().describe('What this initiative is about and why it matters. E.g., "These companies produce large volumes of audio training content where accuracy is critical for compliance"'),
+      name: z.string().describe('Short name for this question (2-5 words). E.g., "Corporate Training Providers", "Healthcare Communication Platforms"'),
+      description: z.string().describe('What this question is about and why it matters. E.g., "These companies produce large volumes of audio training content where accuracy is critical for compliance"'),
       goal: z.string().describe('What we\'re looking to achieve/answer. E.g., "Find corporate training companies that use audio content and might need fact-checking tools"'),
       maxCycles: z.number().min(1).max(20).default(10).describe('Max research→reflect cycles (default 10)'),
     }),
     execute: async ({ name, description, goal, maxCycles }) => {
-      doc = addInitiative(doc, name, description, goal, maxCycles);
-      const newInit = doc.initiatives[doc.initiatives.length - 1];
-      initiativeIds.push(newInit.id);
+      doc = addResearchQuestion(doc, name, description, goal, maxCycles);
+      const newInit = doc.questions[doc.questions.length - 1];
+      questionIds.push(newInit.id);
 
-      doc = addCortexDecision(doc, 'spawn', `Spawning initiative: ${name} - ${description}`, newInit.id);
+      doc = addCortexDecision(doc, 'spawn', `Spawning question: ${name} - ${description}`, newInit.id);
 
       onProgress?.({
-        type: 'initiative_spawned',
-        initiativeId: newInit.id,
+        type: 'question_spawned',
+        questionId: newInit.id,
         name,
         description,
         goal,
         maxCycles
       });
 
-      return { success: true, initiativeId: newInit.id, name };
+      return { success: true, questionId: newInit.id, name };
     }
   });
 
@@ -111,10 +111,10 @@ ${doc.successCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}
 
 IMPORTANT CONTEXT:
 This is a LONG-RUNNING autonomous research process. The system will run for as long as needed -
-potentially hours - exploring each initiative thoroughly. There is no rush.
+potentially hours - exploring each question thoroughly. There is no rush.
 
 Take the time to think deeply about the BEST angles to explore. Quality matters more than speed.
-Each initiative will be researched extensively with multiple search cycles, so choose angles that
+Each question will be researched extensively with multiple search cycles, so choose angles that
 will yield the most valuable and relevant results.
 
 Think strategically:
@@ -126,78 +126,215 @@ Think strategically:
 
 YOUR TASK: Generate ${count} DIVERSE research angles to explore this objective.
 
-Each initiative needs THREE things:
-1. NAME - Short name (2-5 words) for this initiative
-2. DESCRIPTION - What this initiative is about and why it matters
+Each question needs THREE things:
+1. NAME - Short name (2-5 words) for this question
+2. DESCRIPTION - What this question is about and why it matters
 3. GOAL - What we're looking to achieve/answer
 
 EXAMPLE (for "find B2B customers for audio fact-checking tool"):
 
-Initiative 1:
+ResearchQuestion 1:
 - Name: "Corporate Training Providers"
 - Description: "These companies produce large volumes of audio training content where accuracy is critical for compliance and effective learning"
 - Goal: "Find corporate training companies that use audio content and might need fact-checking tools"
 
-Initiative 2:
+ResearchQuestion 2:
 - Name: "Healthcare Communication Platforms"
 - Description: "Healthcare platforms handle sensitive verbal information including medical advice where factual errors can have serious consequences"
 - Goal: "Identify healthcare communication companies processing audio that could benefit from fact verification"
 
-Initiative 3:
+ResearchQuestion 3:
 - Name: "Legal Deposition Services"
 - Description: "Legal firms and transcription services record and review depositions where accurate audio records are legally vital"
 - Goal: "Find legal deposition and transcription providers who might need audio fact-checking capabilities"
 
 RULES:
-- Each initiative must be DIFFERENT (cover different segments/approaches)
+- Each question must be DIFFERENT (cover different segments/approaches)
 - Description must explain WHAT this is and WHY it matters
 - Goal must be specific and achievable through research
-- Don't overlap too much between initiatives
+- Don't overlap too much between questions
 
-Generate exactly ${count} initiatives using spawn_initiative for each.`;
+Generate exactly ${count} questions using spawn_question for each.`;
 
-  onProgress?.({ type: 'cortex_generating_initiatives', count });
+  onProgress?.({ type: 'cortex_generating_questions', count });
 
   const result = await generateText({
     model,
     system: systemPrompt,
-    prompt: `Generate ${count} diverse initiatives to explore the research objective. Use spawn_initiative for each one.`,
-    tools: { spawn_initiative: spawnInitiativeTool },
+    prompt: `Generate ${count} diverse questions to explore the research objective. Use spawn_question for each one.`,
+    tools: { spawn_question: spawnResearchQuestionTool },
     abortSignal
   });
 
   creditsUsed = Math.ceil((result.usage?.totalTokens || 0) / 1000);
 
   onProgress?.({
-    type: 'cortex_initiatives_generated',
-    count: initiativeIds.length,
-    initiatives: doc.initiatives.filter(i => initiativeIds.includes(i.id)).map(i => ({
+    type: 'cortex_questions_generated',
+    count: questionIds.length,
+    questions: doc.questions.filter(i => questionIds.includes(i.id)).map(i => ({
       id: i.id,
       name: i.name,
       goal: i.goal
     }))
   });
 
-  return { doc, initiativeIds, creditsUsed };
+  return { doc, questionIds, creditsUsed };
+}
+
+// ============================================================
+// ResearchQuestion Summarization
+// ============================================================
+
+interface SummarizeResearchQuestionConfig {
+  doc: CortexDoc;
+  questionId: string;
+  abortSignal?: AbortSignal;
+  onProgress?: (update: any) => void;
+}
+
+interface SummarizeResearchQuestionResult {
+  doc: CortexDoc;
+  summary: string;
+  confidence: 'low' | 'medium' | 'high';
+  recommendation: 'promising' | 'dead_end' | 'needs_more';
+  creditsUsed: number;
+}
+
+/**
+ * Summarize a completed question - called when reflect says "done"
+ * This agent looks at ALL search results and findings to produce a comprehensive summary
+ */
+export async function summarizeResearchQuestion(
+  config: SummarizeResearchQuestionConfig
+): Promise<SummarizeResearchQuestionResult> {
+  const { doc: initialDoc, questionId, abortSignal, onProgress } = config;
+  const model = openai('gpt-4.1');
+  let doc = initialDoc;
+
+  const question = doc.questions.find(i => i.id === questionId);
+  if (!question) {
+    throw new Error(`ResearchQuestion ${questionId} not found`);
+  }
+
+  log('summarizeResearchQuestion', `Summarizing question: ${question.name}`, {
+    searchResults: question.searchResults?.length || 0,
+    findings: question.findings.length,
+    cycles: question.cycles
+  });
+
+  const summarizeTool = tool({
+    description: 'Deliver the question summary',
+    inputSchema: z.object({
+      summary: z.string().describe('Comprehensive summary of what was found in this question. Include key insights, patterns, and actionable information.'),
+      confidence: z.enum(['low', 'medium', 'high']).describe('How confident are we in these findings? low=sparse/uncertain, medium=decent coverage, high=strong evidence'),
+      recommendation: z.enum(['promising', 'dead_end', 'needs_more']).describe('promising=found valuable info worth pursuing, dead_end=this angle didnt pan out, needs_more=partial findings need deeper research'),
+    }),
+    execute: async ({ summary, confidence, recommendation }) => ({ summary, confidence, recommendation })
+  });
+
+  // Build context from all search results
+  const searchContext = (question.searchResults || []).map((sr, i) =>
+    `Search ${i + 1}: "${sr.query}"
+Answer: ${sr.answer}
+${sr.learned ? `Learned: ${sr.learned}` : ''}
+${sr.nextAction ? `Next planned: ${sr.nextAction}` : ''}
+Sources: ${sr.sources.map(s => s.url).join(', ') || 'none'}`
+  ).join('\n\n');
+
+  const findingsContext = question.findings
+    .filter(f => f.status !== 'disqualified')
+    .map((f, i) => `Finding ${i + 1}: ${f.content}`)
+    .join('\n');
+
+  const systemPrompt = `You are summarizing the results of a research question.
+
+OVERALL RESEARCH OBJECTIVE: ${doc.objective}
+
+THIS INITIATIVE:
+- Name: ${question.name}
+- Description: ${question.description}
+- Goal: ${question.goal}
+- Cycles completed: ${question.cycles}
+
+ALL SEARCH RESULTS (${question.searchResults?.length || 0} searches):
+${searchContext || 'No searches performed'}
+
+EXTRACTED FINDINGS (${question.findings.filter(f => f.status !== 'disqualified').length} findings):
+${findingsContext || 'No findings extracted'}
+
+---
+
+YOUR TASK: Create a comprehensive summary of this question's results.
+
+The summary should:
+1. Synthesize key insights from all the searches
+2. Highlight the most valuable/actionable information found
+3. Note any patterns or themes that emerged
+4. Acknowledge gaps or limitations
+5. Be specific - include names, numbers, details found
+
+Be thorough but concise. This summary will be used by the orchestrator to understand what this question discovered.`;
+
+  onProgress?.({ type: 'question_summarizing', questionId, name: question.name });
+
+  const result = await generateText({
+    model,
+    system: systemPrompt,
+    prompt: 'Summarize this question\'s findings. Use the summarize tool.',
+    tools: { summarize: summarizeTool },
+    toolChoice: { type: 'tool', toolName: 'summarize' },
+    abortSignal
+  });
+
+  const creditsUsed = Math.ceil((result.usage?.totalTokens || 0) / 1000);
+
+  const toolCall = result.toolCalls?.[0] as any;
+  const output = toolCall?.input || toolCall?.args || {
+    summary: 'ResearchQuestion completed but no summary extracted.',
+    confidence: 'low',
+    recommendation: 'needs_more'
+  };
+
+  log('summarizeResearchQuestion', `Summary complete for ${question.name}:`, {
+    confidence: output.confidence,
+    recommendation: output.recommendation,
+    summaryLength: output.summary.length
+  });
+
+  onProgress?.({
+    type: 'question_summarized',
+    questionId,
+    summary: output.summary,
+    confidence: output.confidence,
+    recommendation: output.recommendation
+  });
+
+  return {
+    doc,
+    summary: output.summary,
+    confidence: output.confidence,
+    recommendation: output.recommendation,
+    creditsUsed
+  };
 }
 
 // ============================================================
 // Evaluation & Decision Making
 // ============================================================
 
-interface EvaluateInitiativesConfig {
+interface EvaluateResearchQuestionsConfig {
   doc: CortexDoc;
   abortSignal?: AbortSignal;
   onProgress?: (update: any) => void;
 }
 
 type CortexNextAction =
-  | { action: 'continue'; initiativeIds: string[] }
-  | { action: 'drill_down'; initiativeId: string; name: string; description: string; goal: string }
+  | { action: 'continue'; questionIds: string[] }
+  | { action: 'drill_down'; questionId: string; name: string; description: string; goal: string }
   | { action: 'spawn_new'; name: string; description: string; goal: string }
   | { action: 'synthesize' };
 
-interface EvaluateInitiativesResult {
+interface EvaluateResearchQuestionsResult {
   doc: CortexDoc;
   nextAction: CortexNextAction;
   reasoning: string;
@@ -205,22 +342,22 @@ interface EvaluateInitiativesResult {
 }
 
 /**
- * Evaluate completed initiatives and decide next action
+ * Evaluate completed questions and decide next action
  */
-export async function evaluateInitiatives(
-  config: EvaluateInitiativesConfig
-): Promise<EvaluateInitiativesResult> {
+export async function evaluateResearchQuestions(
+  config: EvaluateResearchQuestionsConfig
+): Promise<EvaluateResearchQuestionsResult> {
   const { doc: initialDoc, abortSignal, onProgress } = config;
   const model = openai('gpt-4.1');
   let doc = initialDoc;
   let creditsUsed = 0;
 
-  const completed = getCompletedInitiatives(doc);
-  const running = getRunningInitiatives(doc);
-  const pending = getPendingInitiatives(doc);
+  const completed = getCompletedResearchQuestions(doc);
+  const running = getRunningResearchQuestions(doc);
+  const pending = getPendingResearchQuestions(doc);
   const allFindings = getAllActiveFindings(doc);
 
-  log('evaluateInitiatives', 'Evaluating state:', {
+  log('evaluateResearchQuestions', 'Evaluating state:', {
     completed: completed.length,
     running: running.length,
     pending: pending.length,
@@ -228,25 +365,25 @@ export async function evaluateInitiatives(
   });
 
   const decideTool = tool({
-    description: 'Decide what to do next based on initiative results',
+    description: 'Decide what to do next based on question results',
     inputSchema: z.object({
       decision: z.enum(['continue', 'drill_down', 'spawn_new', 'synthesize']).describe(
-        'continue=run more pending initiatives, drill_down=dive deeper into promising area, spawn_new=add new initiative, synthesize=we have enough, create final answer'
+        'continue=run more pending questions, drill_down=dive deeper into promising area, spawn_new=add new question, synthesize=we have enough, create final answer'
       ),
       reasoning: z.string().describe('Why this decision'),
 
       // For continue
-      initiativeIds: z.array(z.string()).optional().describe('Which pending initiatives to run (for continue)'),
+      questionIds: z.array(z.string()).optional().describe('Which pending questions to run (for continue)'),
 
       // For drill_down
-      drillDownInitiativeId: z.string().optional().describe('Which initiative to drill into'),
-      drillDownName: z.string().optional().describe('New focused initiative name (2-5 words)'),
+      drillDownResearchQuestionId: z.string().optional().describe('Which question to drill into'),
+      drillDownName: z.string().optional().describe('New focused question name (2-5 words)'),
       drillDownDescription: z.string().optional().describe('What this drill-down is about and why'),
       drillDownGoal: z.string().optional().describe('What we\'re looking to achieve with this drill-down'),
 
       // For spawn_new
-      newName: z.string().optional().describe('Name for new initiative (2-5 words)'),
-      newDescription: z.string().optional().describe('What this initiative is about and why'),
+      newName: z.string().optional().describe('Name for new question (2-5 words)'),
+      newDescription: z.string().optional().describe('What this question is about and why'),
       newGoal: z.string().optional().describe('What we\'re looking to achieve'),
     }),
     execute: async (params) => params
@@ -263,20 +400,20 @@ CURRENT STATE:
 ${formatCortexDocForAgent(doc)}
 
 SUMMARY:
-- Completed initiatives: ${completed.length}
-- Running initiatives: ${running.length}
-- Pending initiatives: ${pending.length}
+- Completed questions: ${completed.length}
+- Running questions: ${running.length}
+- Pending questions: ${pending.length}
 - Total active findings: ${allFindings.length}
 
-${getInitiativesSummary(doc)}
+${getResearchQuestionsSummary(doc)}
 
 ---
 
 EVALUATE and DECIDE what to do next:
 
 OPTIONS:
-1. CONTINUE - Run pending initiatives (if any remain)
-2. DRILL_DOWN - One initiative is promising, create a focused follow-up
+1. CONTINUE - Run pending questions (if any remain)
+2. DRILL_DOWN - One question is promising, create a focused follow-up
 3. SPAWN_NEW - Need to explore a completely new angle
 4. SYNTHESIZE - We have enough findings to answer the objective
 
@@ -284,7 +421,7 @@ DECISION CRITERIA:
 - Have we satisfied the success criteria?
 - Are the findings sufficient to answer the objective?
 - Is there a promising angle that deserves deeper exploration?
-- Are there gaps that need new initiatives?
+- Are there gaps that need new questions?
 
 Be decisive. Don't over-research - synthesize when you have enough.`;
 
@@ -308,15 +445,15 @@ Be decisive. Don't over-research - synthesize when you have enough.`;
 
   switch (params.decision) {
     case 'continue':
-      const idsToRun = params.initiativeIds || pending.map(i => i.id);
-      nextAction = { action: 'continue', initiativeIds: idsToRun };
-      doc = addCortexDecision(doc, 'spawn', `Continuing with initiatives: ${idsToRun.join(', ')}`);
+      const idsToRun = params.questionIds || pending.map(i => i.id);
+      nextAction = { action: 'continue', questionIds: idsToRun };
+      doc = addCortexDecision(doc, 'spawn', `Continuing with questions: ${idsToRun.join(', ')}`);
       break;
 
     case 'drill_down':
       nextAction = {
         action: 'drill_down',
-        initiativeId: params.drillDownInitiativeId || '',
+        questionId: params.drillDownResearchQuestionId || '',
         name: params.drillDownName || '',
         description: params.drillDownDescription || '',
         goal: params.drillDownGoal || ''
@@ -325,7 +462,7 @@ Be decisive. Don't over-research - synthesize when you have enough.`;
         doc,
         'drill_down',
         `Drilling down: ${params.drillDownName} - ${params.drillDownDescription}`,
-        params.drillDownInitiativeId
+        params.drillDownResearchQuestionId
       );
       break;
 
@@ -394,7 +531,7 @@ export async function synthesizeFinalAnswer(
   log('synthesizeFinalAnswer', 'Starting synthesis with:', {
     objective: doc.objective,
     totalFindings: allFindings.length,
-    initiatives: doc.initiatives.length
+    questions: doc.questions.length
   });
 
   const synthesizeTool = tool({
@@ -417,8 +554,8 @@ RESEARCH DOCUMENT:
 ${formatCortexDocForAgent(doc)}
 
 ALL FINDINGS (${allFindings.length} total):
-${allFindings.map(({ initiativeId, finding }) =>
-  `- [${initiativeId}] ${finding.content}`
+${allFindings.map(({ questionId, finding }) =>
+  `- [${questionId}] ${finding.content}`
 ).join('\n')}
 
 ---

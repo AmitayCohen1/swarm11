@@ -1,18 +1,18 @@
 /**
- * Initiative Operations - Utility functions for CortexDoc manipulation
+ * ResearchQuestion Operations - Utility functions for CortexDoc manipulation
  */
 
 import {
   CortexDoc,
   CortexDocSchema,
-  Initiative,
+  ResearchQuestion,
   CortexDecision,
   CortexAction,
-  createInitiative,
+  createResearchQuestion,
   createCortexDecision,
   createCortexDoc,
   generateFindingId,
-} from '../types/initiative-doc';
+} from '../types/research-question';
 import type { Finding, Source } from '../types/research-doc';
 
 // ============================================================
@@ -57,91 +57,91 @@ export function parseCortexDoc(json: string): CortexDoc | null {
 }
 
 // ============================================================
-// Initiative Operations
+// ResearchQuestion Operations
 // ============================================================
 
 /**
- * Add a new initiative to the document
+ * Add a new question to the document
  */
-export function addInitiative(
+export function addResearchQuestion(
   doc: CortexDoc,
   name: string,
   description: string,
   goal: string,
   maxCycles: number = 10
 ): CortexDoc {
-  const initiative = createInitiative(name, description, goal, maxCycles);
+  const question = createResearchQuestion(name, description, goal, maxCycles);
   return {
     ...doc,
-    initiatives: [...doc.initiatives, initiative],
+    questions: [...doc.questions, question],
   };
 }
 
 /**
- * Get an initiative by ID
+ * Get an question by ID
  */
-export function getInitiative(doc: CortexDoc, initiativeId: string): Initiative | undefined {
-  return doc.initiatives.find(i => i.id === initiativeId);
+export function getResearchQuestion(doc: CortexDoc, questionId: string): ResearchQuestion | undefined {
+  return doc.questions.find(i => i.id === questionId);
 }
 
 /**
- * Get all pending initiatives
+ * Get all pending questions
  */
-export function getPendingInitiatives(doc: CortexDoc): Initiative[] {
-  return doc.initiatives.filter(i => i.status === 'pending');
+export function getPendingResearchQuestions(doc: CortexDoc): ResearchQuestion[] {
+  return doc.questions.filter(i => i.status === 'pending');
 }
 
 /**
- * Get all running initiatives
+ * Get all running questions
  */
-export function getRunningInitiatives(doc: CortexDoc): Initiative[] {
-  return doc.initiatives.filter(i => i.status === 'running');
+export function getRunningResearchQuestions(doc: CortexDoc): ResearchQuestion[] {
+  return doc.questions.filter(i => i.status === 'running');
 }
 
 /**
- * Get all completed initiatives
+ * Get all completed questions
  */
-export function getCompletedInitiatives(doc: CortexDoc): Initiative[] {
-  return doc.initiatives.filter(i => i.status === 'done');
+export function getCompletedResearchQuestions(doc: CortexDoc): ResearchQuestion[] {
+  return doc.questions.filter(i => i.status === 'done');
 }
 
 /**
- * Update an initiative's status
+ * Update an question's status
  */
-export function updateInitiativeStatus(
+export function updateResearchQuestionStatus(
   doc: CortexDoc,
-  initiativeId: string,
-  status: Initiative['status']
+  questionId: string,
+  status: ResearchQuestion['status']
 ): CortexDoc {
   return {
     ...doc,
-    initiatives: doc.initiatives.map(i =>
-      i.id === initiativeId ? { ...i, status } : i
+    questions: doc.questions.map(i =>
+      i.id === questionId ? { ...i, status } : i
     ),
   };
 }
 
 /**
- * Start an initiative (set status to running)
+ * Start an question (set status to running)
  */
-export function startInitiative(doc: CortexDoc, initiativeId: string): CortexDoc {
-  return updateInitiativeStatus(doc, initiativeId, 'running');
+export function startResearchQuestion(doc: CortexDoc, questionId: string): CortexDoc {
+  return updateResearchQuestionStatus(doc, questionId, 'running');
 }
 
 /**
- * Complete an initiative with results
+ * Complete an question with results
  */
-export function completeInitiative(
+export function completeResearchQuestion(
   doc: CortexDoc,
-  initiativeId: string,
+  questionId: string,
   summary: string,
-  confidence: Initiative['confidence'],
-  recommendation: Initiative['recommendation']
+  confidence: ResearchQuestion['confidence'],
+  recommendation: ResearchQuestion['recommendation']
 ): CortexDoc {
   return {
     ...doc,
-    initiatives: doc.initiatives.map(i =>
-      i.id === initiativeId
+    questions: doc.questions.map(i =>
+      i.id === questionId
         ? { ...i, status: 'done' as const, summary, confidence, recommendation }
         : i
     ),
@@ -149,27 +149,27 @@ export function completeInitiative(
 }
 
 /**
- * Increment cycle count for an initiative
+ * Increment cycle count for an question
  */
-export function incrementInitiativeCycle(doc: CortexDoc, initiativeId: string): CortexDoc {
+export function incrementResearchQuestionCycle(doc: CortexDoc, questionId: string): CortexDoc {
   return {
     ...doc,
-    initiatives: doc.initiatives.map(i =>
-      i.id === initiativeId ? { ...i, cycles: i.cycles + 1 } : i
+    questions: doc.questions.map(i =>
+      i.id === questionId ? { ...i, cycles: i.cycles + 1 } : i
     ),
   };
 }
 
 // ============================================================
-// Finding Operations (within Initiatives)
+// Finding Operations (within ResearchQuestions)
 // ============================================================
 
 /**
- * Add a finding to an initiative
+ * Add a finding to an question
  */
-export function addFindingToInitiative(
+export function addFindingToResearchQuestion(
   doc: CortexDoc,
-  initiativeId: string,
+  questionId: string,
   content: string,
   sources: Source[] = []
 ): CortexDoc {
@@ -182,8 +182,8 @@ export function addFindingToInitiative(
 
   return {
     ...doc,
-    initiatives: doc.initiatives.map(i =>
-      i.id === initiativeId
+    questions: doc.questions.map(i =>
+      i.id === questionId
         ? { ...i, findings: [...i.findings, finding] }
         : i
     ),
@@ -191,18 +191,18 @@ export function addFindingToInitiative(
 }
 
 /**
- * Edit a finding within an initiative
+ * Edit a finding within an question
  */
-export function editFindingInInitiative(
+export function editFindingInResearchQuestion(
   doc: CortexDoc,
-  initiativeId: string,
+  questionId: string,
   findingId: string,
   content: string
 ): CortexDoc {
   return {
     ...doc,
-    initiatives: doc.initiatives.map(i =>
-      i.id === initiativeId
+    questions: doc.questions.map(i =>
+      i.id === questionId
         ? {
             ...i,
             findings: i.findings.map(f =>
@@ -215,18 +215,18 @@ export function editFindingInInitiative(
 }
 
 /**
- * Disqualify a finding within an initiative
+ * Disqualify a finding within an question
  */
-export function disqualifyFindingInInitiative(
+export function disqualifyFindingInResearchQuestion(
   doc: CortexDoc,
-  initiativeId: string,
+  questionId: string,
   findingId: string,
   reason: string
 ): CortexDoc {
   return {
     ...doc,
-    initiatives: doc.initiatives.map(i =>
-      i.id === initiativeId
+    questions: doc.questions.map(i =>
+      i.id === questionId
         ? {
             ...i,
             findings: i.findings.map(f =>
@@ -241,11 +241,11 @@ export function disqualifyFindingInInitiative(
 }
 
 /**
- * Add full search result to initiative
+ * Add full search result to question
  */
-export function addSearchResultToInitiative(
+export function addSearchResultToResearchQuestion(
   doc: CortexDoc,
-  initiativeId: string,
+  questionId: string,
   query: string,
   answer: string,
   sources: { url: string; title?: string }[] = [],
@@ -253,8 +253,8 @@ export function addSearchResultToInitiative(
 ): CortexDoc {
   return {
     ...doc,
-    initiatives: doc.initiatives.map(i =>
-      i.id === initiativeId
+    questions: doc.questions.map(i =>
+      i.id === questionId
         ? {
             ...i,
             searchResults: [...(i.searchResults || []), { query, answer, sources, reasoning }],
@@ -265,25 +265,25 @@ export function addSearchResultToInitiative(
 }
 
 /**
- * Check if a query has been run in an initiative
+ * Check if a query has been run in an question
  */
-export function hasQueryBeenRunInInitiative(
+export function hasQueryBeenRunInResearchQuestion(
   doc: CortexDoc,
-  initiativeId: string,
+  questionId: string,
   query: string
 ): boolean {
-  const initiative = getInitiative(doc, initiativeId);
-  if (!initiative) return false;
+  const question = getResearchQuestion(doc, questionId);
+  if (!question) return false;
   const normalized = query.toLowerCase().trim();
-  return (initiative.searchResults || []).some(sr => sr.query.toLowerCase().trim() === normalized);
+  return (question.searchResults || []).some(sr => sr.query.toLowerCase().trim() === normalized);
 }
 
 /**
- * Add a cycle reflection to an initiative
+ * Add a cycle reflection to an question
  */
-export function addReflectionToInitiative(
+export function addReflectionToResearchQuestion(
   doc: CortexDoc,
-  initiativeId: string,
+  questionId: string,
   cycle: number,
   learned: string,
   nextStep: string,
@@ -291,8 +291,8 @@ export function addReflectionToInitiative(
 ): CortexDoc {
   return {
     ...doc,
-    initiatives: doc.initiatives.map(i =>
-      i.id === initiativeId
+    questions: doc.questions.map(i =>
+      i.id === questionId
         ? {
             ...i,
             reflections: [...(i.reflections || []), { cycle, learned, nextStep, status }],
@@ -313,9 +313,9 @@ export function addCortexDecision(
   doc: CortexDoc,
   action: CortexAction,
   reasoning: string,
-  initiativeId?: string
+  questionId?: string
 ): CortexDoc {
-  const decision = createCortexDecision(action, reasoning, initiativeId);
+  const decision = createCortexDecision(action, reasoning, questionId);
   return {
     ...doc,
     cortexLog: [...doc.cortexLog, decision],
@@ -366,9 +366,9 @@ export function formatCortexDocForAgent(doc: CortexDoc): string {
     doc.successCriteria.forEach((c, i) => parts.push(`${i + 1}. ${c}`));
   }
 
-  if (doc.initiatives.length > 0) {
+  if (doc.questions.length > 0) {
     parts.push('\n## Research Angles');
-    for (const init of doc.initiatives) {
+    for (const init of doc.questions) {
       const statusIcon = init.status === 'done' ? '✓' : init.status === 'running' ? '→' : '○';
       parts.push(`\n### [${init.id}] ${statusIcon} ${init.name}`);
       parts.push(`**Description:** ${init.description}`);
@@ -399,7 +399,7 @@ export function formatCortexDocForAgent(doc: CortexDoc): string {
       }
     }
   } else {
-    parts.push('\n## Initiatives');
+    parts.push('\n## ResearchQuestions');
     parts.push('(none yet)');
   }
 
@@ -415,23 +415,23 @@ export function formatCortexDocForAgent(doc: CortexDoc): string {
 }
 
 /**
- * Format initiative for agent context (single initiative view)
+ * Format question for agent context (single question view)
  */
-export function formatInitiativeForAgent(initiative: Initiative): string {
+export function formatResearchQuestionForAgent(question: ResearchQuestion): string {
   const parts: string[] = [];
 
-  parts.push(`# Initiative: ${initiative.name}\n`);
-  parts.push(`**ID:** ${initiative.id}`);
-  parts.push(`**Description:** ${initiative.description}`);
-  parts.push(`**Goal:** ${initiative.goal}`);
-  parts.push(`**Status:** ${initiative.status}`);
-  parts.push(`**Cycles:** ${initiative.cycles}/${initiative.maxCycles}`);
+  parts.push(`# ResearchQuestion: ${question.name}\n`);
+  parts.push(`**ID:** ${question.id}`);
+  parts.push(`**Description:** ${question.description}`);
+  parts.push(`**Goal:** ${question.goal}`);
+  parts.push(`**Status:** ${question.status}`);
+  parts.push(`**Cycles:** ${question.cycles}/${question.maxCycles}`);
 
-  if (initiative.confidence) parts.push(`**Confidence:** ${initiative.confidence}`);
-  if (initiative.recommendation) parts.push(`**Recommendation:** ${initiative.recommendation}`);
+  if (question.confidence) parts.push(`**Confidence:** ${question.confidence}`);
+  if (question.recommendation) parts.push(`**Recommendation:** ${question.recommendation}`);
 
-  const activeFindings = initiative.findings.filter(f => f.status !== 'disqualified');
-  const disqualifiedFindings = initiative.findings.filter(f => f.status === 'disqualified');
+  const activeFindings = question.findings.filter(f => f.status !== 'disqualified');
+  const disqualifiedFindings = question.findings.filter(f => f.status === 'disqualified');
 
   if (activeFindings.length > 0 || disqualifiedFindings.length > 0) {
     parts.push('\n## Findings');
@@ -450,7 +450,7 @@ export function formatInitiativeForAgent(initiative: Initiative): string {
     parts.push('(none yet)');
   }
 
-  const searches = initiative.searchResults || [];
+  const searches = question.searchResults || [];
   if (searches.length > 0) {
     parts.push('\n## Search Results');
     searches.forEach((sr, i) => {
@@ -458,13 +458,16 @@ export function formatInitiativeForAgent(initiative: Initiative): string {
       if (sr.answer) {
         parts.push(`**Answer:** ${sr.answer}`);
       }
-      if (sr.reasoning) {
-        parts.push(`**Learned:** ${sr.reasoning}`);
+      if (sr.learned) {
+        parts.push(`**Learned:** ${sr.learned}`);
+      }
+      if (sr.nextAction) {
+        parts.push(`**Next:** ${sr.nextAction}`);
       }
     });
   }
 
-  const reflections = initiative.reflections || [];
+  const reflections = question.reflections || [];
   if (reflections.length > 0) {
     parts.push('\n## Previous Reflections');
     reflections.forEach(r => {
@@ -476,18 +479,18 @@ export function formatInitiativeForAgent(initiative: Initiative): string {
 }
 
 /**
- * Get summary of all initiatives
+ * Get summary of all questions
  */
-export function getInitiativesSummary(doc: CortexDoc): string {
+export function getResearchQuestionsSummary(doc: CortexDoc): string {
   const parts: string[] = [];
 
-  const pending = getPendingInitiatives(doc);
-  const running = getRunningInitiatives(doc);
-  const done = getCompletedInitiatives(doc);
+  const pending = getPendingResearchQuestions(doc);
+  const running = getRunningResearchQuestions(doc);
+  const done = getCompletedResearchQuestions(doc);
 
   parts.push(`**Research Angles:** ${done.length} done, ${running.length} running, ${pending.length} pending`);
 
-  for (const init of doc.initiatives) {
+  for (const init of doc.questions) {
     const statusIcon = init.status === 'done' ? '✓' : init.status === 'running' ? '→' : '○';
     const findingCount = init.findings.filter(f => f.status === 'active').length;
     parts.push(`- ${statusIcon} **${init.name}**: ${init.goal} (${findingCount} findings)`);
@@ -497,21 +500,21 @@ export function getInitiativesSummary(doc: CortexDoc): string {
 }
 
 /**
- * Collect all findings across all initiatives
+ * Collect all findings across all questions
  */
-export function getAllFindings(doc: CortexDoc): { initiativeId: string; finding: Finding }[] {
-  const results: { initiativeId: string; finding: Finding }[] = [];
-  for (const init of doc.initiatives) {
+export function getAllFindings(doc: CortexDoc): { questionId: string; finding: Finding }[] {
+  const results: { questionId: string; finding: Finding }[] = [];
+  for (const init of doc.questions) {
     for (const finding of init.findings) {
-      results.push({ initiativeId: init.id, finding });
+      results.push({ questionId: init.id, finding });
     }
   }
   return results;
 }
 
 /**
- * Collect all active findings across all initiatives
+ * Collect all active findings across all questions
  */
-export function getAllActiveFindings(doc: CortexDoc): { initiativeId: string; finding: Finding }[] {
+export function getAllActiveFindings(doc: CortexDoc): { questionId: string; finding: Finding }[] {
   return getAllFindings(doc).filter(item => item.finding.status === 'active');
 }

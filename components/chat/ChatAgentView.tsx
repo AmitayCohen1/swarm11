@@ -613,7 +613,7 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
   };
 
   // Show research progress inline when researching
-  const showResearchProgress = isResearching || (researchDoc && 'initiatives' in researchDoc && (researchDoc as any).initiatives?.length > 0);
+  const showResearchProgress = isResearching || (researchDoc && 'questions' in researchDoc && (researchDoc as any).questions?.length > 0);
 
   return (
     <div className={cn("h-screen w-full flex overflow-hidden font-sans selection:bg-blue-100 dark:selection:bg-blue-500/30", isDarkMode ? 'dark' : '')}>

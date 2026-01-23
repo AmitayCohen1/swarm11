@@ -1,6 +1,6 @@
 # Swarm11 - Autonomous Research Agent
 
-An autonomous research agent using the **Cortex Architecture**: a three-tier system where an Intake Agent clarifies user intent, a Cortex Orchestrator manages parallel research initiatives, and Initiative Agents execute focused searches with enforced reasoning cycles.
+An autonomous research agent using the **Cortex Architecture**: a three-tier system where an Intake Agent clarifies user intent, a Cortex Orchestrator manages parallel research questions, and ResearchQuestion Agents execute focused searches with enforced reasoning cycles.
 
 ## Architecture Overview
 
@@ -18,18 +18,18 @@ User Message
     ▼ (start_research)
 ┌─────────────────────────────────────────────────────────────────┐
 │  CORTEX ORCHESTRATOR                                            │
-│  - Generates 3 parallel initiatives                             │
-│  - Runs initiatives sequentially (v1)                           │
+│  - Generates 3 parallel questions                             │
+│  - Runs questions sequentially (v1)                           │
 │  - Evaluates progress: continue / drill_down / spawn / synth    │
 │  - Adversarial review before final synthesis                    │
 └─────────────────────────────────────────────────────────────────┘
     │
-    ▼ (for each initiative)
+    ▼ (for each question)
 ┌─────────────────────────────────────────────────────────────────┐
 │  INITIATIVE AGENT (gpt-4.1-mini)                                │
 │  - One search query at a time                                   │
 │  - Enforced: search → search_reasoning → search → ...           │
-│  - Full context: overall objective + sibling initiatives        │
+│  - Full context: overall objective + sibling questions        │
 │  - Saves to DB after every search and reasoning                 │
 └─────────────────────────────────────────────────────────────────┘
     │
@@ -37,9 +37,9 @@ User Message
 Real-time UI via SSE (ResearchProgress component)
 ```
 
-## Initiative Schema
+## ResearchQuestion Schema
 
-Each research initiative has:
+Each research question has:
 
 | Field | Purpose |
 |-------|---------|
@@ -62,7 +62,7 @@ The intake agent is explicitly forbidden from guessing:
 
 ### 2. Search → Reason → Search Flow
 
-Within each initiative, the agent MUST alternate:
+Within each question, the agent MUST alternate:
 ```
 search(1 query) → search_reasoning() → search(1 query) → search_reasoning() → ...
 ```
@@ -71,12 +71,12 @@ A state machine (`awaitingReasoning`) enforces this:
 - After `search()`: only `search_reasoning` tool is available
 - After `search_reasoning()`: all tools are available again
 
-### 3. Full Context for Initiatives
+### 3. Full Context for ResearchQuestions
 
-Each initiative agent receives:
+Each question agent receives:
 - Overall research objective
 - Success criteria for the whole research
-- List of all sibling initiatives (so it knows its place)
+- List of all sibling questions (so it knows its place)
 - ALL previous search results (no truncation)
 - ALL previous reflections
 
@@ -93,22 +93,22 @@ Every action saves immediately:
 lib/
 ├── agents/
 │   ├── intake-agent.ts           # Clarifies intent, creates research brief
-│   ├── cortex-agent.ts           # Generates initiatives, evaluates, synthesizes
+│   ├── cortex-agent.ts           # Generates questions, evaluates, synthesizes
 │   ├── cortex-orchestrator.ts    # Manages full research flow
-│   └── initiative-agent.ts       # Executes one initiative (search/reason loop)
+│   └── question-agent.ts       # Executes one question (search/reason loop)
 ├── types/
-│   └── initiative-doc.ts         # CortexDoc, Initiative, Finding schemas
+│   └── question-doc.ts         # CortexDoc, ResearchQuestion, Finding schemas
 ├── tools/
 │   └── tavily-search.ts          # Web search (max 1 query at a time)
 └── utils/
-    └── initiative-operations.ts  # CortexDoc manipulation helpers
+    └── question-operations.ts  # CortexDoc manipulation helpers
 
 hooks/
 └── useChatAgent.ts               # React hook for SSE + state management
 
 components/chat/
 ├── ChatAgentView.tsx             # Main chat UI
-└── ResearchProgress.tsx          # Real-time initiative progress (tabbed)
+└── ResearchProgress.tsx          # Real-time question progress (tabbed)
 
 app/api/chat/
 ├── start/route.ts                # Create session
@@ -126,13 +126,13 @@ The brain is stored as a `CortexDoc` JSON:
   objective: string,              // What we're researching
   successCriteria: string[],      // How we know we're done
   status: 'running' | 'synthesizing' | 'complete',
-  initiatives: Initiative[],       // Parallel research angles
+  questions: ResearchQuestion[],       // Parallel research angles
   cortexLog: CortexDecision[],    // Orchestrator decisions
   finalAnswer?: string            // Final synthesis
 }
 ```
 
-Each `Initiative`:
+Each `ResearchQuestion`:
 ```typescript
 {
   id: string,
@@ -156,11 +156,11 @@ Each `Initiative`:
 ```typescript
 type EventType =
   | 'cortex_initialized'      // CortexDoc created
-  | 'initiative_started'      // Beginning an initiative
+  | 'question_started'      // Beginning an question
   | 'search_completed'        // Search results received
   | 'reasoning_completed'     // Post-search reasoning done
   | 'reflection_completed'    // Cycle reflection done
-  | 'initiative_completed'    // Initiative finished
+  | 'question_completed'    // ResearchQuestion finished
   | 'review_started'          // Adversarial review beginning
   | 'review_completed'        // Review verdict
   | 'synthesizing_started'    // Writing final answer
@@ -216,7 +216,7 @@ npm run dev
 | Layer | Technology |
 |-------|------------|
 | Framework | Next.js 15, React 19 |
-| AI | AI SDK, GPT-4.1 (intake/cortex), GPT-4.1-mini (initiatives) |
+| AI | AI SDK, GPT-4.1 (intake/cortex), GPT-4.1-mini (questions) |
 | Search | Tavily AI |
 | Database | Neon PostgreSQL + Drizzle |
 | Auth | Clerk |

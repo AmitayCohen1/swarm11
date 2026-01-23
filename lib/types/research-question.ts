@@ -1,6 +1,6 @@
 /**
- * Initiative Document Types - Cortex Architecture
- * Parallel initiative-based research system
+ * ResearchQuestion Document Types - Cortex Architecture
+ * Parallel question-based research system
  */
 
 import { z } from 'zod';
@@ -10,22 +10,22 @@ import { FindingSchema, SourceSchema } from './research-doc';
 export type { Finding, Source } from './research-doc';
 
 /**
- * Initiative status
+ * ResearchQuestion status
  */
-export const InitiativeStatusSchema = z.enum(['pending', 'running', 'done']);
-export type InitiativeStatus = z.infer<typeof InitiativeStatusSchema>;
+export const ResearchQuestionStatusSchema = z.enum(['pending', 'running', 'done']);
+export type ResearchQuestionStatus = z.infer<typeof ResearchQuestionStatusSchema>;
 
 /**
- * Initiative confidence level
+ * ResearchQuestion confidence level
  */
-export const InitiativeConfidenceSchema = z.enum(['low', 'medium', 'high']).nullable();
-export type InitiativeConfidence = z.infer<typeof InitiativeConfidenceSchema>;
+export const ResearchQuestionConfidenceSchema = z.enum(['low', 'medium', 'high']).nullable();
+export type ResearchQuestionConfidence = z.infer<typeof ResearchQuestionConfidenceSchema>;
 
 /**
- * Initiative recommendation
+ * ResearchQuestion recommendation
  */
-export const InitiativeRecommendationSchema = z.enum(['promising', 'dead_end', 'needs_more']).nullable();
-export type InitiativeRecommendation = z.infer<typeof InitiativeRecommendationSchema>;
+export const ResearchQuestionRecommendationSchema = z.enum(['promising', 'dead_end', 'needs_more']).nullable();
+export type ResearchQuestionRecommendation = z.infer<typeof ResearchQuestionRecommendationSchema>;
 
 /**
  * Search result - query + answer + learned + nextAction
@@ -54,25 +54,25 @@ export const CycleReflectionSchema = z.object({
 export type CycleReflection = z.infer<typeof CycleReflectionSchema>;
 
 /**
- * Single initiative - explores one research angle
+ * Single question - explores one research angle
  */
-export const InitiativeSchema = z.object({
+export const ResearchQuestionSchema = z.object({
   id: z.string(),                                  // init_xxx
   name: z.string(),                                // Short name (e.g., "Corporate Training Providers")
-  description: z.string(),                         // What this initiative is about and why it matters
+  description: z.string(),                         // What this question is about and why it matters
   goal: z.string(),                                // What we're looking to achieve/answer
-  status: InitiativeStatusSchema.default('pending'),
+  status: ResearchQuestionStatusSchema.default('pending'),
   cycles: z.number().default(0),                   // How many research→reflect loops
   maxCycles: z.number().default(10),               // Cap (default 10)
   findings: z.array(FindingSchema).default([]),    // Accumulated facts
   searchResults: z.array(SearchResultSchema).default([]), // Full search results with answers
   reflections: z.array(CycleReflectionSchema).default([]), // What was learned each cycle
-  confidence: InitiativeConfidenceSchema.default(null),
-  recommendation: InitiativeRecommendationSchema.default(null),
+  confidence: ResearchQuestionConfidenceSchema.default(null),
+  recommendation: ResearchQuestionRecommendationSchema.default(null),
   summary: z.string().optional(),                  // Final summary when done
 });
 
-export type Initiative = z.infer<typeof InitiativeSchema>;
+export type ResearchQuestion = z.infer<typeof ResearchQuestionSchema>;
 
 /**
  * Cortex decision action types
@@ -87,7 +87,7 @@ export const CortexDecisionSchema = z.object({
   id: z.string(),
   timestamp: z.string(),
   action: CortexActionSchema,
-  initiativeId: z.string().optional(),
+  questionId: z.string().optional(),
   reasoning: z.string(),
 });
 
@@ -106,7 +106,7 @@ export const CortexDocSchema = z.object({
   version: z.literal(1),
   objective: z.string(),
   successCriteria: z.array(z.string()),
-  initiatives: z.array(InitiativeSchema).default([]),
+  questions: z.array(ResearchQuestionSchema).default([]),
   cortexLog: z.array(CortexDecisionSchema).default([]),  // History of cortex decisions
   status: CortexStatusSchema.default('running'),
   finalAnswer: z.string().optional(),
@@ -119,10 +119,10 @@ export type CortexDoc = z.infer<typeof CortexDocSchema>;
 // ============================================================
 
 /**
- * Generate initiative ID
+ * Generate question ID
  */
-export function generateInitiativeId(): string {
-  return `init_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+export function generateResearchQuestionId(): string {
+  return `q_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 }
 
 /**
@@ -144,16 +144,16 @@ export function generateFindingId(): string {
 // ============================================================
 
 /**
- * Create a new initiative
+ * Create a new question
  */
-export function createInitiative(
+export function createResearchQuestion(
   name: string,
   description: string,
   goal: string,
   maxCycles: number = 10
-): Initiative {
+): ResearchQuestion {
   return {
-    id: generateInitiativeId(),
+    id: generateResearchQuestionId(),
     name,
     description,
     goal,
@@ -174,13 +174,13 @@ export function createInitiative(
 export function createCortexDecision(
   action: CortexAction,
   reasoning: string,
-  initiativeId?: string
+  questionId?: string
 ): CortexDecision {
   return {
     id: generateCortexDecisionId(),
     timestamp: new Date().toISOString(),
     action,
-    initiativeId,
+    questionId,
     reasoning,
   };
 }
@@ -196,7 +196,7 @@ export function createCortexDoc(
     version: 1,
     objective,
     successCriteria,
-    initiatives: [],
+    questions: [],
     cortexLog: [],
     status: 'running',
   };
