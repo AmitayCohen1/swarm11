@@ -1,198 +1,174 @@
 # Swarm11 - Autonomous Research Agent
 
-An autonomous research agent that uses AI SDK 6's `ToolLoopAgent` with strict tool ordering to conduct strategic research. The agent plans initiatives, searches the web, reflects on findings, and delivers actionable intelligence.
+An autonomous research agent using the **Cortex Architecture**: a three-tier system where an Intake Agent clarifies user intent, a Cortex Orchestrator manages parallel research initiatives, and Initiative Agents execute focused searches with enforced reasoning cycles.
 
 ## Architecture Overview
 
 ```
 User Message
-    ↓
-Orchestrator Agent (Claude Sonnet 4.5)
-    ├─→ Chat Response (greetings)
-    ├─→ Ask Clarification (vague requests)
-    └─→ Start Research (clear objective)
-            ↓
-        Research Executor (gpt-5.1 + ToolLoopAgent)
-            ↓
-        plan() → search() → reflect() → [loop or finish()]
-            ↓
-        SSE Stream → UI (Event Log + Exploration List)
+    │
+    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  INTAKE AGENT (gpt-4.1)                                         │
+│  - Clarifies intent (inference-hostile: asks, never guesses)    │
+│  - Extracts objective + success criteria                        │
+│  - Decides: respond / ask clarification / start research        │
+└─────────────────────────────────────────────────────────────────┘
+    │
+    ▼ (start_research)
+┌─────────────────────────────────────────────────────────────────┐
+│  CORTEX ORCHESTRATOR                                            │
+│  - Generates 3 parallel initiatives                             │
+│  - Runs initiatives sequentially (v1)                           │
+│  - Evaluates progress: continue / drill_down / spawn / synth    │
+│  - Adversarial review before final synthesis                    │
+└─────────────────────────────────────────────────────────────────┘
+    │
+    ▼ (for each initiative)
+┌─────────────────────────────────────────────────────────────────┐
+│  INITIATIVE AGENT (gpt-4.1-mini)                                │
+│  - One search query at a time                                   │
+│  - Enforced: search → search_reasoning → search → ...           │
+│  - Full context: overall objective + sibling initiatives        │
+│  - Saves to DB after every search and reasoning                 │
+└─────────────────────────────────────────────────────────────────┘
+    │
+    ▼
+Real-time UI via SSE (ResearchProgress component)
 ```
 
-### Why Two Models?
+## Initiative Schema
 
-| Model | Role | Why |
-|-------|------|-----|
-| **Claude Sonnet 4.5** | Orchestrator | Better at understanding intent, asking clarifying questions |
-| **gpt-5.1** | Research Executor | Better at following strict tool workflows, cheaper for loops |
+Each research initiative has:
 
-## Tool Flow (Strict Ordering)
+| Field | Purpose |
+|-------|---------|
+| `name` | Short label (e.g., "Market Analysis") |
+| `description` | Why this angle matters |
+| `goal` | What we're looking to achieve |
+| `status` | `pending` / `running` / `done` |
+| `findings` | Facts discovered (with sources) |
+| `searchResults` | Full search history with reasoning |
+| `reflections` | Cycle-level learnings |
 
-The research executor enforces a strict tool calling sequence using AI SDK 6's `prepareStep`:
+## Key Design Principles
 
+### 1. Inference-Hostile Intake
+
+The intake agent is explicitly forbidden from guessing:
+- If anything is unclear → ASK
+- Friction is better than wrong research
+- Only starts when objective, purpose, and success criteria are ALL clear
+
+### 2. Search → Reason → Search Flow
+
+Within each initiative, the agent MUST alternate:
 ```
-┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────────────┐
-│  plan() │ ──→ │ search()│ ──→ │reflect()│ ──→ │ search() or     │
-└─────────┘     └─────────┘     └─────────┘     │ finish()        │
-                                                └─────────────────┘
-                                                        │
-                                                        ↓
-                                               hasToolCall('finish')
-                                                   stops loop
-```
-
-### Tools
-
-| Tool | Purpose | When Called |
-|------|---------|-------------|
-| `plan()` | Create 1-2 research initiatives | First, once |
-| `search()` | Web search via Tavily | After plan or reflect |
-| `reflect()` | Analyze findings, update initiatives | After every search |
-| `finish()` | Deliver final answer | When research complete |
-
-### Why This Flow?
-
-1. **plan()** forces the model to think before searching
-2. **reflect()** after every search prevents aimless searching
-3. **finish()** as explicit tool enables clean `hasToolCall('finish')` termination
-4. No shared mutable state - just tool calls and stop conditions
-
-## AI SDK 6 Patterns Used
-
-### 1. `hasToolCall()` for Clean Termination
-
-```typescript
-import { hasToolCall, stepCountIs } from 'ai';
-
-stopWhen: [hasToolCall('finish'), stepCountIs(100)]
+search(1 query) → search_reasoning() → search(1 query) → search_reasoning() → ...
 ```
 
-**Why:** No shared mutable state. The `finish` tool is the completion signal.
-**Docs:** [hasToolCall Reference](https://ai-sdk.dev/docs/reference/ai-sdk-core/has-tool-call)
+A state machine (`awaitingReasoning`) enforces this:
+- After `search()`: only `search_reasoning` tool is available
+- After `search_reasoning()`: all tools are available again
 
-### 2. `prepareStep()` for Tool Ordering
+### 3. Full Context for Initiatives
 
-```typescript
-prepareStep: async ({ steps }) => {
-  const lastTool = steps.flatMap(s => s.toolCalls || []).at(-1)?.toolName;
+Each initiative agent receives:
+- Overall research objective
+- Success criteria for the whole research
+- List of all sibling initiatives (so it knows its place)
+- ALL previous search results (no truncation)
+- ALL previous reflections
 
-  if (!hasPlan) return { activeTools: ['plan'], toolChoice: { type: 'tool', toolName: 'plan' } };
-  if (lastTool === 'search') return { activeTools: ['reflect'], toolChoice: { type: 'tool', toolName: 'reflect' } };
-  if (lastTool === 'plan') return { activeTools: ['search'], toolChoice: { type: 'tool', toolName: 'search' } };
-  if (lastTool === 'reflect') return { activeTools: ['search', 'finish'] }; // Model decides
+### 4. Real-Time Persistence
 
-  return {};
-}
-```
-
-**Why:** Enforces plan→search→reflect cycle without callback spaghetti.
-**Docs:** [Loop Control](https://ai-sdk.dev/docs/agents/loop-control)
-
-### 3. `onStepFinish()` for Observability Only
-
-```typescript
-onStepFinish: async (step) => {
-  // Logging, persistence, progress events
-  // NOT for control flow
-}
-```
-
-**Why:** Control flow belongs in `prepareStep`. `onStepFinish` is for side effects.
+Every action saves immediately:
+- Search completes → save to DB → emit SSE
+- Reasoning completes → save to DB → emit SSE
+- User sees progress in real-time
 
 ## File Structure
 
 ```
 lib/
 ├── agents/
-│   ├── orchestrator-chat-agent.ts   # Decision maker (Claude)
-│   └── research-orchestrator.ts   # Research loop (gpt-5.1 + ToolLoopAgent)
+│   ├── intake-agent.ts           # Clarifies intent, creates research brief
+│   ├── cortex-agent.ts           # Generates initiatives, evaluates, synthesizes
+│   ├── cortex-orchestrator.ts    # Manages full research flow
+│   └── initiative-agent.ts       # Executes one initiative (search/reason loop)
+├── types/
+│   └── initiative-doc.ts         # CortexDoc, Initiative, Finding schemas
 ├── tools/
-│   └── tavily-search.ts             # Web search tool
+│   └── tavily-search.ts          # Web search (max 1 query at a time)
 └── utils/
-    └── research-memory.ts           # Brain/memory serialization
+    └── initiative-operations.ts  # CortexDoc manipulation helpers
 
 hooks/
-└── useChatAgent.ts                  # React hook for SSE + state
+└── useChatAgent.ts               # React hook for SSE + state management
 
 components/chat/
-├── ChatAgentView.tsx                # Main chat UI
-├── ExplorationList.tsx              # Research initiatives panel
-└── EventLog.tsx                     # Real-time event timeline
+├── ChatAgentView.tsx             # Main chat UI
+└── ResearchProgress.tsx          # Real-time initiative progress (tabbed)
 
 app/api/chat/
-├── start/route.ts                   # Create session
-├── [id]/message/route.ts            # Send message (SSE)
-└── [id]/stop/route.ts               # Stop research
+├── start/route.ts                # Create session
+├── [id]/message/route.ts         # Send message (SSE stream)
+└── [id]/stop/route.ts            # Stop research
 ```
 
-## Key Files Explained
+## CortexDoc Structure
 
-### `research-orchestrator.ts`
-
-The core research loop. Key sections:
+The brain is stored as a `CortexDoc` JSON:
 
 ```typescript
-// Line ~586: Stop condition - no shared state needed
-stopWhen: [hasToolCall('finish'), stepCountIs(MAX_STEPS)],
-
-// Line ~590: Tool ordering via prepareStep
-prepareStep: async ({ steps }) => { ... }
-
-// Line ~524: finish() tool - completion signal
-const finishTool = tool({
-  description: 'Call when research is complete',
-  execute: async ({ confidenceLevel, finalAnswer }) => {
-    // Auto-complete remaining initiatives
-    // Emit final list state
-    return { confidenceLevel, finalAnswer };
-  }
-});
+{
+  version: 1,
+  objective: string,              // What we're researching
+  successCriteria: string[],      // How we know we're done
+  status: 'running' | 'synthesizing' | 'complete',
+  initiatives: Initiative[],       // Parallel research angles
+  cortexLog: CortexDecision[],    // Orchestrator decisions
+  finalAnswer?: string            // Final synthesis
+}
 ```
 
-### `useChatAgent.ts`
-
-React hook managing:
-- SSE connection for real-time updates
-- Message state
-- Research progress (objective, successCriteria, outputFormat)
-- Exploration list state
-- Event log
-
-### `ExplorationList.tsx`
-
-Shows research brief + initiatives:
-- **Objective:** What we're researching
-- **Success:** What counts as done
-- **Format:** How to present results
-- **Progress:** Visual progress bar
-- **Initiatives:** Task tree with subtasks
-
-### `EventLog.tsx`
-
-Real-time event timeline:
-- Plan started/completed
-- Search queries executed
-- Reflect decisions
-- Phase changes
+Each `Initiative`:
+```typescript
+{
+  id: string,
+  name: string,                   // Short label
+  description: string,            // Why this matters
+  goal: string,                   // What we're looking for
+  status: 'pending' | 'running' | 'done',
+  cycles: number,
+  maxCycles: number,
+  findings: Finding[],            // Facts with sources
+  searchResults: SearchResult[],  // Full search history
+  reflections: CycleReflection[], // Cycle learnings
+  confidence: 'low' | 'medium' | 'high' | null,
+  recommendation: 'promising' | 'dead_end' | 'needs_more' | null,
+  summary?: string
+}
+```
 
 ## SSE Event Types
 
 ```typescript
 type EventType =
-  | 'research_started'      // Research kicked off (includes full brief)
-  | 'plan_started'          // Creating initiatives
-  | 'plan_completed'        // Initiatives created
-  | 'search_started'        // Queries being executed
-  | 'search_completed'      // Results received
-  | 'reasoning_started'     // Analyzing findings
-  | 'reflect_completed'     // Decision made (continue/finish)
-  | 'list_updated'          // Exploration list changed
-  | 'list_operations'       // What changed (done, add, remove)
-  | 'synthesizing_started'  // Writing final answer
-  | 'research_complete'     // Done
-  | 'message'               // Chat message
-  | 'brain_update'          // Memory updated
-  | 'error';                // Error occurred
+  | 'cortex_initialized'      // CortexDoc created
+  | 'initiative_started'      // Beginning an initiative
+  | 'search_completed'        // Search results received
+  | 'reasoning_completed'     // Post-search reasoning done
+  | 'reflection_completed'    // Cycle reflection done
+  | 'initiative_completed'    // Initiative finished
+  | 'review_started'          // Adversarial review beginning
+  | 'review_completed'        // Review verdict
+  | 'synthesizing_started'    // Writing final answer
+  | 'research_complete'       // All done
+  | 'doc_updated'             // CortexDoc changed (triggers save)
+  | 'brain_update'            // Brain saved to DB
+  | 'message'                 // Chat message
+  | 'error';                  // Error occurred
 ```
 
 ## Setup
@@ -216,8 +192,7 @@ CLERK_SECRET_KEY=sk_...
 DATABASE_URL=postgresql://...
 
 # AI Models
-ANTHROPIC_API_KEY=sk-ant-...   # For orchestrator
-OPENAI_API_KEY=sk-...          # For research executor
+OPENAI_API_KEY=sk-...          # For all agents
 
 # Search
 TAVILY_API_KEY=tvly-...
@@ -241,55 +216,15 @@ npm run dev
 | Layer | Technology |
 |-------|------------|
 | Framework | Next.js 15, React 19 |
-| AI | AI SDK 6, Claude Sonnet 4.5, gpt-5.1 |
+| AI | AI SDK, GPT-4.1 (intake/cortex), GPT-4.1-mini (initiatives) |
 | Search | Tavily AI |
 | Database | Neon PostgreSQL + Drizzle |
 | Auth | Clerk |
 | Styling | Tailwind CSS |
 
-## Design Decisions
-
-### Why ToolLoopAgent over Custom Loop?
-
-We considered a custom loop but chose ToolLoopAgent because:
-1. Built-in streaming support
-2. Type-safe tool definitions
-3. `prepareStep` + `hasToolCall` provide clean control
-4. Less boilerplate for common patterns
-
-### Why `finish()` Tool Instead of Return Value?
-
-```typescript
-// ❌ Before: Shared mutable state
-let researchComplete = false;
-onStepFinish: () => { researchComplete = true; }
-stopWhen: () => researchComplete && noToolCalls
-
-// ✅ After: Clean stop condition
-stopWhen: hasToolCall('finish')
-```
-
-The `finish()` tool pattern is documented in AI SDK and avoids callback coordination.
-
-### Why Strict Tool Ordering?
-
-Without ordering, the model might:
-- Search repeatedly without reflecting
-- Skip planning
-- Never call finish
-
-`prepareStep` with `toolChoice` enforcement guarantees the cycle.
-
-### Why Auto-Complete Initiatives on Finish?
-
-The model might call `finish()` before marking all initiatives done. Rather than block this (which could cause loops), we auto-complete remaining items so the UI shows all checkmarks.
-
 ## Links
 
-- [AI SDK 6 Docs](https://ai-sdk.dev)
-- [hasToolCall Reference](https://ai-sdk.dev/docs/reference/ai-sdk-core/has-tool-call)
-- [Loop Control](https://ai-sdk.dev/docs/agents/loop-control)
-- [prepareStep](https://ai-sdk.dev/docs/agents/building-agents)
+- [AI SDK Docs](https://ai-sdk.dev)
 - [Tavily API](https://tavily.com)
 - [Neon](https://neon.tech)
 - [Clerk](https://clerk.com)
