@@ -105,7 +105,7 @@ onStepFinish: async (step) => {
 lib/
 ├── agents/
 │   ├── orchestrator-chat-agent.ts   # Decision maker (Claude)
-│   └── research-executor-agent.ts   # Research loop (gpt-5.1 + ToolLoopAgent)
+│   └── research-orchestrator.ts   # Research loop (gpt-5.1 + ToolLoopAgent)
 ├── tools/
 │   └── tavily-search.ts             # Web search tool
 └── utils/
@@ -127,7 +127,7 @@ app/api/chat/
 
 ## Key Files Explained
 
-### `research-executor-agent.ts`
+### `research-orchestrator.ts`
 
 The core research loop. Key sections:
 

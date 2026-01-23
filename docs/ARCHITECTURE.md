@@ -19,7 +19,7 @@ User → Orchestrator → Research Agent → Web Search
 - Decides: respond, ask clarification, or start research
 - Creates research briefs with objective + success criteria
 
-### 2. Research Executor (`lib/agents/research-executor-agent.ts`)
+### 2. Research Executor (`lib/agents/research-orchestrator.ts`)
 - Autonomous search loop: `search() → reflect() → repeat`
 - Stops when confidence threshold met
 - Saves findings to brain after each cycle
@@ -69,8 +69,8 @@ Orchestrator → formatForOrchestrator(memory) → LLM context
 | Event | Location | Action |
 |-------|----------|--------|
 | Research starts | `message/route.ts` | `createResearchMemory()` |
-| Search completes | `research-executor-agent.ts` | `addSearchToMemory()` |
-| Agent reflects | `research-executor-agent.ts` | `completeCycle()` + `startCycle()` |
+| Search completes | `research-orchestrator.ts` | `addSearchToMemory()` |
+| Agent reflects | `research-orchestrator.ts` | `completeCycle()` + `startCycle()` |
 
 ### Example: What a Cycle Looks Like
 
@@ -294,7 +294,7 @@ URL updates use `window.history.replaceState()` for shallow routing (no remount)
 lib/
 ├── agents/
 │   ├── orchestrator-chat-agent.ts   # Intent analysis
-│   └── research-executor-agent.ts   # Search loop
+│   └── research-orchestrator.ts   # Search loop
 ├── types/
 │   └── research-memory.ts           # Type definitions
 ├── utils/

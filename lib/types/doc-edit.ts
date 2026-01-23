@@ -1,26 +1,35 @@
 /**
- * Document Edit Types - Version 4
- * Item-based operations: add, remove, edit
+ * Document Edit Types - Version 7
+ * Question-based operations: add question, add finding, mark done, disqualify
  */
 
 import { z } from 'zod';
 import { SourceSchema, StrategySchema } from './research-doc';
 
 /**
- * Single edit operation on a section
+ * Single edit operation on the research document
  */
 export const DocEditSchema = z.object({
-  action: z.enum(['add_item', 'remove_item', 'edit_item']),
-  sectionTitle: z.string(),      // Section to operate on (created if doesn't exist)
-  itemId: z.string().optional(), // Required for remove/edit
-  content: z.string().optional(), // Required for add/edit
-  sources: z.array(SourceSchema).optional(), // For add/edit
+  action: z.enum([
+    'add_question',      // Add a new research question
+    'add_finding',       // Add a finding to a question
+    'edit_finding',      // Edit an existing finding
+    'remove_finding',    // Remove a finding
+    'disqualify_finding', // Mark a finding as disqualified
+    'mark_question_done', // Mark a question as done
+  ]),
+  questionId: z.string().optional(),   // Required for finding operations
+  questionText: z.string().optional(), // Required for add_question
+  findingId: z.string().optional(),    // Required for edit/remove/disqualify finding
+  content: z.string().optional(),      // Required for add/edit finding
+  sources: z.array(SourceSchema).optional(),
+  disqualifyReason: z.string().optional(), // Required for disqualify_finding
 });
 
 export type DocEdit = z.infer<typeof DocEditSchema>;
 
 /**
- * Output from the Reflection Agent
+ * Output from reflection/review
  */
 export const ReflectionOutputSchema = z.object({
   edits: z.array(DocEditSchema),
@@ -30,44 +39,3 @@ export const ReflectionOutputSchema = z.object({
 });
 
 export type ReflectionOutput = z.infer<typeof ReflectionOutputSchema>;
-
-/**
- * Raw findings from the Search Agent
- */
-export const SearchFindingsSchema = z.object({
-  queries: z.array(z.object({
-    query: z.string(),
-    purpose: z.string(),
-    answer: z.string(),
-    sources: z.array(SourceSchema),
-    status: z.enum(['success', 'error', 'no_results']),
-  })),
-  summary: z.string().optional(),
-});
-
-export type SearchFindings = z.infer<typeof SearchFindingsSchema>;
-
-/**
- * Input for the Search Agent
- */
-export const SearchTaskSchema = z.object({
-  task: z.string(),
-  context: z.string(),
-  objective: z.string(),
-  doneWhen: z.string(),
-  previousQueries: z.array(z.string()),
-});
-
-export type SearchTask = z.infer<typeof SearchTaskSchema>;
-
-/**
- * Input for the Reflection Agent
- */
-export const ReflectionInputSchema = z.object({
-  currentDoc: z.string(),
-  rawFindings: SearchFindingsSchema,
-  objective: z.string(),
-  doneWhen: z.string(),
-});
-
-export type ReflectionInput = z.infer<typeof ReflectionInputSchema>;

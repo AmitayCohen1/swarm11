@@ -1,5 +1,5 @@
 import { generateText } from 'ai';
-import { anthropic } from '@ai-sdk/anthropic';
+import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 
 export interface InitialStrategy {
@@ -10,8 +10,8 @@ export interface InitialStrategy {
 
 export interface ResearchBrief {
   objective: string;
-  doneWhen: string;
   initialStrategy: InitialStrategy;
+  initialQuestions: string[];  // 2-4 key questions to investigate
 }
 
 export interface OrchestratorDecision {
@@ -48,12 +48,12 @@ export async function analyzeUserMessage(
       // start_research fields
       researchBrief: z.object({
         objective: z.string().describe("Clear, specific research objective."),
-        doneWhen: z.string().describe("Concrete stopping condition. Research stops when this is satisfied OR proven impossible."),
         initialStrategy: z.object({
           approach: z.string().describe("High-level research approach (e.g., 'Compare pricing across top 3 competitors')"),
           rationale: z.string().describe("Why this approach makes sense for the objective"),
           nextActions: z.array(z.string()).min(1).max(3).describe("1-3 specific first steps to take")
-        }).describe("The initial plan for how to approach this research")
+        }).describe("The initial plan for how to approach this research"),
+        initialQuestions: z.array(z.string()).min(2).max(4).describe("2-4 key research questions to investigate. Each should be specific and answerable.")
       }).optional().describe('Required for start_research.'),
 
       reasoning: z.string().describe('Brief reasoning for your decision')
@@ -64,24 +64,29 @@ export async function analyzeUserMessage(
   const systemPrompt = `You are the Research Assistant Agent.
 Your job is to clarify what research the user wants and kick it off with a smart initial plan.
 
-Golden word is: "Resolve future tradeoffs" - we want to get as much information, that once the researcher start - he deeply understand the user needs and can make decisions based on the information on the fly.
-Think about 
-
 ---
 
 Before starting research, make sure you understand:
 
-1. What is the core QUESTION we are trying to answer?
-2. What will the user DO with the result?
-3. What does a GOOD answer look like?
+1. What exactly do you want to research? and why?
+2. What are you going to do with the result? 
+3. What output do you expect? What would success look like?
+
+Additional questions to ask:
 4. Resolve the future tradeoffs - what decisions you anticipate will come up during the research, that we can ask about now?
+5. Ask any question that will help you understand the user better.
+
+Dig deeper:
+- If they say "research X", ask what DECISION or ACTION this enables
+- Don't accept surface requests - understand the real problem behind the question
+- Ask what would make this actionable vs just interesting
 
 ---
 
 DECISION TYPES:
-1. text_input – greetings or open-ended clarification
-2. multi_choice_select – force a choice between 2–4 options
-3. start_research – when objective and stopping condition are clear
+1. text_input – greetings or open-ended questions - good for broad questions.
+2. multi_choice_select – when you want to give the user a choice between 2–4 options - good to resolve a fork in the conversation.
+3. start_research – when objective is clear
 
 ---
 
@@ -90,34 +95,37 @@ WHEN STARTING RESEARCH:
 You must define:
 
 OBJECTIVE
-- A single, clear question to answer
-- Reflects exactly what the user asked
+- State exactly what the user asked for in their words. Do NOT reframe or abstract.
+- If user says "find customers" → objective is "find customers", not "identify segments"
+- If user says "sales" → objective is about sales, not "market analysis"
+- Add clarity, not abstraction. Your job is to capture their intent, not improve it.
 
-DONE_WHEN (HARD GATE)
-- The condition that ends research
-- Objectively checkable
-- Includes success OR failure criteria
+INITIAL_QUESTIONS (2-4 questions)
+- Break down the objective into specific, answerable questions
+- Each question should target a different aspect of the research
+- Questions guide what findings we collect
+
+GOOD QUESTIONS:
+- "Who are the top DevRel leaders at media companies?"
+- "What is the pricing structure for CompanyX enterprise plan?"
+- "Which competitors offer similar features to ProductY?"
+
+BAD QUESTIONS:
+- Too vague: "What is out there?"
+- Too broad: "Everything about X?"
+- Not actionable: "Is this good?"
 
 INITIAL_STRATEGY
 - approach: Your high-level plan (1 sentence)
 - rationale: Why this approach makes sense
 - nextActions: 1-3 specific first searches to run
 
-GOOD INITIAL STRATEGIES:
-- "Start with official sources, then expand to reviews" → nextActions: ["Search CompanyX official pricing", "Search CompanyX pricing reviews"]
-- "Compare top players first, then dig into specifics" → nextActions: ["Find top 5 competitors in space", "Compare their core offerings"]
-- "Find authoritative sources, verify with multiple" → nextActions: ["Search for official documentation", "Search for expert analyses"]
-
-BAD INITIAL STRATEGIES:
-- Generic: "Search the web" or "Do research"
-- Too broad: "Find everything about X"
-- No clear first step
-
 ---
 
 RULES:
 - Ask only ONE question at a time
-- Be concise and direct
+- Questions must be very concise, short and direct (max 20 words)
+- Prefer multi_choice_select over text_input 
 - When starting research, provide a SMART initial strategy based on what you know about the user's goal
 `;
 
@@ -141,12 +149,12 @@ RULES:
     content: `${userMessage}
 
 ---
-If you have a clear objective AND stopping condition, start the research with a smart initial strategy.
+If you have a clear objective, start the research with a smart initial strategy.
 If you need ONE more piece of info, ask ONE focused question.`
   });
 
   const result = await generateText({
-    model: anthropic('claude-sonnet-4-20250514'),
+    model: openai('gpt-5.1'),
     system: systemPrompt,
     messages,
     tools: { decisionTool },

@@ -1,6 +1,6 @@
 /**
- * Research Document Types - Version 4
- * Item-based sections with add/remove/edit operations
+ * Research Document Types - Version 7
+ * Research Questions with findings
  */
 
 import { z } from 'zod';
@@ -16,26 +16,29 @@ export const SourceSchema = z.object({
 export type Source = z.infer<typeof SourceSchema>;
 
 /**
- * Individual item within a section
+ * Individual finding/result
  */
-export const SectionItemSchema = z.object({
+export const FindingSchema = z.object({
   id: z.string(),
-  content: z.string(),  // Markdown content
+  content: z.string(),  // Short fact
   sources: z.array(SourceSchema).default([]),
+  status: z.enum(['active', 'disqualified']).default('active'),
+  disqualifyReason: z.string().optional(),
 });
 
-export type SectionItem = z.infer<typeof SectionItemSchema>;
+export type Finding = z.infer<typeof FindingSchema>;
 
 /**
- * Section - contains items
+ * Research Question - a question we're trying to answer
  */
-export const SectionSchema = z.object({
+export const ResearchQuestionSchema = z.object({
   id: z.string(),
-  title: z.string(),
-  items: z.array(SectionItemSchema).default([]),
+  question: z.string(),  // e.g., "Who are the top DevRel candidates?"
+  status: z.enum(['open', 'done']).default('open'),
+  findings: z.array(FindingSchema).default([]),  // Results for this question
 });
 
-export type Section = z.infer<typeof SectionSchema>;
+export type ResearchQuestion = z.infer<typeof ResearchQuestionSchema>;
 
 /**
  * Strategy entry (single point in time)
@@ -62,14 +65,13 @@ export const StrategyLogEntrySchema = z.object({
 export type StrategyLogEntry = z.infer<typeof StrategyLogEntrySchema>;
 
 /**
- * Research Document v4
+ * Research Document v7
  */
 export const ResearchDocSchema = z.object({
-  version: z.literal(4),
+  version: z.literal(7),
   objective: z.string(),
-  doneWhen: z.string(),
-  sections: z.array(SectionSchema),
-  strategyLog: z.array(StrategyLogEntrySchema),  // Strategy as a log
+  researchQuestions: z.array(ResearchQuestionSchema).default([]),
+  strategyLog: z.array(StrategyLogEntrySchema).default([]),
   queriesRun: z.array(z.string()),
   lastUpdated: z.string(),
 });
@@ -77,17 +79,17 @@ export const ResearchDocSchema = z.object({
 export type ResearchDoc = z.infer<typeof ResearchDocSchema>;
 
 /**
- * Generate section ID
+ * Generate question ID
  */
-export function generateSectionId(): string {
-  return `sec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+export function generateQuestionId(): string {
+  return `q_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 }
 
 /**
- * Generate item ID
+ * Generate finding ID
  */
-export function generateItemId(): string {
-  return `item_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+export function generateFindingId(): string {
+  return `f_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 }
 
 /**
@@ -106,7 +108,7 @@ export function createInitialStrategyEntry(objective: string): StrategyLogEntry 
     timestamp: new Date().toISOString(),
     approach: 'Starting research',
     rationale: `Initial approach to investigate: ${objective}`,
-    nextActions: ['Perform initial search to understand the landscape'],
+    nextActions: ['Form initial research questions'],
   };
 }
 
@@ -118,5 +120,17 @@ export function createStrategyEntry(strategy: Strategy): StrategyLogEntry {
     id: generateStrategyId(),
     timestamp: new Date().toISOString(),
     ...strategy,
+  };
+}
+
+/**
+ * Create a new research question
+ */
+export function createResearchQuestion(question: string): ResearchQuestion {
+  return {
+    id: generateQuestionId(),
+    question,
+    status: 'open',
+    findings: [],
   };
 }

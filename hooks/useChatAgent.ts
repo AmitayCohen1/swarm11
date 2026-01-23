@@ -10,17 +10,20 @@ interface Message {
   metadata?: any;
 }
 
-// V4 Document-centric types - Item-based sections
-interface SectionItem {
+// V7 Document types - Research Questions with Findings
+interface Finding {
   id: string;
   content: string;
   sources: { url: string; title: string }[];
+  status?: 'active' | 'disqualified';
+  disqualifyReason?: string;
 }
 
-interface Section {
+interface ResearchQuestion {
   id: string;
-  title: string;
-  items: SectionItem[];
+  question: string;
+  status: 'open' | 'done';
+  findings: Finding[];
 }
 
 interface StrategyLogEntry {
@@ -33,8 +36,7 @@ interface StrategyLogEntry {
 
 interface ResearchDoc {
   objective: string;
-  doneWhen: string;
-  sections: Section[];
+  researchQuestions: ResearchQuestion[];
   strategyLog: StrategyLogEntry[];
 }
 
@@ -45,7 +47,6 @@ interface ProgressUpdate {
   decision?: string;
   reasoning?: string;
   objective?: string;
-  doneWhen?: string;
   iteration?: number;
   text?: string;
   creditsUsed?: number;
@@ -57,6 +58,8 @@ interface ProgressUpdate {
   reflection?: string;
   action?: string;
   question?: string;
+  questionId?: string;
+  findingId?: string;
   brain?: string;
   phase?: string;
   searchCount?: number;
@@ -69,9 +72,6 @@ interface ProgressUpdate {
   results?: any[];
   failed?: any[];
   doc?: ResearchDoc;
-  sectionTitle?: string;
-  section?: Section;
-  sectionsUpdated?: number;
   currentStrategy?: StrategyLogEntry;
   version?: number;
   shouldContinue?: boolean;
@@ -105,7 +105,6 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
   const [isResearching, setIsResearching] = useState(false);
   const [researchProgress, setResearchProgress] = useState<{
     objective?: string;
-    doneWhen?: string;
     iteration?: number;
   }>({});
   const [brain, setBrain] = useState<string>('');
@@ -163,16 +162,14 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
       if (session.brain) {
         try {
           const parsed = JSON.parse(session.brain);
-          if (parsed.version === 4) {
+          if (parsed.version === 7) {
             setResearchDoc({
               objective: parsed.objective,
-              doneWhen: parsed.doneWhen,
-              sections: parsed.sections,
-              strategyLog: parsed.strategyLog
+              researchQuestions: parsed.researchQuestions || [],
+              strategyLog: parsed.strategyLog || []
             });
             setResearchProgress({
-              objective: parsed.objective,
-              doneWhen: parsed.doneWhen
+              objective: parsed.objective
             });
           }
         } catch {
@@ -268,15 +265,23 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           if (update.doc) {
             setResearchDoc(update.doc);
             setResearchProgress({
-              objective: update.doc.objective,
-              doneWhen: update.doc.doneWhen
+              objective: update.doc.objective
             });
           }
-          addEvent('doc_updated', 'Document updated', `${update.sectionsUpdated || 0} sections updated`, 'info');
+          const questionCount = update.doc?.researchQuestions?.length || 0;
+          addEvent('doc_updated', 'Document updated', `${questionCount} research questions`, 'info');
         }
 
-        if (update.type === 'section_updated') {
-          addEvent('section_updated', `${update.sectionTitle} updated`, undefined, 'log');
+        if (update.type === 'question_added') {
+          addEvent('question_added', 'Question added', update.question as any, 'log');
+        }
+
+        if (update.type === 'finding_added') {
+          addEvent('finding_added', 'Finding added', undefined, 'log');
+        }
+
+        if (update.type === 'question_done') {
+          addEvent('question_done', 'Question completed', undefined, 'complete');
         }
 
         if (update.type === 'iteration_started') {
@@ -290,7 +295,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
 
         if (update.type === 'reflection_completed') {
           setStage(null);
-          addEvent('reflection_completed', 'Reflection complete', `${update.sectionsUpdated || 0} sections`, 'reflect');
+          addEvent('reflection_completed', 'Reflection complete', undefined, 'reflect');
 
           if (update.reasoning) {
             setMessages(prev => [...prev, {
@@ -366,7 +371,6 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           setStatus('researching');
           setResearchProgress({
             objective: update.objective,
-            doneWhen: update.doneWhen,
             iteration: 0
           });
           addEvent('research_started', 'Research started', update.objective?.substring(0, 50) + '...', 'info');
@@ -492,12 +496,11 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           if (update.brain) {
             try {
               const parsed = JSON.parse(update.brain);
-              if (parsed.version === 4) {
+              if (parsed.version === 7) {
                 setResearchDoc({
                   objective: parsed.objective,
-                  doneWhen: parsed.doneWhen,
-                  sections: parsed.sections,
-                  strategyLog: parsed.strategyLog
+                  researchQuestions: parsed.researchQuestions || [],
+                  strategyLog: parsed.strategyLog || []
                 });
               }
             } catch {

@@ -4,7 +4,7 @@ import { db } from '@/lib/db';
 import { chatSessions, users, researchSessions } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { analyzeUserMessage } from '@/lib/agents/intake-agent';
-import { executeResearch } from '@/lib/agents/research-executor-agent';
+import { executeResearch } from '@/lib/agents/research-orchestrator';
 import {
   createResearchDoc,
   serializeDoc
@@ -189,11 +189,11 @@ export async function POST(
             // POC: Credit checks disabled - free to use
             // TODO: Enable credit checks before production launch
 
-            // Initialize research document with initial strategy from orchestrator
+            // Initialize research document with initial strategy and questions from orchestrator
             const newDoc = createResearchDoc(
               researchBrief.objective,
-              researchBrief.doneWhen,
-              researchBrief.initialStrategy
+              researchBrief.initialStrategy,
+              researchBrief.initialQuestions
             );
             const serializedBrain = serializeDoc(newDoc);
 
