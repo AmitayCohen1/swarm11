@@ -4,6 +4,11 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import {
   Brain,
   CheckCircle2,
   Circle,
@@ -11,6 +16,7 @@ import {
   ExternalLink,
   Search,
   Lightbulb,
+  ChevronRight,
 } from 'lucide-react';
 
 // Types
@@ -87,10 +93,19 @@ interface ResearchProgressProps {
 export default function ResearchProgress({ doc: rawDoc, className }: ResearchProgressProps) {
   // Only render for CortexDoc (v1) format
   if (!isCortexDoc(rawDoc)) {
+    console.log('[ResearchProgress] Not a CortexDoc:', rawDoc);
     return null;
   }
 
   const doc = rawDoc;
+
+  // Debug: log when component renders with doc
+  const totalSearches = doc.initiatives.reduce((sum, i) => sum + (i.searchResults?.length || 0), 0);
+  console.log('[ResearchProgress] Rendering with:', {
+    initiatives: doc.initiatives.length,
+    totalSearches,
+    status: doc.status
+  });
 
   const [activeTab, setActiveTab] = useState<string | null>(
     doc.initiatives[0]?.id || null
@@ -268,58 +283,65 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
             )}
 
             {activeInitiative.searchResults?.map((sr, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="space-y-2"
-              >
-                <div className="flex items-start gap-2">
-                  <Search className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
-                  <p className="text-sm text-slate-600 dark:text-slate-400">
-                    <span className="text-slate-400 dark:text-slate-500">Searching: </span>
-                    <span className="font-medium text-slate-700 dark:text-slate-300">{sr.query}</span>
-                  </p>
-                </div>
-                <div className="ml-6 p-3 rounded-lg bg-slate-50 dark:bg-white/3 border border-slate-100 dark:border-white/5">
-                  <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
-                    {sr.answer || 'No results'}
-                  </p>
-                  {sr.sources?.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {sr.sources.slice(0, 3).map((source, j) => {
-                        let domain = '';
-                        try {
-                          domain = new URL(source.url).hostname.replace('www.', '');
-                        } catch {
-                          domain = source.url;
-                        }
-                        return (
-                          <a
-                            key={j}
-                            href={source.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-blue-500 transition-colors"
-                          >
-                            <ExternalLink className="w-3 h-3" />
-                            {domain}
-                          </a>
-                        );
-                      })}
+              <Collapsible key={i} defaultOpen={false}>
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="space-y-2"
+                >
+                  {/* Always visible: Query + Reasoning */}
+                  <CollapsibleTrigger className="w-full text-left group">
+                    <div className="flex items-start gap-2">
+                      <ChevronRight className="w-4 h-4 text-slate-400 mt-0.5 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
+                      <Search className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-slate-700 dark:text-slate-300 font-medium">
+                          {sr.query}
+                        </p>
+                        {/* Reasoning shown inline when collapsed */}
+                        {sr.reasoning && (
+                          <p className="text-sm text-indigo-600 dark:text-indigo-400 mt-1">
+                            → {sr.reasoning}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                  )}
-                </div>
-                {/* Search Reasoning */}
-                {sr.reasoning && (
-                  <div className="ml-6 mt-2 p-3 rounded-lg bg-indigo-50/50 dark:bg-indigo-500/5 border border-indigo-100/50 dark:border-indigo-500/10">
-                    <p className="text-sm text-indigo-700 dark:text-indigo-300">
-                      <span className="font-medium">Learned: </span>
-                      {sr.reasoning}
-                    </p>
-                  </div>
-                )}
-              </motion.div>
+                  </CollapsibleTrigger>
+
+                  {/* Collapsible: Answer + Sources */}
+                  <CollapsibleContent>
+                    <div className="ml-10 p-3 rounded-lg bg-slate-50 dark:bg-white/3 border border-slate-100 dark:border-white/5">
+                      <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+                        {sr.answer || 'No results'}
+                      </p>
+                      {sr.sources?.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {sr.sources.slice(0, 5).map((source, j) => {
+                            let domain = '';
+                            try {
+                              domain = new URL(source.url).hostname.replace('www.', '');
+                            } catch {
+                              domain = source.url;
+                            }
+                            return (
+                              <a
+                                key={j}
+                                href={source.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-blue-500 transition-colors"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                                {domain}
+                              </a>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </CollapsibleContent>
+                </motion.div>
+              </Collapsible>
             ))}
 
             {/* Show latest reflection */}

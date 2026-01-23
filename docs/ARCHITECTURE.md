@@ -161,7 +161,7 @@ interface Initiative {
   goal: string;                  // What we're looking for
   status: 'pending' | 'running' | 'done';
   cycles: number;
-  maxCycles: number;             // Default: 5
+  maxCycles: number;             // Default: 10
   findings: Finding[];
   searchResults: SearchResult[];
   reflections: CycleReflection[];

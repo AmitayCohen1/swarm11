@@ -68,7 +68,7 @@ export function addInitiative(
   name: string,
   description: string,
   goal: string,
-  maxCycles: number = 5
+  maxCycles: number = 10
 ): CortexDoc {
   const initiative = createInitiative(name, description, goal, maxCycles);
   return {

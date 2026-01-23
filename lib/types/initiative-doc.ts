@@ -62,7 +62,7 @@ export const InitiativeSchema = z.object({
   goal: z.string(),                                // What we're looking to achieve/answer
   status: InitiativeStatusSchema.default('pending'),
   cycles: z.number().default(0),                   // How many research→reflect loops
-  maxCycles: z.number().default(5),                // Cap (default 5)
+  maxCycles: z.number().default(10),               // Cap (default 10)
   findings: z.array(FindingSchema).default([]),    // Accumulated facts
   searchResults: z.array(SearchResultSchema).default([]), // Full search results with answers
   reflections: z.array(CycleReflectionSchema).default([]), // What was learned each cycle
@@ -149,7 +149,7 @@ export function createInitiative(
   name: string,
   description: string,
   goal: string,
-  maxCycles: number = 5
+  maxCycles: number = 10
 ): Initiative {
   return {
     id: generateInitiativeId(),

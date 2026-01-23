@@ -78,7 +78,7 @@ export async function generateInitiatives(
       name: z.string().describe('Short name for this initiative (2-5 words). E.g., "Corporate Training Providers", "Healthcare Communication Platforms"'),
       description: z.string().describe('What this initiative is about and why it matters. E.g., "These companies produce large volumes of audio training content where accuracy is critical for compliance"'),
       goal: z.string().describe('What we\'re looking to achieve/answer. E.g., "Find corporate training companies that use audio content and might need fact-checking tools"'),
-      maxCycles: z.number().min(1).max(10).default(5).describe('Max research→reflect cycles (default 5)'),
+      maxCycles: z.number().min(1).max(20).default(10).describe('Max research→reflect cycles (default 10)'),
     }),
     execute: async ({ name, description, goal, maxCycles }) => {
       doc = addInitiative(doc, name, description, goal, maxCycles);

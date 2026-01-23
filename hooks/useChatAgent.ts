@@ -10,7 +10,7 @@ interface Message {
   metadata?: any;
 }
 
-// V8 Document types - Research Phases with Findings
+// CortexDoc types - Initiative-based research
 interface Finding {
   id: string;
   content: string;
@@ -19,26 +19,52 @@ interface Finding {
   disqualifyReason?: string;
 }
 
-interface ResearchPhase {
-  id: string;
-  title: string;
-  goal: string;
-  status: 'not_started' | 'in_progress' | 'done';
-  findings: Finding[];
+interface SearchResult {
+  query: string;
+  answer: string;
+  reasoning?: string;
+  sources: { url: string; title?: string }[];
 }
 
-interface StrategyLogEntry {
+interface CycleReflection {
+  cycle: number;
+  learned: string;
+  nextStep: string;
+  status: 'continue' | 'done';
+}
+
+interface Initiative {
+  id: string;
+  name: string;
+  description: string;
+  goal: string;
+  status: 'pending' | 'running' | 'done';
+  cycles: number;
+  maxCycles: number;
+  findings: Finding[];
+  searchResults?: SearchResult[];
+  reflections?: CycleReflection[];
+  confidence: 'low' | 'medium' | 'high' | null;
+  recommendation: 'promising' | 'dead_end' | 'needs_more' | null;
+  summary?: string;
+}
+
+interface CortexDecision {
   id: string;
   timestamp: string;
-  approach: string;
-  rationale: string;
-  nextActions: string[];
+  action: 'spawn' | 'drill_down' | 'kill' | 'synthesize';
+  initiativeId?: string;
+  reasoning: string;
 }
 
-interface ResearchDoc {
+interface CortexDoc {
+  version: 1;
   objective: string;
-  phases: ResearchPhase[];
-  strategyLog: StrategyLogEntry[];
+  successCriteria: string[];
+  initiatives: Initiative[];
+  cortexLog: CortexDecision[];
+  status: 'running' | 'synthesizing' | 'complete';
+  finalAnswer?: string;
 }
 
 interface ProgressUpdate {
@@ -72,8 +98,7 @@ interface ProgressUpdate {
   purpose?: string;
   results?: any[];
   failed?: any[];
-  doc?: ResearchDoc;
-  currentStrategy?: StrategyLogEntry;
+  doc?: CortexDoc;
   version?: number;
   shouldContinue?: boolean;
   task?: string;
@@ -110,7 +135,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
   }>({});
   const [brain, setBrain] = useState<string>('');
   const [stage, setStage] = useState<'searching' | 'reflecting' | 'synthesizing' | null>(null);
-  const [researchDoc, setResearchDoc] = useState<ResearchDoc | null>(null);
+  const [researchDoc, setResearchDoc] = useState<CortexDoc | null>(null);
   const [eventLog, setEventLog] = useState<EventLogEntry[]>([]);
 
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -163,18 +188,9 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
       if (session.brain) {
         try {
           const parsed = JSON.parse(session.brain);
-          // Support new CortexDoc (version 1) and legacy ResearchDoc (version 8)
+          // CortexDoc (version 1)
           if (parsed.version === 1) {
-            setResearchDoc(parsed as any);
-            setResearchProgress({
-              objective: parsed.objective
-            });
-          } else if (parsed.version === 8) {
-            setResearchDoc({
-              objective: parsed.objective,
-              phases: parsed.phases || [],
-              strategyLog: parsed.strategyLog || []
-            });
+            setResearchDoc(parsed as CortexDoc);
             setResearchProgress({
               objective: parsed.objective
             });
@@ -270,13 +286,15 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
         // Document updates
         if (update.type === 'doc_updated') {
           if (update.doc) {
+            console.log('[doc_updated] Setting researchDoc:', update.doc);
             setResearchDoc(update.doc);
             setResearchProgress({
               objective: update.doc.objective
             });
           }
-          const phaseCount = (update.doc as any)?.phases?.length || 0;
-          addEvent('doc_updated', 'Document updated', `${phaseCount} research phases`, 'info');
+          const initCount = update.doc?.initiatives?.length || 0;
+          const searchCount = update.doc?.initiatives?.reduce((sum, i) => sum + (i.searchResults?.length || 0), 0) || 0;
+          addEvent('doc_updated', 'Document updated', `${initCount} initiatives, ${searchCount} searches`, 'info');
         }
 
         if (update.type === 'phase_added') {
@@ -592,16 +610,10 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           if (update.brain) {
             try {
               const parsed = JSON.parse(update.brain);
-              // Support new CortexDoc (version 1) and legacy ResearchDoc (version 8)
+              // CortexDoc (version 1)
               if (parsed.version === 1) {
-                // CortexDoc - pass the whole thing to researchDoc
-                setResearchDoc(parsed as any);
-              } else if (parsed.version === 8) {
-                setResearchDoc({
-                  objective: parsed.objective,
-                  phases: parsed.phases || [],
-                  strategyLog: parsed.strategyLog || []
-                });
+                console.log('[brain_update] Setting researchDoc from brain:', parsed);
+                setResearchDoc(parsed as CortexDoc);
               }
             } catch {
               // Invalid JSON
