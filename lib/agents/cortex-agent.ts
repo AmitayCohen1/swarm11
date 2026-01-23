@@ -109,6 +109,21 @@ ${doc.successCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}
 
 ---
 
+IMPORTANT CONTEXT:
+This is a LONG-RUNNING autonomous research process. The system will run for as long as needed -
+potentially hours - exploring each initiative thoroughly. There is no rush.
+
+Take the time to think deeply about the BEST angles to explore. Quality matters more than speed.
+Each initiative will be researched extensively with multiple search cycles, so choose angles that
+will yield the most valuable and relevant results.
+
+Think strategically:
+- What angles are most likely to find actionable, relevant information?
+- What diverse perspectives will give the most complete picture?
+- Which directions might uncover insights the user hasn't thought of?
+
+---
+
 YOUR TASK: Generate ${count} DIVERSE research angles to explore this objective.
 
 Each initiative needs THREE things:

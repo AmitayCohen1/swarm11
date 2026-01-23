@@ -1,220 +1,250 @@
-# Swarm10 Architecture
+# Swarm11 Cortex Architecture
 
 ## Overview
 
-Research assistant with autonomous web search and structured memory.
+A three-tier autonomous research system:
 
 ```
-User → Orchestrator → Research Agent → Web Search
-                ↓
-            Brain (Memory)
+User → Intake Agent → Cortex Orchestrator → Initiative Agents → Web Search
+                              ↓
+                    CortexDoc (Brain/Memory)
 ```
 
 ---
 
 ## Core Components
 
-### 1. Orchestrator (`lib/agents/orchestrator-chat-agent.ts`)
-- Analyzes user intent
-- Decides: respond, ask clarification, or start research
-- Creates research briefs with objective + success criteria
+### 1. Intake Agent (`lib/agents/intake-agent.ts`)
 
-### 2. Research Executor (`lib/agents/research-orchestrator.ts`)
-- Autonomous search loop: `search() → reflect() → repeat`
-- Stops when confidence threshold met
-- Saves findings to brain after each cycle
+**Purpose:** Clarify user intent before starting research.
 
-### 3. Brain / Memory (`lib/utils/research-memory.ts`)
-- Stored as JSON in `chat_sessions.brain` field
-- Tracks full research cycles: queries, results, learnings
-- Orchestrator reads formatted summary for context
+**Philosophy: Inference-Hostile**
+- NEVER guesses objectives, use-cases, or success criteria
+- If ANYTHING is unclear → ASK
+- Friction is better than wrong research
+- Only starts when ALL THREE are clear:
+  1. What exactly should be researched
+  2. Why the user needs it (what decision/action it supports)
+  3. What success looks like
+
+**Decision Types:**
+| Type | When |
+|------|------|
+| `text_input` | Direct answer or clarifying question |
+| `multi_choice_select` | Resolve ambiguity with 2-4 options |
+| `start_research` | All criteria satisfied |
+
+**Output:** `ResearchBrief` with `objective` and `successCriteria[]`
 
 ---
 
-## Memory System
+### 2. Cortex Orchestrator (`lib/agents/cortex-orchestrator.ts`)
 
-### How It Works
+**Purpose:** Manage the full research lifecycle.
 
-Memory is stored as JSON in the `brain` TEXT field. No schema migrations needed.
+**Phases:**
 
 ```
-Session Start → Empty brain
-     ↓
-Research Start → createResearchMemory(objective, criteria)
-     ↓
-Search Complete → addSearchToMemory(memory, searchResult)
-     ↓
-Reflect Tool → completeCycle(memory, learned, nextStep)
-     ↓
-Next Cycle → startCycle(memory, intent)
-     ↓
-Orchestrator → formatForOrchestrator(memory) → LLM context
+PHASE 1: Initialize CortexDoc
+    ↓
+PHASE 2: Generate 3 Initiatives (if none exist)
+    ↓
+PHASE 3: Execute Initiatives (sequential in v1)
+    │
+    ├─→ Run initiative to completion
+    │       ↓
+    │   Initiative Agent loop
+    │       ↓
+    └─→ Evaluate: continue / drill_down / spawn_new / synthesize
+    ↓
+PHASE 4: Adversarial Review
+    ↓
+PHASE 5: Synthesize Final Answer
 ```
 
-### Memory Functions (`lib/utils/research-memory.ts`)
+**Evaluation Decisions:**
+| Action | When |
+|--------|------|
+| `continue` | More pending initiatives to run |
+| `drill_down` | Initiative found something worth deeper exploration |
+| `spawn_new` | Gap identified, need new angle |
+| `synthesize` | Sufficient evidence gathered |
 
+**Real-Time Saves:**
+Every `doc_updated` event triggers immediate DB persistence.
+
+---
+
+### 3. Initiative Agent (`lib/agents/initiative-agent.ts`)
+
+**Purpose:** Execute one research initiative with enforced reasoning.
+
+**Strict Tool Flow:**
+```
+search(1 query) → search_reasoning() → search(1 query) → search_reasoning() → ...
+```
+
+**State Machine Enforcement:**
+```typescript
+let awaitingReasoning = false;
+
+// After search():
+awaitingReasoning = true;
+// Only search_reasoning tool available
+
+// After search_reasoning():
+awaitingReasoning = false;
+// All tools available
+```
+
+**Available Tools:**
+
+| Tool | Purpose | When Available |
+|------|---------|----------------|
+| `search` | Execute web search (1 query max) | When NOT awaiting reasoning |
+| `search_reasoning` | Explain what was learned | REQUIRED after every search |
+| `add_finding` | Record a fact with sources | When NOT awaiting reasoning |
+| `edit_finding` | Update existing finding | When NOT awaiting reasoning |
+| `disqualify_finding` | Mark finding as invalid | When NOT awaiting reasoning |
+| `reflect` | Cycle-level reflection | When NOT awaiting reasoning |
+| `done` | Complete this initiative | When NOT awaiting reasoning |
+
+**Context Provided:**
+- Overall research objective
+- Success criteria (for whole research)
+- List of ALL sibling initiatives with status
+- ALL previous search results (no truncation)
+- ALL previous reflections
+- Current initiative details (name, description, goal)
+
+---
+
+### 4. Cortex Agent (`lib/agents/cortex-agent.ts`)
+
+**Purpose:** Higher-level reasoning functions.
+
+**Functions:**
 | Function | Purpose |
 |----------|---------|
-| `parseResearchMemory(brain)` | Parse JSON or detect legacy markdown |
-| `serializeResearchMemory(memory)` | JSON.stringify for storage |
-| `createResearchMemory(objective)` | Initialize new memory |
-| `startCycle(memory, intent)` | Begin new research cycle |
-| `addSearchToMemory(memory, search)` | Add search result to current cycle |
-| `completeCycle(memory, learned, next)` | Finalize cycle with learnings |
-| `hasQueryBeenRun(memory, query)` | Dedup check (normalized) |
-| `formatForOrchestrator(memory)` | Structured summary for LLM |
-
-### Save Points
-
-| Event | Location | Action |
-|-------|----------|--------|
-| Research starts | `message/route.ts` | `createResearchMemory()` |
-| Search completes | `research-orchestrator.ts` | `addSearchToMemory()` |
-| Agent reflects | `research-orchestrator.ts` | `completeCycle()` + `startCycle()` |
-
-### Example: What a Cycle Looks Like
-
-```json
-{
-  "version": 1,
-  "objective": "Find top 3 AI startups in healthcare",
-  "successCriteria": "Companies with Series B+ funding and FDA approvals",
-  "queriesRun": [
-    "AI healthcare startups Series B funding 2024",
-    "FDA approved AI medical devices companies"
-  ],
-  "cycles": [
-    {
-      "timestamp": "2024-01-15T10:42:00Z",
-      "intent": "Initial exploration of AI healthcare landscape",
-      "searches": [
-        {
-          "query": "AI healthcare startups Series B funding 2024",
-          "purpose": "Find well-funded companies in the space",
-          "answer": "Found 12 companies including Tempus, Viz.ai, PathAI...",
-          "sources": [
-            { "url": "https://techcrunch.com/...", "title": "Top AI Healthcare Startups" },
-            { "url": "https://crunchbase.com/...", "title": "Series B Healthcare AI" }
-          ]
-        }
-      ],
-      "learned": "Identified 12 candidates. Tempus and Viz.ai are leaders with $500M+ raised.",
-      "nextStep": "Verify FDA approval status for top candidates"
-    },
-    {
-      "timestamp": "2024-01-15T10:45:00Z",
-      "intent": "Verify FDA approval status for top candidates",
-      "searches": [
-        {
-          "query": "FDA approved AI medical devices companies",
-          "purpose": "Filter to companies with regulatory approval",
-          "answer": "Viz.ai, IDx, Caption Health have FDA clearances...",
-          "sources": [
-            { "url": "https://fda.gov/...", "title": "AI Medical Devices" }
-          ]
-        }
-      ],
-      "learned": "Narrowed to 5 companies with FDA approval. Viz.ai has 4 clearances.",
-      "nextStep": "stop"
-    }
-  ]
-}
-```
-
-### How Memory is Saved
-
-```typescript
-// 1. Research starts - create memory
-const memory = createResearchMemory(objective, successCriteria);
-await db.update(chatSessions)
-  .set({ brain: serializeResearchMemory(memory) });
-
-// 2. Search completes - add results
-memory = addSearchToMemory(memory, {
-  query: "AI healthcare startups...",
-  purpose: "Find well-funded companies",
-  answer: "Found 12 companies...",
-  sources: [...]
-});
-await db.update(chatSessions)
-  .set({ brain: serializeResearchMemory(memory) });
-
-// 3. Agent reflects - complete cycle
-memory = completeCycle(memory,
-  "Identified 12 candidates...",  // learned
-  "Verify FDA approval status"    // nextStep
-);
-memory = startCycle(memory, "Verify FDA approval status");
-await db.update(chatSessions)
-  .set({ brain: serializeResearchMemory(memory) });
-```
-
-Each save is a full JSON overwrite to the `brain` TEXT field.
-
----
-
-### Migration Strategy
-
-- **No DB migration** - brain stays TEXT
-- **Runtime detection** - `parseResearchMemory()` checks if JSON or markdown
-- **Legacy support** - old markdown preserved in `legacyBrain` field
-
-```typescript
-// Auto-detects format
-function parseResearchMemory(brain: string) {
-  if (brain.startsWith('{')) → parse as JSON
-  else → wrap in { legacyBrain: brain }
-}
-```
+| `generateInitiatives()` | Create 3 research angles from objective |
+| `evaluateInitiatives()` | Decide next action after running initiatives |
+| `synthesizeFinalAnswer()` | Combine findings into final answer |
+| `adversarialReview()` | Challenge findings before synthesis |
 
 ---
 
 ## Data Structures
 
-### ResearchMemory
+### CortexDoc (Brain)
+
+Stored as JSON in `chat_sessions.brain`:
+
 ```typescript
-{
-  version: 1,
-  objective: string,
-  successCriteria?: string,
-  cycles: ResearchCycle[],
-  queriesRun: string[]        // flat list for dedup
-  legacyBrain?: string        // old markdown sessions
+interface CortexDoc {
+  version: 1;
+  objective: string;
+  successCriteria: string[];
+  status: 'running' | 'synthesizing' | 'complete';
+  initiatives: Initiative[];
+  cortexLog: CortexDecision[];
+  finalAnswer?: string;
 }
 ```
 
-### ResearchCycle
+### Initiative
+
 ```typescript
-{
-  timestamp: string,
-  intent: string,             // why searching
-  searches: SearchResult[],
-  learned: string,            // what we learned
-  nextStep: string            // what to do next
+interface Initiative {
+  id: string;                    // e.g., "init-abc123"
+  name: string;                  // Short label: "Market Analysis"
+  description: string;           // Why this matters
+  goal: string;                  // What we're looking for
+  status: 'pending' | 'running' | 'done';
+  cycles: number;
+  maxCycles: number;             // Default: 5
+  findings: Finding[];
+  searchResults: SearchResult[];
+  reflections: CycleReflection[];
+  confidence: 'low' | 'medium' | 'high' | null;
+  recommendation: 'promising' | 'dead_end' | 'needs_more' | null;
+  summary?: string;
 }
 ```
 
 ### SearchResult
+
 ```typescript
-{
-  query: string,
-  purpose: string,
-  answer: string,
-  sources: { url: string, title: string }[]
+interface SearchResult {
+  query: string;                 // Human-readable question
+  answer: string;                // Tavily's answer
+  sources: { url: string; title?: string }[];
+  reasoning?: string;            // What we learned (from search_reasoning)
+}
+```
+
+### Finding
+
+```typescript
+interface Finding {
+  id: string;
+  content: string;
+  sources: { url: string; title: string }[];
+  status: 'active' | 'disqualified';
+  disqualifyReason?: string;
+}
+```
+
+### CycleReflection
+
+```typescript
+interface CycleReflection {
+  cycle: number;
+  learned: string;
+  nextStep: string;
+  status: 'continue' | 'done';
 }
 ```
 
 ---
 
-## URL Routing
+## Memory Operations (`lib/utils/initiative-operations.ts`)
 
-| URL | Purpose |
-|-----|---------|
-| `/chat` | New session (redirects to `/chat/[id]`) |
-| `/chat/[id]` | Active session |
-| `/sessions` | List all sessions |
+### Document Operations
+| Function | Purpose |
+|----------|---------|
+| `initializeCortexDoc(objective, criteria)` | Create new CortexDoc |
+| `serializeCortexDoc(doc)` | JSON.stringify for storage |
+| `parseCortexDoc(json)` | Parse and validate |
 
-URL updates use `window.history.replaceState()` for shallow routing (no remount).
+### Initiative Operations
+| Function | Purpose |
+|----------|---------|
+| `addInitiative(doc, name, desc, goal)` | Add new initiative |
+| `startInitiative(doc, id)` | Set status to running |
+| `completeInitiative(doc, id, summary, confidence, rec)` | Mark done |
+| `getPendingInitiatives(doc)` | Get pending initiatives |
+| `getRunningInitiatives(doc)` | Get running initiatives |
+
+### Finding Operations
+| Function | Purpose |
+|----------|---------|
+| `addFindingToInitiative(doc, initId, content, sources)` | Add finding |
+| `editFindingInInitiative(doc, initId, findingId, content)` | Update finding |
+| `disqualifyFindingInInitiative(doc, initId, findingId, reason)` | Invalidate |
+
+### Search/Reflection Operations
+| Function | Purpose |
+|----------|---------|
+| `addSearchResultToInitiative(doc, initId, query, answer, sources, reasoning)` | Record search |
+| `addReflectionToInitiative(doc, initId, cycle, learned, nextStep, status)` | Record reflection |
+| `hasQueryBeenRunInInitiative(doc, initId, query)` | Dedup check |
+
+### Formatting
+| Function | Purpose |
+|----------|---------|
+| `formatCortexDocForAgent(doc)` | Full doc summary for agents |
+| `formatInitiativeForAgent(initiative)` | Single initiative detail |
+| `getInitiativesSummary(doc)` | Quick status overview |
 
 ---
 
@@ -225,9 +255,9 @@ URL updates use `window.history.replaceState()` for shallow routing (no remount)
 |-------|------|---------|
 | `id` | uuid | Session ID |
 | `messages` | jsonb | Conversation history |
-| `brain` | text | Research memory (JSON) |
+| `brain` | text | CortexDoc JSON |
 | `status` | text | active / researching / completed |
-| `creditsUsed` | int | Token usage tracking |
+| `creditsUsed` | int | Token usage |
 
 ### `research_sessions` table
 | Field | Type | Purpose |
@@ -235,12 +265,10 @@ URL updates use `window.history.replaceState()` for shallow routing (no remount)
 | `id` | uuid | Research session ID |
 | `chatSessionId` | uuid | FK to chat_sessions |
 | `objective` | text | Research goal |
-| `successCriteria` | text | What defines success |
+| `successCriteria` | text | Success definition |
 | `status` | text | running / completed / stopped / error |
 | `confidenceLevel` | text | low / medium / high |
 | `finalAnswer` | text | Research conclusion |
-| `totalSteps` | int | Number of iterations |
-| `totalCost` | real | Credits used |
 
 ### `search_queries` table
 | Field | Type | Purpose |
@@ -249,23 +277,9 @@ URL updates use `window.history.replaceState()` for shallow routing (no remount)
 | `researchSessionId` | uuid | FK to research_sessions |
 | `query` | text | The search query |
 | `queryNormalized` | text | Lowercase for dedup |
-| `purpose` | text | Why this query |
 | `answer` | text | Tavily answer |
 | `sources` | jsonb | Array of {url, title} |
-| `wasUseful` | bool | Feedback for learning |
-| `cycleNumber` | int | Which research cycle |
-
-### Cross-Session Query Helpers (`lib/utils/search-history.ts`)
-
-| Function | Purpose |
-|----------|---------|
-| `findSimilarQueries(query)` | Find past similar searches |
-| `hasQueryBeenRunGlobally(query)` | Exact match dedup |
-| `getMostFrequentQueries()` | Analytics |
-| `getUserResearchHistory(userId)` | User's past research |
-| `getResearchSessionQueries(id)` | Queries from a session |
-| `markQueryUsefulness(id, bool)` | Feedback for learning |
-| `getResearchStats(userId?)` | Aggregate stats |
+| `cycleNumber` | int | Which eval round |
 
 ---
 
@@ -276,15 +290,47 @@ URL updates use `window.history.replaceState()` for shallow routing (no remount)
    ↓
 2. POST /api/chat/[id]/message (SSE stream)
    ↓
-3. Orchestrator analyzes → decides action
+3. Intake Agent analyzes
+   ├─→ Ask clarification → return question
+   └─→ Start research → continue
    ↓
-4. If research:
-   - Create ResearchMemory
-   - Loop: search → reflect → update brain
-   - Stream progress events to UI
+4. Cortex Orchestrator
+   ├─→ Initialize CortexDoc
+   ├─→ Generate initiatives
+   ├─→ For each initiative:
+   │       └─→ Initiative Agent loop (search → reason → ...)
+   │       └─→ Save to DB after each step
+   │       └─→ Emit SSE events
+   ├─→ Evaluate after all complete
+   ├─→ Adversarial review
+   └─→ Synthesize final answer
    ↓
-5. Return final answer
+5. Stream final answer to UI
 ```
+
+---
+
+## SSE Events
+
+### Research Lifecycle
+| Event | Data |
+|-------|------|
+| `cortex_initialized` | `{ objective, successCriteria, version }` |
+| `initiative_started` | `{ initiativeId, name, goal }` |
+| `search_completed` | `{ initiativeId, query, answer, sources }` |
+| `reasoning_completed` | `{ initiativeId, reasoning }` |
+| `reflection_completed` | `{ initiativeId, learned, nextStep }` |
+| `initiative_completed` | `{ initiativeId, confidence, recommendation }` |
+| `review_started` | `{}` |
+| `review_completed` | `{ verdict, critique, missing }` |
+| `synthesizing_started` | `{}` |
+| `research_complete` | `{ totalInitiatives, totalFindings, confidence }` |
+
+### State Updates
+| Event | Data |
+|-------|------|
+| `doc_updated` | `{ doc }` (full CortexDoc) |
+| `brain_update` | `{ brain }` (serialized JSON) |
 
 ---
 
@@ -293,39 +339,83 @@ URL updates use `window.history.replaceState()` for shallow routing (no remount)
 ```
 lib/
 ├── agents/
-│   ├── orchestrator-chat-agent.ts   # Intent analysis
-│   └── research-orchestrator.ts   # Search loop
+│   ├── intake-agent.ts           # Intent clarification
+│   ├── cortex-agent.ts           # Generate/evaluate/synthesize
+│   ├── cortex-orchestrator.ts    # Full flow management
+│   └── initiative-agent.ts       # Single initiative execution
 ├── types/
-│   └── research-memory.ts           # Type definitions
-├── utils/
-│   └── research-memory.ts           # Memory helpers
-└── db/
-    └── schema.ts                    # Database schema
+│   └── initiative-doc.ts         # Zod schemas + types
+├── tools/
+│   └── tavily-search.ts          # Web search (1 query max)
+└── utils/
+    └── initiative-operations.ts  # CortexDoc helpers
 
-app/
-├── chat/
-│   ├── page.tsx                     # New session
-│   └── [id]/page.tsx                # Existing session
-└── api/chat/
-    ├── start/route.ts               # Create session
-    ├── sessions/route.ts            # List sessions
-    └── [id]/
-        ├── route.ts                 # Get/delete session
-        ├── message/route.ts         # Send message (SSE)
-        └── stop/route.ts            # Stop research
+hooks/
+└── useChatAgent.ts               # SSE + React state
 
 components/chat/
-├── ChatAgentView.tsx                # Main UI
-└── SessionsSidebar.tsx              # Session list
+├── ChatAgentView.tsx             # Main chat UI
+└── ResearchProgress.tsx          # Tabbed initiative view
+
+app/api/chat/
+├── start/route.ts                # Create session
+├── [id]/message/route.ts         # Message handler (SSE)
+└── [id]/stop/route.ts            # Stop research
 ```
+
+---
+
+## Design Decisions
+
+### Why Inference-Hostile Intake?
+
+**Problem:** AI tends to infer intent and start research with wrong assumptions.
+
+**Solution:** Explicitly forbid guessing. The intake prompt says:
+- "Your job is NOT to guess"
+- "If anything important is unclear, ASK"
+- "Asking one good question is always better than starting the wrong research"
+
+### Why One Search at a Time?
+
+**Problem:** Batching searches loses reasoning context.
+
+**Solution:** State machine enforces:
+```
+search(1) → must call search_reasoning → can search again
+```
+
+This ensures every search gets explicit reasoning about what was learned.
+
+### Why Full Context (No Truncation)?
+
+**Problem:** Truncating history loses important context for decisions.
+
+**Solution:** Initiative agents receive:
+- ALL previous search results
+- ALL previous reflections
+- Full objective and sibling initiative list
+
+Memory is cheap. Wrong decisions are expensive.
+
+### Why Real-Time Saves?
+
+**Problem:** Long research sessions risk losing progress.
+
+**Solution:** Save to DB after every:
+- Search completion
+- Reasoning completion
+- Reflection completion
+
+User sees real-time progress. Crash recovery is automatic.
 
 ---
 
 ## Tech Stack
 
-- **Framework**: Next.js 15 (App Router)
-- **Database**: Neon PostgreSQL + Drizzle ORM
-- **Auth**: Clerk
-- **AI**: OpenAI GPT-4, Anthropic Claude
-- **Search**: Tavily API
-- **UI**: Tailwind + Radix
+- **Framework:** Next.js 15 (App Router)
+- **Database:** Neon PostgreSQL + Drizzle ORM
+- **Auth:** Clerk
+- **AI:** OpenAI GPT-4.1 (intake/cortex), GPT-4.1-mini (initiatives)
+- **Search:** Tavily API
+- **UI:** Tailwind + Framer Motion
