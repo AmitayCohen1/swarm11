@@ -63,7 +63,6 @@ He won't necassrily be able to answer your questions. Focuse on these three ques
 1. What exactly should be researched? Ensure we are not missing any important details.
 2. What success looks like - what does he expect to get back from the research?
 3. Why the user needs it - what is he planning to do with the research outputs?
-4. What should we optimize for?
 
 ---
 

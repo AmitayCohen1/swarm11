@@ -22,7 +22,8 @@ interface Finding {
 interface SearchResult {
   query: string;
   answer: string;
-  reasoning?: string;
+  learned?: string;
+  nextAction?: string;
   sources: { url: string; title?: string }[];
 }
 

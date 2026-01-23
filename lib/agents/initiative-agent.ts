@@ -126,22 +126,23 @@ export async function executeInitiativeCycle(
     }
   });
 
-  // Tool: Search reasoning - explain what was learned from search results
+  // Tool: Search reasoning - explain what was learned and what's next
   const searchReasoningTool = tool({
-    description: 'REQUIRED after each search. Explain what you learned and why it matters for the goal.',
+    description: 'REQUIRED after each search. Explain what you learned and what you will do next.',
     inputSchema: z.object({
-      reasoning: z.string().describe('What did you learn from these searches? How does it help achieve the goal? Be specific.'),
+      learned: z.string().describe('What did you learn from this search? Be specific and concise.'),
+      nextAction: z.string().describe('What will you do next based on this? E.g., "Search for pricing info" or "Add finding about X" or "Done - have enough info"'),
     }),
-    execute: async ({ reasoning }) => {
+    execute: async ({ learned, nextAction }) => {
       // Attach reasoning to the most recent search results that don't have reasoning yet
       const init = getInitiative(doc, initiativeId);
       if (init && init.searchResults) {
         const updatedSearchResults = [...init.searchResults];
         // Find recent results without reasoning and add it
         for (let i = updatedSearchResults.length - 1; i >= 0; i--) {
-          if (!updatedSearchResults[i].reasoning) {
-            updatedSearchResults[i] = { ...updatedSearchResults[i], reasoning };
-            break; // Only update the most recent batch
+          if (!updatedSearchResults[i].learned) {
+            updatedSearchResults[i] = { ...updatedSearchResults[i], learned, nextAction };
+            break; // Only update the most recent
           }
         }
         doc = {
@@ -152,10 +153,10 @@ export async function executeInitiativeCycle(
         };
       }
 
-      onProgress?.({ type: 'initiative_search_reasoning', initiativeId, reasoning });
+      onProgress?.({ type: 'initiative_search_reasoning', initiativeId, learned, nextAction });
       onProgress?.({ type: 'doc_updated', doc });
 
-      return { success: true, reasoning };
+      return { success: true, learned, nextAction };
     }
   });
 
@@ -360,6 +361,7 @@ ${(currentInitiative.searchResults || []).slice(-10).map(sr => sr.query).join('\
         : systemPrompt,
       messages,
       tools: availableTools,
+      maxSteps: 1, // Execute ONE tool call then return - enforces search → reason flow
       abortSignal
     });
 
@@ -407,6 +409,10 @@ ${(currentInitiative.searchResults || []).slice(-10).map(sr => sr.query).join('\
 
         // After search, MUST call search_reasoning next
         awaitingReasoning = true;
+
+        // IMPORTANT: Break here to ignore any other tool calls in this response
+        // This enforces search → reason flow even if LLM tried to call multiple tools
+        break;
       }
 
       if (tc.toolName === 'search_reasoning') {

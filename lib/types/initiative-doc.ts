@@ -28,12 +28,13 @@ export const InitiativeRecommendationSchema = z.enum(['promising', 'dead_end', '
 export type InitiativeRecommendation = z.infer<typeof InitiativeRecommendationSchema>;
 
 /**
- * Search result - query + answer + reasoning
+ * Search result - query + answer + learned + nextAction
  */
 export const SearchResultSchema = z.object({
   query: z.string(),
   answer: z.string(),
-  reasoning: z.string().optional(),              // What we learned from this search and why it matters
+  learned: z.string().optional(),                // What we learned from this search
+  nextAction: z.string().optional(),             // What we plan to do next
   sources: z.array(z.object({
     url: z.string(),
     title: z.string().optional(),

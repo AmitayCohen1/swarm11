@@ -31,7 +31,8 @@ interface Finding {
 interface SearchResult {
   query: string;
   answer: string;
-  reasoning?: string;
+  learned?: string;
+  nextAction?: string;
   sources: { url: string; title?: string }[];
 }
 
@@ -289,22 +290,14 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
                   animate={{ opacity: 1, y: 0 }}
                   className="space-y-2"
                 >
-                  {/* Always visible: Query + Reasoning */}
+                  {/* Always visible: Query */}
                   <CollapsibleTrigger className="w-full text-left group">
                     <div className="flex items-start gap-2">
                       <ChevronRight className="w-4 h-4 text-slate-400 mt-0.5 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
                       <Search className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-slate-700 dark:text-slate-300 font-medium">
-                          {sr.query}
-                        </p>
-                        {/* Reasoning shown inline when collapsed */}
-                        {sr.reasoning && (
-                          <p className="text-sm text-indigo-600 dark:text-indigo-400 mt-1">
-                            → {sr.reasoning}
-                          </p>
-                        )}
-                      </div>
+                      <p className="text-sm text-slate-700 dark:text-slate-300 font-medium flex-1">
+                        {sr.query}
+                      </p>
                     </div>
                   </CollapsibleTrigger>
 
@@ -340,6 +333,24 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
                       )}
                     </div>
                   </CollapsibleContent>
+
+                  {/* Always visible: Learned + Next Action (under search results) */}
+                  {(sr.learned || sr.nextAction) && (
+                    <div className="ml-10 p-2 rounded-lg bg-indigo-50/50 dark:bg-indigo-500/5 border border-indigo-100/50 dark:border-indigo-500/10 space-y-1">
+                      {sr.learned && (
+                        <p className="text-sm text-indigo-700 dark:text-indigo-300">
+                          <span className="font-medium">Learned: </span>
+                          {sr.learned}
+                        </p>
+                      )}
+                      {sr.nextAction && (
+                        <p className="text-sm text-indigo-600 dark:text-indigo-400">
+                          <span className="font-medium">Next: </span>
+                          {sr.nextAction}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </motion.div>
               </Collapsible>
             ))}
