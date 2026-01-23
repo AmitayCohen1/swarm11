@@ -106,7 +106,8 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     console.log('[Research] Creating new research document');
     doc = createResearchDoc(
       researchBrief.objective,
-      researchBrief.initialStrategy
+      researchBrief.initialStrategy,
+      researchBrief.initialPhases
     );
   }
 
@@ -120,7 +121,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
   emitProgress('doc_updated', {
     doc: {
       objective: doc.objective,
-      researchQuestions: doc.researchQuestions,
+      phases: doc.phases,
       strategyLog: doc.strategyLog
     }
   });
@@ -183,7 +184,7 @@ export async function executeResearch(config: ResearchExecutorConfig) {
     emitProgress('doc_updated', {
       doc: {
         objective: doc.objective,
-        researchQuestions: doc.researchQuestions,
+        phases: doc.phases,
         strategyLog: doc.strategyLog
       }
     });
@@ -292,7 +293,7 @@ Evaluate harshly. Does the research actually address the objective?
     emitProgress('doc_updated', {
       doc: {
         objective: doc.objective,
-        researchQuestions: doc.researchQuestions,
+        phases: doc.phases,
         strategyLog: doc.strategyLog
       }
     });

@@ -10,7 +10,7 @@ interface Message {
   metadata?: any;
 }
 
-// V7 Document types - Research Questions with Findings
+// V8 Document types - Research Phases with Findings
 interface Finding {
   id: string;
   content: string;
@@ -19,10 +19,11 @@ interface Finding {
   disqualifyReason?: string;
 }
 
-interface ResearchQuestion {
+interface ResearchPhase {
   id: string;
-  question: string;
-  status: 'open' | 'done';
+  title: string;
+  goal: string;
+  status: 'not_started' | 'in_progress' | 'done';
   findings: Finding[];
 }
 
@@ -36,7 +37,7 @@ interface StrategyLogEntry {
 
 interface ResearchDoc {
   objective: string;
-  researchQuestions: ResearchQuestion[];
+  phases: ResearchPhase[];
   strategyLog: StrategyLogEntry[];
 }
 
@@ -162,10 +163,10 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
       if (session.brain) {
         try {
           const parsed = JSON.parse(session.brain);
-          if (parsed.version === 7) {
+          if (parsed.version === 8) {
             setResearchDoc({
               objective: parsed.objective,
-              researchQuestions: parsed.researchQuestions || [],
+              phases: parsed.phases || [],
               strategyLog: parsed.strategyLog || []
             });
             setResearchProgress({
@@ -268,20 +269,20 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
               objective: update.doc.objective
             });
           }
-          const questionCount = update.doc?.researchQuestions?.length || 0;
-          addEvent('doc_updated', 'Document updated', `${questionCount} research questions`, 'info');
+          const phaseCount = (update.doc as any)?.phases?.length || 0;
+          addEvent('doc_updated', 'Document updated', `${phaseCount} research phases`, 'info');
         }
 
-        if (update.type === 'question_added') {
-          addEvent('question_added', 'Question added', update.question as any, 'log');
+        if (update.type === 'phase_added') {
+          addEvent('phase_added', 'Phase added', (update as any).title, 'log');
         }
 
         if (update.type === 'finding_added') {
           addEvent('finding_added', 'Finding added', undefined, 'log');
         }
 
-        if (update.type === 'question_done') {
-          addEvent('question_done', 'Question completed', undefined, 'complete');
+        if (update.type === 'phase_completed') {
+          addEvent('phase_completed', 'Phase completed', undefined, 'complete');
         }
 
         if (update.type === 'iteration_started') {
@@ -496,10 +497,10 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           if (update.brain) {
             try {
               const parsed = JSON.parse(update.brain);
-              if (parsed.version === 7) {
+              if (parsed.version === 8) {
                 setResearchDoc({
                   objective: parsed.objective,
-                  researchQuestions: parsed.researchQuestions || [],
+                  phases: parsed.phases || [],
                   strategyLog: parsed.strategyLog || []
                 });
               }

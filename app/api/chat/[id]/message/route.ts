@@ -189,11 +189,11 @@ export async function POST(
             // POC: Credit checks disabled - free to use
             // TODO: Enable credit checks before production launch
 
-            // Initialize research document with initial strategy and questions from orchestrator
+            // Initialize research document with initial strategy and phases from orchestrator
             const newDoc = createResearchDoc(
               researchBrief.objective,
               researchBrief.initialStrategy,
-              researchBrief.initialQuestions
+              researchBrief.initialPhases
             );
             const serializedBrain = serializeDoc(newDoc);
 

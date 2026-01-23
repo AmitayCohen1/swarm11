@@ -1,22 +1,30 @@
 /**
- * Document Operations - Version 7
- * Research Questions with Findings
+ * Document Operations - Version 8
+ * Phased research with sequential steps
  */
 
 import {
   ResearchDoc,
   ResearchDocSchema,
-  ResearchQuestion,
+  ResearchPhase,
   Finding,
   Strategy,
   StrategyLogEntry,
   createInitialStrategyEntry,
   createStrategyEntry,
-  createResearchQuestion,
-  generateQuestionId,
+  createResearchPhase,
+  generatePhaseId,
   generateFindingId,
 } from '../types/research-doc';
 import type { DocEdit, ReflectionOutput } from '../types/doc-edit';
+
+/**
+ * Initial phase definition from intake
+ */
+export interface InitialPhase {
+  title: string;
+  goal: string;
+}
 
 /**
  * Create a new research document
@@ -24,19 +32,22 @@ import type { DocEdit, ReflectionOutput } from '../types/doc-edit';
 export function createResearchDoc(
   objective: string,
   initialStrategy?: Strategy,
-  initialQuestions?: string[]
+  initialPhases?: InitialPhase[]
 ): ResearchDoc {
   const initialEntry = initialStrategy
     ? createStrategyEntry(initialStrategy)
     : createInitialStrategyEntry(objective);
 
-  // Create research questions from initial questions
-  const researchQuestions = (initialQuestions || []).map(q => createResearchQuestion(q));
+  // Create phases from initial phases, mark first as in_progress
+  const phases = (initialPhases || []).map((p, idx) => ({
+    ...createResearchPhase(p.title, p.goal),
+    status: idx === 0 ? 'in_progress' as const : 'not_started' as const,
+  }));
 
   return {
-    version: 7,
+    version: 8,
     objective,
-    researchQuestions,
+    phases,
     strategyLog: [initialEntry],
     queriesRun: [],
     lastUpdated: new Date().toISOString(),
@@ -51,79 +62,130 @@ export function getCurrentStrategy(doc: ResearchDoc): StrategyLogEntry | null {
 }
 
 /**
- * Find a question by ID
+ * Find a phase by ID
  */
-export function findQuestion(doc: ResearchDoc, questionId: string): ResearchQuestion | undefined {
-  return doc.researchQuestions.find(q => q.id === questionId);
+export function findPhase(doc: ResearchDoc, phaseId: string): ResearchPhase | undefined {
+  return doc.phases.find(p => p.id === phaseId);
 }
 
 /**
- * Find a question index by ID
+ * Find a phase index by ID
  */
-export function findQuestionIndex(doc: ResearchDoc, questionId: string): number {
-  return doc.researchQuestions.findIndex(q => q.id === questionId);
+export function findPhaseIndex(doc: ResearchDoc, phaseId: string): number {
+  return doc.phases.findIndex(p => p.id === phaseId);
+}
+
+/**
+ * Get the current active phase (first in_progress, or first not_started)
+ */
+export function getCurrentPhase(doc: ResearchDoc): ResearchPhase | null {
+  const inProgress = doc.phases.find(p => p.status === 'in_progress');
+  if (inProgress) return inProgress;
+
+  const notStarted = doc.phases.find(p => p.status === 'not_started');
+  return notStarted || null;
 }
 
 /**
  * Apply a single edit operation
- * Returns a new document (immutable)
  */
 export function applyEdit(doc: ResearchDoc, edit: DocEdit): ResearchDoc {
   const now = new Date().toISOString();
 
   switch (edit.action) {
-    case 'add_question': {
-      if (!edit.questionText) {
-        console.warn('[applyEdit] add_question requires questionText');
+    case 'add_phase': {
+      if (!edit.phaseTitle || !edit.phaseGoal) {
+        console.warn('[applyEdit] add_phase requires phaseTitle and phaseGoal');
         return doc;
       }
-      const newQuestion = createResearchQuestion(edit.questionText);
+      const newPhase = createResearchPhase(edit.phaseTitle, edit.phaseGoal);
       return {
         ...doc,
-        researchQuestions: [...doc.researchQuestions, newQuestion],
+        phases: [...doc.phases, newPhase],
+        lastUpdated: now,
+      };
+    }
+
+    case 'start_phase': {
+      if (!edit.phaseId) {
+        console.warn('[applyEdit] start_phase requires phaseId');
+        return doc;
+      }
+      const pIdx = findPhaseIndex(doc, edit.phaseId);
+      if (pIdx === -1) return doc;
+
+      const newPhases = [...doc.phases];
+      newPhases[pIdx] = { ...doc.phases[pIdx], status: 'in_progress' };
+      return {
+        ...doc,
+        phases: newPhases,
+        lastUpdated: now,
+      };
+    }
+
+    case 'complete_phase': {
+      if (!edit.phaseId) {
+        console.warn('[applyEdit] complete_phase requires phaseId');
+        return doc;
+      }
+      const pIdx = findPhaseIndex(doc, edit.phaseId);
+      if (pIdx === -1) return doc;
+
+      const newPhases = [...doc.phases];
+      newPhases[pIdx] = { ...doc.phases[pIdx], status: 'done' };
+
+      // Auto-start next phase if exists
+      const nextIdx = pIdx + 1;
+      if (nextIdx < newPhases.length && newPhases[nextIdx].status === 'not_started') {
+        newPhases[nextIdx] = { ...newPhases[nextIdx], status: 'in_progress' };
+      }
+
+      return {
+        ...doc,
+        phases: newPhases,
         lastUpdated: now,
       };
     }
 
     case 'add_finding': {
-      if (!edit.questionId) {
-        console.warn('[applyEdit] add_finding requires questionId');
+      if (!edit.phaseId) {
+        console.warn('[applyEdit] add_finding requires phaseId');
         return doc;
       }
-      const qIdx = findQuestionIndex(doc, edit.questionId);
-      if (qIdx === -1) {
-        console.warn(`[applyEdit] Question "${edit.questionId}" not found`);
+      const pIdx = findPhaseIndex(doc, edit.phaseId);
+      if (pIdx === -1) {
+        console.warn(`[applyEdit] Phase "${edit.phaseId}" not found`);
         return doc;
       }
-      const question = doc.researchQuestions[qIdx];
+      const phase = doc.phases[pIdx];
       const newFinding: Finding = {
         id: generateFindingId(),
         content: edit.content || '',
         sources: edit.sources || [],
         status: 'active',
       };
-      const newQuestions = [...doc.researchQuestions];
-      newQuestions[qIdx] = {
-        ...question,
-        findings: [...question.findings, newFinding],
+      const newPhases = [...doc.phases];
+      newPhases[pIdx] = {
+        ...phase,
+        findings: [...phase.findings, newFinding],
       };
       return {
         ...doc,
-        researchQuestions: newQuestions,
+        phases: newPhases,
         lastUpdated: now,
       };
     }
 
     case 'edit_finding': {
-      if (!edit.questionId || !edit.findingId) {
-        console.warn('[applyEdit] edit_finding requires questionId and findingId');
+      if (!edit.phaseId || !edit.findingId) {
+        console.warn('[applyEdit] edit_finding requires phaseId and findingId');
         return doc;
       }
-      const qIdx = findQuestionIndex(doc, edit.questionId);
-      if (qIdx === -1) return doc;
+      const pIdx = findPhaseIndex(doc, edit.phaseId);
+      if (pIdx === -1) return doc;
 
-      const question = doc.researchQuestions[qIdx];
-      const newFindings = question.findings.map(f => {
+      const phase = doc.phases[pIdx];
+      const newFindings = phase.findings.map(f => {
         if (f.id === edit.findingId) {
           return {
             ...f,
@@ -134,49 +196,49 @@ export function applyEdit(doc: ResearchDoc, edit: DocEdit): ResearchDoc {
         return f;
       });
 
-      const newQuestions = [...doc.researchQuestions];
-      newQuestions[qIdx] = { ...question, findings: newFindings };
+      const newPhases = [...doc.phases];
+      newPhases[pIdx] = { ...phase, findings: newFindings };
       return {
         ...doc,
-        researchQuestions: newQuestions,
+        phases: newPhases,
         lastUpdated: now,
       };
     }
 
     case 'remove_finding': {
-      if (!edit.questionId || !edit.findingId) {
-        console.warn('[applyEdit] remove_finding requires questionId and findingId');
+      if (!edit.phaseId || !edit.findingId) {
+        console.warn('[applyEdit] remove_finding requires phaseId and findingId');
         return doc;
       }
-      const qIdx = findQuestionIndex(doc, edit.questionId);
-      if (qIdx === -1) return doc;
+      const pIdx = findPhaseIndex(doc, edit.phaseId);
+      if (pIdx === -1) return doc;
 
-      const question = doc.researchQuestions[qIdx];
-      const newFindings = question.findings.filter(f => f.id !== edit.findingId);
+      const phase = doc.phases[pIdx];
+      const newFindings = phase.findings.filter(f => f.id !== edit.findingId);
 
-      const newQuestions = [...doc.researchQuestions];
-      newQuestions[qIdx] = { ...question, findings: newFindings };
+      const newPhases = [...doc.phases];
+      newPhases[pIdx] = { ...phase, findings: newFindings };
       return {
         ...doc,
-        researchQuestions: newQuestions,
+        phases: newPhases,
         lastUpdated: now,
       };
     }
 
     case 'disqualify_finding': {
-      if (!edit.questionId || !edit.findingId) {
-        console.warn('[applyEdit] disqualify_finding requires questionId and findingId');
+      if (!edit.phaseId || !edit.findingId) {
+        console.warn('[applyEdit] disqualify_finding requires phaseId and findingId');
         return doc;
       }
       if (!edit.disqualifyReason) {
         console.warn('[applyEdit] disqualify_finding requires disqualifyReason');
         return doc;
       }
-      const qIdx = findQuestionIndex(doc, edit.questionId);
-      if (qIdx === -1) return doc;
+      const pIdx = findPhaseIndex(doc, edit.phaseId);
+      if (pIdx === -1) return doc;
 
-      const question = doc.researchQuestions[qIdx];
-      const newFindings = question.findings.map(f => {
+      const phase = doc.phases[pIdx];
+      const newFindings = phase.findings.map(f => {
         if (f.id === edit.findingId) {
           return {
             ...f,
@@ -187,31 +249,11 @@ export function applyEdit(doc: ResearchDoc, edit: DocEdit): ResearchDoc {
         return f;
       });
 
-      const newQuestions = [...doc.researchQuestions];
-      newQuestions[qIdx] = { ...question, findings: newFindings };
+      const newPhases = [...doc.phases];
+      newPhases[pIdx] = { ...phase, findings: newFindings };
       return {
         ...doc,
-        researchQuestions: newQuestions,
-        lastUpdated: now,
-      };
-    }
-
-    case 'mark_question_done': {
-      if (!edit.questionId) {
-        console.warn('[applyEdit] mark_question_done requires questionId');
-        return doc;
-      }
-      const qIdx = findQuestionIndex(doc, edit.questionId);
-      if (qIdx === -1) return doc;
-
-      const newQuestions = [...doc.researchQuestions];
-      newQuestions[qIdx] = {
-        ...doc.researchQuestions[qIdx],
-        status: 'done',
-      };
-      return {
-        ...doc,
-        researchQuestions: newQuestions,
+        phases: newPhases,
         lastUpdated: now,
       };
     }
@@ -262,13 +304,13 @@ export function appendStrategy(doc: ResearchDoc, strategy: Strategy): ResearchDo
 }
 
 /**
- * Add a new research question
+ * Add a new research phase
  */
-export function addResearchQuestion(doc: ResearchDoc, questionText: string): ResearchDoc {
-  const question = createResearchQuestion(questionText);
+export function addResearchPhase(doc: ResearchDoc, title: string, goal: string): ResearchDoc {
+  const phase = createResearchPhase(title, goal);
   return {
     ...doc,
-    researchQuestions: [...doc.researchQuestions, question],
+    phases: [...doc.phases, phase],
     lastUpdated: new Date().toISOString(),
   };
 }
@@ -296,7 +338,6 @@ export function hasQueryBeenRun(doc: ResearchDoc, query: string): boolean {
 
 /**
  * Format document for agent context
- * Shows questions with their findings so agent can reference them
  */
 export function formatDocForAgent(doc: ResearchDoc): string {
   const parts: string[] = [];
@@ -308,29 +349,29 @@ export function formatDocForAgent(doc: ResearchDoc): string {
   if (currentStrategy) {
     parts.push('\n## Current Strategy');
     parts.push(`**Approach:** ${currentStrategy.approach}`);
-    parts.push(`**Rationale:** ${currentStrategy.rationale}`);
     if (currentStrategy.nextActions.length > 0) {
-      parts.push('**Next Actions:**');
-      for (const action of currentStrategy.nextActions) {
-        parts.push(`- ${action}`);
-      }
+      parts.push(`**Next:** ${currentStrategy.nextActions[0]}`);
     }
   }
 
-  // Research Questions with findings
-  if (doc.researchQuestions.length > 0) {
-    parts.push('\n## Research Questions');
-    for (const question of doc.researchQuestions) {
-      const statusIcon = question.status === 'done' ? '✓' : '○';
-      parts.push(`\n### [${question.id}] ${statusIcon} ${question.question}`);
+  // Research Phases
+  if (doc.phases.length > 0) {
+    parts.push('\n## Research Plan');
+    for (const phase of doc.phases) {
+      const statusIcon = phase.status === 'done' ? '✓' : phase.status === 'in_progress' ? '→' : '○';
+      parts.push(`\n### [${phase.id}] ${statusIcon} ${phase.title}`);
+      parts.push(`Goal: ${phase.goal}`);
 
-      const activeFindings = question.findings.filter(f => f.status !== 'disqualified');
-      const disqualifiedFindings = question.findings.filter(f => f.status === 'disqualified');
+      const activeFindings = phase.findings.filter(f => f.status !== 'disqualified');
+      const disqualifiedFindings = phase.findings.filter(f => f.status === 'disqualified');
 
       if (activeFindings.length === 0 && disqualifiedFindings.length === 0) {
-        parts.push('(no findings yet)');
+        if (phase.status === 'in_progress') {
+          parts.push('(researching...)');
+        } else if (phase.status === 'not_started') {
+          parts.push('(not started)');
+        }
       } else {
-        // Active findings
         for (const finding of activeFindings) {
           parts.push(`- [${finding.id}] ${finding.content}`);
           if (finding.sources.length > 0) {
@@ -338,15 +379,14 @@ export function formatDocForAgent(doc: ResearchDoc): string {
             parts.push(`  Sources: ${sourceList}`);
           }
         }
-        // Disqualified findings
         for (const finding of disqualifiedFindings) {
           parts.push(`- [${finding.id}] ~~${finding.content}~~ (${finding.disqualifyReason})`);
         }
       }
     }
   } else {
-    parts.push('\n## Research Questions');
-    parts.push('(none yet - add questions to investigate)');
+    parts.push('\n## Research Plan');
+    parts.push('(no phases defined)');
   }
 
   parts.push(`\n---`);
@@ -364,10 +404,11 @@ export function getDocSummary(doc: ResearchDoc): string {
 
   parts.push(`**Objective:** ${doc.objective}`);
 
-  const openQuestions = doc.researchQuestions.filter(q => q.status === 'open');
-  const doneQuestions = doc.researchQuestions.filter(q => q.status === 'done');
+  const donePhases = doc.phases.filter(p => p.status === 'done');
+  const inProgressPhases = doc.phases.filter(p => p.status === 'in_progress');
+  const notStartedPhases = doc.phases.filter(p => p.status === 'not_started');
 
-  parts.push(`\n**Questions:** ${openQuestions.length} open, ${doneQuestions.length} done`);
+  parts.push(`\n**Phases:** ${donePhases.length} done, ${inProgressPhases.length} in progress, ${notStartedPhases.length} remaining`);
 
   if (currentStrategy) {
     parts.push(`\n**Strategy:** ${currentStrategy.approach}`);

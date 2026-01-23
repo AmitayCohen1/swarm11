@@ -59,7 +59,7 @@ const titleVariants: Variants = {
   }
 };
 
-// V7 Document-centric types - Research Questions with Findings
+// V8 Document-centric types - Research Phases with Findings
 interface Finding {
   id: string;
   content: string;
@@ -68,10 +68,11 @@ interface Finding {
   disqualifyReason?: string;
 }
 
-interface ResearchQuestion {
+interface ResearchPhase {
   id: string;
-  question: string;
-  status: 'open' | 'done';
+  title: string;
+  goal: string;
+  status: 'not_started' | 'in_progress' | 'done';
   findings: Finding[];
 }
 
@@ -85,7 +86,7 @@ interface StrategyLogEntry {
 
 interface ResearchDoc {
   objective: string;
-  researchQuestions: ResearchQuestion[];
+  phases: ResearchPhase[];
   strategyLog: StrategyLogEntry[];
 }
 
@@ -164,8 +165,8 @@ export default function ResearchLog({
         </div>
       )}
 
-      {/* Research Questions - main document structure */}
-      {doc.researchQuestions.length === 0 ? (
+      {/* Research Phases - main document structure */}
+      {doc.phases.length === 0 ? (
         <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -175,11 +176,12 @@ export default function ResearchLog({
         </motion.p>
       ) : (
         <AnimatePresence mode="popLayout">
-          {doc.researchQuestions.map((question) => {
-            const isDone = question.status === 'done';
+          {doc.phases.map((phase) => {
+            const isDone = phase.status === 'done';
+            const isInProgress = phase.status === 'in_progress';
             return (
               <motion.div
-                key={question.id}
+                key={phase.id}
                 layout
                 variants={questionVariants}
                 initial="hidden"
@@ -190,16 +192,18 @@ export default function ResearchLog({
               >
                 <motion.div
                   variants={titleVariants}
-                  className="flex items-center gap-2 mb-4"
+                  className="flex items-center gap-2 mb-2"
                 >
                   {/* Status indicator */}
                   <span className={cn(
                     "flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs",
                     isDone
                       ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
-                      : "bg-slate-100 dark:bg-white/5 text-slate-400 dark:text-slate-500"
+                      : isInProgress
+                        ? "bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400"
+                        : "bg-slate-100 dark:bg-white/5 text-slate-400 dark:text-slate-500"
                   )}>
-                    {isDone ? '✓' : '○'}
+                    {isDone ? '✓' : isInProgress ? '→' : '○'}
                   </span>
                   <h2 className={cn(
                     "text-xl font-semibold",
@@ -207,22 +211,30 @@ export default function ResearchLog({
                       ? "text-slate-500 dark:text-slate-400"
                       : "text-slate-900 dark:text-white"
                   )}>
-                    {question.question}
+                    {phase.title}
                   </h2>
                 </motion.div>
 
+                {/* Phase goal */}
+                <motion.p
+                  variants={findingVariants}
+                  className="text-sm text-slate-500 dark:text-slate-400 ml-7 mb-4"
+                >
+                  {phase.goal}
+                </motion.p>
+
                 {/* Findings */}
-                {question.findings.length === 0 ? (
+                {phase.findings.length === 0 ? (
                   <motion.p
                     variants={findingVariants}
                     className="text-slate-400 dark:text-slate-500 italic text-sm ml-7"
                   >
-                    (no findings yet)
+                    {isInProgress ? '(researching...)' : '(not started)'}
                   </motion.p>
                 ) : (
                   <motion.ul className="space-y-3 ml-7">
                     <AnimatePresence mode="popLayout">
-                      {question.findings.map((finding) => {
+                      {phase.findings.map((finding) => {
                         const isDisqualified = finding.status === 'disqualified';
                         return (
                           <motion.li

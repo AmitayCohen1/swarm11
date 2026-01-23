@@ -18,7 +18,7 @@ import {
   formatDocForAgent,
   getCurrentStrategy,
   appendStrategy,
-  addResearchQuestion,
+  getCurrentPhase,
 } from '@/lib/utils/doc-operations';
 import type { Strategy } from '@/lib/types/research-doc';
 
@@ -58,39 +58,45 @@ export async function executeResearchCycle(config: ResearchAgentConfig): Promise
     creditsUsed += Math.ceil((usage?.totalTokens || 0) / 1000);
   };
 
-  // Tool: Add a research question
-  const addQuestionTool = tool({
-    description: 'Add a new research question to investigate. Use when you identify a key question that needs answering.',
+  // Tool: Add a new phase (when discovering new areas to research)
+  const addPhaseTool = tool({
+    description: 'Add a new research phase to the plan. Use when you discover a new area that needs investigation.',
     inputSchema: z.object({
-      question: z.string().describe('The research question (e.g., "Who are the top DevRel candidates at media companies?")'),
+      title: z.string().describe('Phase title (e.g., "Research pricing strategies")'),
+      goal: z.string().describe('What we want to learn in this phase'),
     }),
-    execute: async ({ question }) => {
-      doc = addResearchQuestion(doc, question);
-      const newQuestion = doc.researchQuestions[doc.researchQuestions.length - 1];
-      onProgress?.({ type: 'question_added', questionId: newQuestion.id, question });
-      return { success: true, questionId: newQuestion.id, message: `Added question: ${question}` };
+    execute: async ({ title, goal }) => {
+      const edit: DocEdit = {
+        action: 'add_phase',
+        phaseTitle: title,
+        phaseGoal: goal,
+      };
+      doc = applyEdits(doc, [edit]);
+      const newPhase = doc.phases[doc.phases.length - 1];
+      onProgress?.({ type: 'phase_added', phaseId: newPhase.id, title });
+      return { success: true, phaseId: newPhase.id, message: `Added phase: ${title}` };
     }
   });
 
-  // Tool: Add finding to a question
+  // Tool: Add finding to a phase
   const addFindingTool = tool({
-    description: 'Add a finding/result to a research question. Each finding should be ONE short fact (1-2 lines).',
+    description: 'Add a finding/result to the current phase. Each finding should be ONE short fact (1-2 lines).',
     inputSchema: z.object({
-      questionId: z.string().describe('The question ID (q_xxx) to add the finding to'),
+      phaseId: z.string().describe('The phase ID (phase_xxx) to add the finding to'),
       content: z.string().describe('The finding - keep it SHORT. Example: "NPR | Collin Campbell | SVP Podcasting | linkedin.com/in/collin"'),
       sourceUrl: z.string().optional().describe('Source URL if available'),
       sourceTitle: z.string().optional().describe('Source title if available'),
     }),
-    execute: async ({ questionId, content, sourceUrl, sourceTitle }) => {
+    execute: async ({ phaseId, content, sourceUrl, sourceTitle }) => {
       const edit: DocEdit = {
         action: 'add_finding',
-        questionId,
+        phaseId,
         content,
         sources: sourceUrl ? [{ url: sourceUrl, title: sourceTitle || sourceUrl }] : [],
       };
       doc = applyEdits(doc, [edit]);
-      onProgress?.({ type: 'finding_added', questionId, content });
-      return { success: true, message: `Added finding to ${questionId}` };
+      onProgress?.({ type: 'finding_added', phaseId, content });
+      return { success: true, message: `Added finding to ${phaseId}` };
     }
   });
 
@@ -98,19 +104,19 @@ export async function executeResearchCycle(config: ResearchAgentConfig): Promise
   const editFindingTool = tool({
     description: 'Edit an existing finding by ID',
     inputSchema: z.object({
-      questionId: z.string().describe('The question ID'),
+      phaseId: z.string().describe('The phase ID'),
       findingId: z.string().describe('The finding ID (f_xxx)'),
       content: z.string().describe('New content for the finding'),
     }),
-    execute: async ({ questionId, findingId, content }) => {
+    execute: async ({ phaseId, findingId, content }) => {
       const edit: DocEdit = {
         action: 'edit_finding',
-        questionId,
+        phaseId,
         findingId,
         content,
       };
       doc = applyEdits(doc, [edit]);
-      onProgress?.({ type: 'finding_edited', questionId, findingId });
+      onProgress?.({ type: 'finding_edited', phaseId, findingId });
       return { success: true, message: `Edited ${findingId}` };
     }
   });
@@ -119,17 +125,17 @@ export async function executeResearchCycle(config: ResearchAgentConfig): Promise
   const removeFindingTool = tool({
     description: 'Remove a finding by ID',
     inputSchema: z.object({
-      questionId: z.string().describe('The question ID'),
+      phaseId: z.string().describe('The phase ID'),
       findingId: z.string().describe('The finding ID to remove'),
     }),
-    execute: async ({ questionId, findingId }) => {
+    execute: async ({ phaseId, findingId }) => {
       const edit: DocEdit = {
         action: 'remove_finding',
-        questionId,
+        phaseId,
         findingId,
       };
       doc = applyEdits(doc, [edit]);
-      onProgress?.({ type: 'finding_removed', questionId, findingId });
+      onProgress?.({ type: 'finding_removed', phaseId, findingId });
       return { success: true, message: `Removed ${findingId}` };
     }
   });
@@ -138,37 +144,37 @@ export async function executeResearchCycle(config: ResearchAgentConfig): Promise
   const disqualifyFindingTool = tool({
     description: 'Mark a finding as disqualified/ruled out. Use when you find info that eliminates a candidate.',
     inputSchema: z.object({
-      questionId: z.string().describe('The question ID'),
+      phaseId: z.string().describe('The phase ID'),
       findingId: z.string().describe('The finding ID to disqualify'),
       reason: z.string().describe('Why ruled out (e.g., "Just took new role", "Founded own company")'),
     }),
-    execute: async ({ questionId, findingId, reason }) => {
+    execute: async ({ phaseId, findingId, reason }) => {
       const edit: DocEdit = {
         action: 'disqualify_finding',
-        questionId,
+        phaseId,
         findingId,
         disqualifyReason: reason,
       };
       doc = applyEdits(doc, [edit]);
-      onProgress?.({ type: 'finding_disqualified', questionId, findingId, reason });
+      onProgress?.({ type: 'finding_disqualified', phaseId, findingId, reason });
       return { success: true, message: `Disqualified ${findingId}: ${reason}` };
     }
   });
 
-  // Tool: Mark question as done
-  const markQuestionDoneTool = tool({
-    description: 'Mark a research question as done when you have gathered enough information to answer it.',
+  // Tool: Complete current phase and move to next
+  const completePhaseTool = tool({
+    description: 'Mark the current phase as done when you have gathered enough findings. This auto-starts the next phase.',
     inputSchema: z.object({
-      questionId: z.string().describe('The question ID to mark as done'),
+      phaseId: z.string().describe('The phase ID to mark as done'),
     }),
-    execute: async ({ questionId }) => {
+    execute: async ({ phaseId }) => {
       const edit: DocEdit = {
-        action: 'mark_question_done',
-        questionId,
+        action: 'complete_phase',
+        phaseId,
       };
       doc = applyEdits(doc, [edit]);
-      onProgress?.({ type: 'question_done', questionId });
-      return { success: true, message: `Marked ${questionId} as done` };
+      onProgress?.({ type: 'phase_completed', phaseId });
+      return { success: true, message: `Completed ${phaseId}, next phase started` };
     }
   });
 
@@ -203,14 +209,15 @@ export async function executeResearchCycle(config: ResearchAgentConfig): Promise
   const currentStrategy = getCurrentStrategy(doc);
   const nextAction = currentStrategy?.nextActions[0] || 'Begin research';
 
-  // Check open questions
-  const openQuestions = doc.researchQuestions.filter(q => q.status === 'open');
-  const doneQuestions = doc.researchQuestions.filter(q => q.status === 'done');
-  const questionContext = openQuestions.length > 0
-    ? `Open questions (${openQuestions.length}): ${openQuestions.map(q => `[${q.id}] ${q.question}`).join(' | ')}`
-    : doneQuestions.length > 0
-      ? 'All questions answered!'
-      : 'No questions defined';
+  // Check current phase
+  const currentPhase = getCurrentPhase(doc);
+  const donePhases = doc.phases.filter(p => p.status === 'done');
+  const remainingPhases = doc.phases.filter(p => p.status !== 'done');
+  const phaseContext = currentPhase
+    ? `CURRENT PHASE: [${currentPhase.id}] ${currentPhase.title}\nGoal: ${currentPhase.goal}`
+    : remainingPhases.length === 0 && donePhases.length > 0
+      ? 'All phases completed!'
+      : 'No phases defined';
 
   const systemPrompt = `You are a Research Agent. You search for information and update the document with findings.
 
@@ -218,7 +225,7 @@ OBJECTIVE: ${objective}
 
 CURRENT TASK: ${nextAction}
 
-${questionContext}
+${phaseContext}
 
 CURRENT DOCUMENT:
 ${formatDocForAgent(doc)}
@@ -226,14 +233,14 @@ ${formatDocForAgent(doc)}
 ---
 
 YOUR WORKFLOW:
-1. Pick an open question to work on
-2. Search for information to answer it
-3. Add findings (short facts) to that question
-4. When a question has enough findings (3-5 solid ones), mark it done
-5. Move to the next open question
-6. Call 'done' when all questions are answered or you've exhausted productive avenues
+1. Focus on the CURRENT PHASE - work through phases in order
+2. Search for information related to the current phase's goal
+3. Add findings (short facts) to the current phase
+4. When a phase has enough findings (3-5 solid ones), complete it
+5. The next phase will auto-start
+6. Call 'done' when all phases are completed or you've exhausted productive avenues
 
-You can add new questions if you discover important sub-topics not covered by existing questions.
+You can add new phases if you discover important areas not covered by the existing plan.
 
 FINDINGS - BE CONCISE:
 GOOD: "NPR | Collin Campbell | SVP Podcasting | linkedin.com/in/collin"
@@ -247,8 +254,8 @@ DISQUALIFICATION - Filter ruthlessly:
 
 RULES:
 - Each add_finding = ONE specific fact (1-2 lines max)
-- Add findings to the appropriate question by questionId
-- Mark questions done when sufficiently answered
+- Add findings to the current phase by phaseId
+- Complete phases when sufficiently researched
 - Only update strategy when DIRECTION changes
 
 PREVIOUS QUERIES (avoid repeating):
@@ -259,7 +266,7 @@ ${doc.queriesRun.slice(-15).join('\n') || '(none)'}`;
   const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
   messages.push({
     role: 'user',
-    content: `Execute: ${nextAction}\n\nPick an open question, search for information, and add findings. Keep findings SHORT (1-2 lines).`
+    content: `Execute: ${nextAction}\n\nWork on the current phase. Search for information, and add findings. Keep findings SHORT (1-2 lines).`
   });
 
   let shouldContinue = true;
@@ -275,12 +282,12 @@ ${doc.queriesRun.slice(-15).join('\n') || '(none)'}`;
       messages,
       tools: {
         search,
-        add_question: addQuestionTool,
+        add_phase: addPhaseTool,
         add_finding: addFindingTool,
         edit_finding: editFindingTool,
         remove_finding: removeFindingTool,
         disqualify_finding: disqualifyFindingTool,
-        mark_question_done: markQuestionDoneTool,
+        complete_phase: completePhaseTool,
         update_strategy: updateStrategyTool,
         done: doneTool,
       },
@@ -326,12 +333,12 @@ ${doc.queriesRun.slice(-15).join('\n') || '(none)'}`;
         assistantActions.push(`Searched: ${queries.map((q: any) => q.query || q).join(', ')}`);
       }
 
-      if (tc.toolName === 'add_question') {
-        assistantActions.push(`Added question: ${tc.input?.question || tc.args?.question}`);
+      if (tc.toolName === 'add_phase') {
+        assistantActions.push(`Added phase: ${tc.input?.title || tc.args?.title}`);
       }
 
       if (tc.toolName === 'add_finding') {
-        assistantActions.push(`Added finding to ${tc.input?.questionId || tc.args?.questionId}`);
+        assistantActions.push(`Added finding to ${tc.input?.phaseId || tc.args?.phaseId}`);
       }
 
       if (tc.toolName === 'edit_finding') {
@@ -347,8 +354,8 @@ ${doc.queriesRun.slice(-15).join('\n') || '(none)'}`;
         assistantActions.push(`Disqualified finding: ${reason}`);
       }
 
-      if (tc.toolName === 'mark_question_done') {
-        assistantActions.push(`Marked question done: ${tc.input?.questionId || tc.args?.questionId}`);
+      if (tc.toolName === 'complete_phase') {
+        assistantActions.push(`Completed phase: ${tc.input?.phaseId || tc.args?.phaseId}`);
       }
 
       if (tc.toolName === 'update_strategy') {
@@ -385,7 +392,7 @@ ${doc.queriesRun.slice(-15).join('\n') || '(none)'}`;
     } else {
       messages.push({
         role: 'user',
-        content: 'Continue. Search for more, add findings, mark questions done, or call done when finished.'
+        content: 'Continue. Search for more, add findings, complete phases when ready, or call done when finished.'
       });
     }
   }

@@ -1,6 +1,6 @@
 /**
- * Research Document Types - Version 7
- * Research Questions with findings
+ * Research Document Types - Version 8
+ * Phased research with sequential steps
  */
 
 import { z } from 'zod';
@@ -20,7 +20,7 @@ export type Source = z.infer<typeof SourceSchema>;
  */
 export const FindingSchema = z.object({
   id: z.string(),
-  content: z.string(),  // Short fact
+  content: z.string(),
   sources: z.array(SourceSchema).default([]),
   status: z.enum(['active', 'disqualified']).default('active'),
   disqualifyReason: z.string().optional(),
@@ -29,16 +29,17 @@ export const FindingSchema = z.object({
 export type Finding = z.infer<typeof FindingSchema>;
 
 /**
- * Research Question - a question we're trying to answer
+ * Research Phase - a step in the research plan
  */
-export const ResearchQuestionSchema = z.object({
+export const ResearchPhaseSchema = z.object({
   id: z.string(),
-  question: z.string(),  // e.g., "Who are the top DevRel candidates?"
-  status: z.enum(['open', 'done']).default('open'),
-  findings: z.array(FindingSchema).default([]),  // Results for this question
+  title: z.string(),  // e.g., "Understand the landscape"
+  goal: z.string(),   // What we're trying to learn in this phase
+  status: z.enum(['not_started', 'in_progress', 'done']).default('not_started'),
+  findings: z.array(FindingSchema).default([]),
 });
 
-export type ResearchQuestion = z.infer<typeof ResearchQuestionSchema>;
+export type ResearchPhase = z.infer<typeof ResearchPhaseSchema>;
 
 /**
  * Strategy entry (single point in time)
@@ -65,12 +66,12 @@ export const StrategyLogEntrySchema = z.object({
 export type StrategyLogEntry = z.infer<typeof StrategyLogEntrySchema>;
 
 /**
- * Research Document v7
+ * Research Document v8
  */
 export const ResearchDocSchema = z.object({
-  version: z.literal(7),
+  version: z.literal(8),
   objective: z.string(),
-  researchQuestions: z.array(ResearchQuestionSchema).default([]),
+  phases: z.array(ResearchPhaseSchema).default([]),
   strategyLog: z.array(StrategyLogEntrySchema).default([]),
   queriesRun: z.array(z.string()),
   lastUpdated: z.string(),
@@ -79,10 +80,10 @@ export const ResearchDocSchema = z.object({
 export type ResearchDoc = z.infer<typeof ResearchDocSchema>;
 
 /**
- * Generate question ID
+ * Generate phase ID
  */
-export function generateQuestionId(): string {
-  return `q_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+export function generatePhaseId(): string {
+  return `phase_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 }
 
 /**
@@ -108,7 +109,7 @@ export function createInitialStrategyEntry(objective: string): StrategyLogEntry 
     timestamp: new Date().toISOString(),
     approach: 'Starting research',
     rationale: `Initial approach to investigate: ${objective}`,
-    nextActions: ['Form initial research questions'],
+    nextActions: ['Work through research phases'],
   };
 }
 
@@ -124,13 +125,14 @@ export function createStrategyEntry(strategy: Strategy): StrategyLogEntry {
 }
 
 /**
- * Create a new research question
+ * Create a new research phase
  */
-export function createResearchQuestion(question: string): ResearchQuestion {
+export function createResearchPhase(title: string, goal: string): ResearchPhase {
   return {
-    id: generateQuestionId(),
-    question,
-    status: 'open',
+    id: generatePhaseId(),
+    title,
+    goal,
+    status: 'not_started',
     findings: [],
   };
 }

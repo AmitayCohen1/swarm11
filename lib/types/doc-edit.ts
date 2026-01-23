@@ -1,6 +1,6 @@
 /**
- * Document Edit Types - Version 7
- * Question-based operations: add question, add finding, mark done, disqualify
+ * Document Edit Types - Version 8
+ * Phase-based operations
  */
 
 import { z } from 'zod';
@@ -11,19 +11,21 @@ import { SourceSchema, StrategySchema } from './research-doc';
  */
 export const DocEditSchema = z.object({
   action: z.enum([
-    'add_question',      // Add a new research question
-    'add_finding',       // Add a finding to a question
-    'edit_finding',      // Edit an existing finding
-    'remove_finding',    // Remove a finding
-    'disqualify_finding', // Mark a finding as disqualified
-    'mark_question_done', // Mark a question as done
+    'add_phase',           // Add a new research phase
+    'start_phase',         // Mark phase as in_progress
+    'complete_phase',      // Mark phase as done
+    'add_finding',         // Add a finding to a phase
+    'edit_finding',        // Edit an existing finding
+    'remove_finding',      // Remove a finding
+    'disqualify_finding',  // Mark a finding as disqualified
   ]),
-  questionId: z.string().optional(),   // Required for finding operations
-  questionText: z.string().optional(), // Required for add_question
-  findingId: z.string().optional(),    // Required for edit/remove/disqualify finding
+  phaseId: z.string().optional(),      // Required for phase operations
+  phaseTitle: z.string().optional(),   // Required for add_phase
+  phaseGoal: z.string().optional(),    // Required for add_phase
+  findingId: z.string().optional(),    // Required for finding edit/remove/disqualify
   content: z.string().optional(),      // Required for add/edit finding
   sources: z.array(SourceSchema).optional(),
-  disqualifyReason: z.string().optional(), // Required for disqualify_finding
+  disqualifyReason: z.string().optional(),
 });
 
 export type DocEdit = z.infer<typeof DocEditSchema>;

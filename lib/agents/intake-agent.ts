@@ -8,10 +8,15 @@ export interface InitialStrategy {
   nextActions: string[];
 }
 
+export interface InitialPhase {
+  title: string;  // e.g., "Understand the landscape"
+  goal: string;   // What we're trying to learn in this phase
+}
+
 export interface ResearchBrief {
   objective: string;
   initialStrategy: InitialStrategy;
-  initialQuestions: string[];  // 2-4 key questions to investigate
+  initialPhases: InitialPhase[];  // 2-4 sequential research phases
 }
 
 export interface OrchestratorDecision {
@@ -53,7 +58,10 @@ export async function analyzeUserMessage(
           rationale: z.string().describe("Why this approach makes sense for the objective"),
           nextActions: z.array(z.string()).min(1).max(3).describe("1-3 specific first steps to take")
         }).describe("The initial plan for how to approach this research"),
-        initialQuestions: z.array(z.string()).min(2).max(4).describe("2-4 key research questions to investigate. Each should be specific and answerable.")
+        initialPhases: z.array(z.object({
+          title: z.string().describe("Phase title (e.g., 'Understand the landscape', 'Find specific targets')"),
+          goal: z.string().describe("What we're trying to learn in this phase")
+        })).min(2).max(4).describe("2-4 sequential research phases. Each phase is a step in the plan. Work through them in order.")
       }).optional().describe('Required for start_research.'),
 
       reasoning: z.string().describe('Brief reasoning for your decision')
@@ -100,20 +108,21 @@ OBJECTIVE
 - If user says "sales" → objective is about sales, not "market analysis"
 - Add clarity, not abstraction. Your job is to capture their intent, not improve it.
 
-INITIAL_QUESTIONS (2-4 questions)
-- Break down the objective into specific, answerable questions
-- Each question should target a different aspect of the research
-- Questions guide what findings we collect
+INITIAL_PHASES (2-4 phases)
+- Break down the research into sequential phases
+- Each phase is a STEP in the plan - work through them in order
+- First phase usually: "Understand the landscape" or "Define the space"
+- Later phases: "Identify specific targets", "Figure out how to reach them"
 
-GOOD QUESTIONS:
-- "Who are the top DevRel leaders at media companies?"
-- "What is the pricing structure for CompanyX enterprise plan?"
-- "Which competitors offer similar features to ProductY?"
+GOOD PHASES:
+- Phase 1: "Understand the market" → Goal: "Learn who the main players are and how they're positioned"
+- Phase 2: "Find specific targets" → Goal: "Identify 5-10 companies that fit our criteria"
+- Phase 3: "Research contact methods" → Goal: "Find decision makers and how to reach them"
 
-BAD QUESTIONS:
-- Too vague: "What is out there?"
-- Too broad: "Everything about X?"
-- Not actionable: "Is this good?"
+BAD PHASES:
+- Too vague: "Research stuff"
+- Not sequential: Phases that could happen in any order
+- Too similar: Phases that overlap in scope
 
 INITIAL_STRATEGY
 - approach: Your high-level plan (1 sentence)
