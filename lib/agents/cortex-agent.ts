@@ -106,6 +106,7 @@ export async function generateResearchQuestions(
   What would be the best way to find the answer?
   After you generate this quesitons, the ResearchQuestion Agent will run them and get the answers. And then we can go through another cycle of research, smarter.
   So no need to figure it out all at once.
+  Research questions must be short, spesific, and clear. 
 
 Main objective the user gave is: ${doc.objective}
 
