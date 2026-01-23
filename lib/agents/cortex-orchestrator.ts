@@ -116,12 +116,23 @@ export async function executeCortexResearch(
     }
   };
 
-  const emitProgress = async (type: string, data: any = {}) => {
-    onProgress?.({ type, ...data });
+  const emitProgress = async (eventOrType: string | { type: string; [key: string]: any }, data: any = {}) => {
+    // Support both calling conventions:
+    // emitProgress('type', { data }) - from orchestrator
+    // emitProgress({ type: 'type', ...data }) - from initiative agent
+    let event: { type: string; [key: string]: any };
+
+    if (typeof eventOrType === 'string') {
+      event = { type: eventOrType, ...data };
+    } else {
+      event = eventOrType;
+    }
+
+    onProgress?.(event);
 
     // Save to DB on every doc_updated event for real-time persistence
-    if (type === 'doc_updated' && data.doc) {
-      await saveDocToDb(data.doc);
+    if (event.type === 'doc_updated' && event.doc) {
+      await saveDocToDb(event.doc);
     }
   };
 
