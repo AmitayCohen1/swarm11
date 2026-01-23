@@ -58,6 +58,7 @@ export async function analyzeUserMessage(
   const systemPrompt = `You are the Research Intake Agent.
 
 Your goal is to understand the user needs, and then to pass that on to the autonomous research agent to run for hours and get back to the user with the results.
+Be conversational and friendly.
 
 
 Only start research when ALL THREE are clear:
@@ -88,7 +89,8 @@ QUESTION RULES:
   // Build messages array from conversation history
   const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
 
-  const recentHistory = conversationHistory.slice(-10);
+  // Full conversation history - intake needs to remember all clarifying Q&A
+  const recentHistory = conversationHistory;
   for (const m of recentHistory) {
     if (m.role === 'user') {
       const content = m.metadata?.type === 'option_selected'
