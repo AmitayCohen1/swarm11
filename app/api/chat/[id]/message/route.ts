@@ -4,11 +4,11 @@ import { db } from '@/lib/db';
 import { chatSessions, users, researchSessions } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { analyzeUserMessage } from '@/lib/agents/intake-agent';
-import { executeResearch } from '@/lib/agents/research-orchestrator';
+import { executeCortexResearch } from '@/lib/agents/cortex-orchestrator';
 import {
-  createResearchDoc,
-  serializeDoc
-} from '@/lib/utils/doc-operations';
+  initializeCortexDoc,
+  serializeCortexDoc
+} from '@/lib/utils/initiative-operations';
 
 export const maxDuration = 300; // 5 minutes
 
@@ -189,13 +189,12 @@ export async function POST(
             // POC: Credit checks disabled - free to use
             // TODO: Enable credit checks before production launch
 
-            // Initialize research document with initial strategy and phases from orchestrator
-            const newDoc = createResearchDoc(
+            // Initialize CortexDoc with objective and success criteria
+            const newDoc = initializeCortexDoc(
               researchBrief.objective,
-              researchBrief.initialStrategy,
-              researchBrief.initialPhases
+              researchBrief.successCriteria || []
             );
-            const serializedBrain = serializeDoc(newDoc);
+            const serializedBrain = serializeCortexDoc(newDoc);
 
             await db
               .update(chatSessions)
@@ -257,12 +256,11 @@ export async function POST(
 
             let researchResult: any = null;
             try {
-              researchResult = await executeResearch({
+              researchResult = await executeCortexResearch({
                 chatSessionId,
                 researchSessionId,
                 userId: user.id,
                 researchBrief,
-                conversationHistory,
                 existingBrain: serializedBrain,
                 onProgress: (update) => {
                   // Forward all progress events to frontend
@@ -305,7 +303,7 @@ export async function POST(
                 status: 'completed',
                 confidenceLevel: output?.confidenceLevel,
                 finalAnswer: output?.finalAnswer,
-                totalSteps: researchResult?.iterations || 0,
+                totalSteps: researchResult?.totalInitiatives || 0,
                 totalCost: researchResult?.creditsUsed || 0,
                 completedAt: new Date()
               })

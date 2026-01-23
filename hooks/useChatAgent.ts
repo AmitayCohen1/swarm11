@@ -163,7 +163,13 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
       if (session.brain) {
         try {
           const parsed = JSON.parse(session.brain);
-          if (parsed.version === 8) {
+          // Support new CortexDoc (version 1) and legacy ResearchDoc (version 8)
+          if (parsed.version === 1) {
+            setResearchDoc(parsed as any);
+            setResearchProgress({
+              objective: parsed.objective
+            });
+          } else if (parsed.version === 8) {
             setResearchDoc({
               objective: parsed.objective,
               phases: parsed.phases || [],
@@ -400,6 +406,95 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           }
         }
 
+        // ========== NEW CORTEX EVENTS ==========
+
+        // Initiative search events
+        if (update.type === 'initiative_search_started') {
+          setStage('searching');
+          const queries = (update as any).queries || [];
+          addEvent('search_started', 'Searching...', queries.map((q: any) => q.query || q).join(', ').substring(0, 60), 'search');
+        }
+
+        if (update.type === 'initiative_search_completed') {
+          setStage(null);
+          const completedQueries = (update as any).queries || [];
+          addEvent('search_completed', `Search complete`, `${completedQueries.length} queries`, 'search');
+
+          if (completedQueries.length > 0) {
+            setMessages(prev => [...prev, {
+              role: 'assistant' as const,
+              content: '',
+              timestamp: new Date().toISOString(),
+              metadata: {
+                type: 'search_batch',
+                queries: completedQueries
+              }
+            }]);
+          }
+        }
+
+        // Initiative lifecycle events
+        if (update.type === 'initiative_started') {
+          const angle = (update as any).angle || (update as any).hypothesis || '';
+          addEvent('initiative_started', 'Angle started', angle.substring(0, 50), 'phase');
+        }
+
+        if (update.type === 'initiative_cycle_started') {
+          const cycle = (update as any).cycle || 0;
+          const angle = (update as any).angle || (update as any).hypothesis || '';
+          addEvent('initiative_cycle', `Cycle ${cycle}`, angle.substring(0, 40), 'phase');
+        }
+
+        if (update.type === 'initiative_finding_added') {
+          addEvent('finding_added', 'Finding added', (update as any).content?.substring(0, 50), 'log');
+        }
+
+        if (update.type === 'initiative_reflection') {
+          const status = (update as any).hypothesisStatus || '';
+          const novelty = (update as any).noveltyRemaining || '';
+          addEvent('reflection', `Reflection: ${status}`, `Novelty: ${novelty}`, 'reflect');
+        }
+
+        if (update.type === 'initiative_completed') {
+          const confidence = (update as any).confidence || '';
+          const recommendation = (update as any).recommendation || '';
+          addEvent('initiative_done', `Initiative complete (${confidence})`, recommendation, 'complete');
+        }
+
+        // Cortex decision events
+        if (update.type === 'cortex_initialized') {
+          addEvent('cortex_init', 'Cortex initialized', (update as any).objective?.substring(0, 50), 'info');
+        }
+
+        if (update.type === 'cortex_generating_initiatives') {
+          addEvent('cortex_gen', 'Generating initiatives', `Creating ${(update as any).count || 3} research angles`, 'plan');
+        }
+
+        if (update.type === 'cortex_initiatives_generated') {
+          const count = (update as any).count || 0;
+          addEvent('cortex_ready', `${count} initiatives ready`, 'Starting research...', 'plan');
+        }
+
+        if (update.type === 'cortex_evaluating') {
+          addEvent('cortex_eval', 'Evaluating progress', 'Deciding next steps...', 'reflect');
+        }
+
+        if (update.type === 'cortex_decision') {
+          const decision = (update as any).decision || '';
+          const reasoning = (update as any).reasoning || '';
+          addEvent('cortex_decision', `Decision: ${decision}`, reasoning.substring(0, 60), 'plan');
+        }
+
+        if (update.type === 'cortex_synthesizing') {
+          setStage('synthesizing');
+          addEvent('synthesizing', 'Synthesizing answer', 'Combining all findings...', 'complete');
+        }
+
+        if (update.type === 'initiative_spawned') {
+          const angle = (update as any).angle || (update as any).hypothesis || '';
+          addEvent('spawn', 'New angle', angle.substring(0, 50), 'plan');
+        }
+
         if (update.type === 'extract_started') {
           setStage('searching');
           addEvent('extract_started', `Extracting (${(update.urls || []).length} URLs)`, update.purpose || '', 'search');
@@ -497,7 +592,11 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           if (update.brain) {
             try {
               const parsed = JSON.parse(update.brain);
-              if (parsed.version === 8) {
+              // Support new CortexDoc (version 1) and legacy ResearchDoc (version 8)
+              if (parsed.version === 1) {
+                // CortexDoc - pass the whole thing to researchDoc
+                setResearchDoc(parsed as any);
+              } else if (parsed.version === 8) {
                 setResearchDoc({
                   objective: parsed.objective,
                   phases: parsed.phases || [],

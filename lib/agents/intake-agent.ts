@@ -2,21 +2,14 @@ import { generateText } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 
-export interface InitialStrategy {
-  approach: string;
-  rationale: string;
-  nextActions: string[];
-}
-
-export interface InitialPhase {
-  title: string;  // e.g., "Understand the landscape"
-  goal: string;   // What we're trying to learn in this phase
-}
-
+/**
+ * Research Brief - simplified for Cortex architecture
+ * Intake extracts WHAT (objective + criteria)
+ * Cortex decides HOW (generates initiatives)
+ */
 export interface ResearchBrief {
   objective: string;
-  initialStrategy: InitialStrategy;
-  initialPhases: InitialPhase[];  // 2-4 sequential research phases
+  successCriteria: string[];
 }
 
 export interface OrchestratorDecision {
@@ -29,8 +22,9 @@ export interface OrchestratorDecision {
 }
 
 /**
- * Orchestrator Agent
- * Clarifies intent, defines goals, and kicks off research with a plan.
+ * Intake Agent
+ * Clarifies intent and extracts research objective + success criteria.
+ * Does NOT plan HOW to research - that's Cortex's job.
  */
 export async function analyzeUserMessage(
   userMessage: string,
@@ -50,18 +44,10 @@ export async function analyzeUserMessage(
         label: z.string().describe('2-4 word option')
       })).min(2).max(4).optional().describe('Required for multi_choice_select'),
 
-      // start_research fields
+      // start_research fields - just objective and success criteria
       researchBrief: z.object({
-        objective: z.string().describe("Clear, specific research objective."),
-        initialStrategy: z.object({
-          approach: z.string().describe("High-level research approach (e.g., 'Compare pricing across top 3 competitors')"),
-          rationale: z.string().describe("Why this approach makes sense for the objective"),
-          nextActions: z.array(z.string()).min(1).max(3).describe("1-3 specific first steps to take")
-        }).describe("The initial plan for how to approach this research"),
-        initialPhases: z.array(z.object({
-          title: z.string().describe("Phase title (e.g., 'Understand the landscape', 'Find specific targets')"),
-          goal: z.string().describe("What we're trying to learn in this phase")
-        })).min(2).max(4).describe("2-4 sequential research phases. Each phase is a step in the plan. Work through them in order.")
+        objective: z.string().describe("Clear, specific research objective in user's words."),
+        successCriteria: z.array(z.string()).min(1).max(4).describe("1-4 specific criteria for success. E.g., 'Find at least 5 candidates', 'Identify pricing for top 3'"),
       }).optional().describe('Required for start_research.'),
 
       reasoning: z.string().describe('Brief reasoning for your decision')
@@ -69,31 +55,25 @@ export async function analyzeUserMessage(
     execute: async (params: any) => params
   };
 
-  const systemPrompt = `You are the Research Assistant Agent.
-Your job is to clarify what research the user wants and kick it off with a smart initial plan.
+  const systemPrompt = `You are the Research Intake Agent.
+Your job is to clarify WHAT the user wants to research and WHAT success looks like.
+You do NOT plan HOW to research - another agent handles that.
 
 ---
 
-Before starting research, make sure you understand:
+Before starting research, understand:
 
 1. What exactly do you want to research? and why?
-2. What are you going to do with the result? 
-3. What output do you expect? What would success look like?
+2. What are you going to do with the result?
+3. What would success look like? How will you know when you're done?
 
-Additional questions to ask:
-4. Resolve the future tradeoffs - what decisions you anticipate will come up during the research, that we can ask about now?
-5. Ask any question that will help you understand the user better.
-
-Dig deeper:
-- If they say "research X", ask what DECISION or ACTION this enables
-- Don't accept surface requests - understand the real problem behind the question
-- Ask what would make this actionable vs just interesting
+If you can't infer these well enough, ask ONE concise question to fill the biggest gap.
 
 ---
 
 DECISION TYPES:
-1. text_input – greetings or open-ended questions - good for broad questions.
-2. multi_choice_select – when you want to give the user a choice between 2–4 options - good to resolve a fork in the conversation.
+1. text_input – greetings or open-ended questions
+2. multi_choice_select – resolve a fork with 2-4 options
 3. start_research – when objective is clear
 
 ---
@@ -103,39 +83,25 @@ WHEN STARTING RESEARCH:
 You must define:
 
 OBJECTIVE
-- State exactly what the user asked for in their words. Do NOT reframe or abstract.
-- If user says "find customers" → objective is "find customers", not "identify segments"
-- If user says "sales" → objective is about sales, not "market analysis"
-- Add clarity, not abstraction. Your job is to capture their intent, not improve it.
+- Use the user's wording. Do NOT reframe or abstract.
+- If user says "find customers" → objective is "find customers"
+- Add minimal clarity (scope/constraints) without changing what they asked for.
 
-INITIAL_PHASES (2-4 phases)
-- Break down the research into sequential phases
-- Each phase is a STEP in the plan - work through them in order
-- First phase usually: "Understand the landscape" or "Define the space"
-- Later phases: "Identify specific targets", "Figure out how to reach them"
-
-GOOD PHASES:
-- Phase 1: "Understand the market" → Goal: "Learn who the main players are and how they're positioned"
-- Phase 2: "Find specific targets" → Goal: "Identify 5-10 companies that fit our criteria"
-- Phase 3: "Research contact methods" → Goal: "Find decision makers and how to reach them"
-
-BAD PHASES:
-- Too vague: "Research stuff"
-- Not sequential: Phases that could happen in any order
-- Too similar: Phases that overlap in scope
-
-INITIAL_STRATEGY
-- approach: Your high-level plan (1 sentence)
-- rationale: Why this approach makes sense
-- nextActions: 1-3 specific first searches to run
+SUCCESS_CRITERIA (1-4 criteria)
+- What would make this research successful?
+- Be specific and measurable
+- Examples:
+  - "Find at least 5 qualified candidates with contact info"
+  - "Identify pricing tiers for top 3 competitors"
+  - "Determine key decision makers at target companies"
 
 ---
 
 RULES:
 - Ask only ONE question at a time
-- Questions must be very concise, short and direct (max 20 words)
-- Prefer multi_choice_select over text_input 
-- When starting research, provide a SMART initial strategy based on what you know about the user's goal
+- Questions must be concise (max 20 words)
+- Prefer multi_choice_select when you can offer 2-4 good options
+- Do NOT include strategy or phases - just objective and success criteria
 `;
 
   // Build messages array from conversation history
@@ -158,12 +124,12 @@ RULES:
     content: `${userMessage}
 
 ---
-If you have a clear objective, start the research with a smart initial strategy.
+If you have a clear objective, start the research.
 If you need ONE more piece of info, ask ONE focused question.`
   });
 
   const result = await generateText({
-    model: openai('gpt-5.1'),
+    model: openai('gpt-4.1'),
     system: systemPrompt,
     messages,
     tools: { decisionTool },
