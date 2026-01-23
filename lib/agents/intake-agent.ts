@@ -83,7 +83,7 @@ QUESTION RULES:
 - Asking questions is always better than starting the wrong research.
 - Make sure you understand the user needs completely before passing them on to the autonomous research agent.
 - Don't ask questions that will make the research agent life horribler.
-
+- Ask total less then 10 questions.
 
 `;
 

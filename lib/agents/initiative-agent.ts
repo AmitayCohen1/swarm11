@@ -329,6 +329,7 @@ ${(currentInitiative.searchResults || []).slice(-10).map(sr => sr.query).join('\
   let shouldContinue = true;
   let iterationsDone = 0;
   let doneSignaled = false;
+  let awaitingReasoning = false; // State: must call search_reasoning next
 
   // Main loop
   for (let i = 0; i < maxIterations; i++) {
@@ -339,19 +340,26 @@ ${(currentInitiative.searchResults || []).slice(-10).map(sr => sr.query).join('\
 
     log(initiativeId, `Iteration ${i + 1}/${maxIterations} - calling LLM...`);
 
+    // After a search, ONLY allow search_reasoning (enforce search → reason flow)
+    const availableTools = awaitingReasoning
+      ? { search_reasoning: searchReasoningTool }
+      : {
+          search,
+          search_reasoning: searchReasoningTool,
+          add_finding: addFindingTool,
+          edit_finding: editFindingTool,
+          disqualify_finding: disqualifyFindingTool,
+          reflect: reflectTool,
+          done: doneTool,
+        };
+
     const result = await generateText({
       model,
-      system: systemPrompt,
+      system: awaitingReasoning
+        ? `${systemPrompt}\n\n⚠️ You just completed a search. You MUST call search_reasoning NOW to explain what you learned.`
+        : systemPrompt,
       messages,
-      tools: {
-        search,
-        search_reasoning: searchReasoningTool,
-        add_finding: addFindingTool,
-        edit_finding: editFindingTool,
-        disqualify_finding: disqualifyFindingTool,
-        reflect: reflectTool,
-        done: doneTool,
-      },
+      tools: availableTools,
       abortSignal
     });
 
@@ -396,6 +404,15 @@ ${(currentInitiative.searchResults || []).slice(-10).map(sr => sr.query).join('\
         onProgress?.({ type: 'doc_updated', doc });
 
         assistantActions.push(`Searched: ${queries.map((q: any) => q.query || q).join(', ')}`);
+
+        // After search, MUST call search_reasoning next
+        awaitingReasoning = true;
+      }
+
+      if (tc.toolName === 'search_reasoning') {
+        assistantActions.push(`Reasoned about search results`);
+        // Reasoning done, can proceed with other actions
+        awaitingReasoning = false;
       }
 
       if (tc.toolName === 'add_finding') {
@@ -464,6 +481,12 @@ ${(currentInitiative.searchResults || []).slice(-10).map(sr => sr.query).join('\
           content: 'No next search suggested. If you have enough findings, call done.'
         });
       }
+    } else if (awaitingReasoning) {
+      // Must call search_reasoning before anything else
+      messages.push({
+        role: 'user',
+        content: 'You just searched. Now call search_reasoning to explain what you learned before continuing.'
+      });
     } else if (!result.toolCalls || result.toolCalls.length === 0) {
       // No tool calls - prompt to continue
       messages.push({

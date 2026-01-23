@@ -452,12 +452,24 @@ export function formatInitiativeForAgent(initiative: Initiative): string {
 
   const searches = initiative.searchResults || [];
   if (searches.length > 0) {
-    parts.push('\n## Recent Searches');
-    const recentSearches = searches.slice(-10);
-    recentSearches.forEach(sr => parts.push(`- ${sr.query}`));
-    if (searches.length > 10) {
-      parts.push(`... and ${searches.length - 10} more`);
-    }
+    parts.push('\n## Search Results');
+    searches.forEach((sr, i) => {
+      parts.push(`\n### Search ${i + 1}: ${sr.query}`);
+      if (sr.answer) {
+        parts.push(`**Answer:** ${sr.answer}`);
+      }
+      if (sr.reasoning) {
+        parts.push(`**Learned:** ${sr.reasoning}`);
+      }
+    });
+  }
+
+  const reflections = initiative.reflections || [];
+  if (reflections.length > 0) {
+    parts.push('\n## Previous Reflections');
+    reflections.forEach(r => {
+      parts.push(`- Cycle ${r.cycle}: ${r.learned} → ${r.nextStep}`);
+    });
   }
 
   return parts.join('\n');
