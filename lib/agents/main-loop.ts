@@ -331,7 +331,7 @@ export async function runMainLoop(
 
       const completedInit = doc.questions.find(i => i.id === question.id);
       log('PHASE3', `└─ QUESTION COMPLETE: ${question.id}`, {
-        findings: completedInit?.findings.length || 0,
+        memoryEntries: completedInit?.memory.length || 0,
         searches: initResult.queriesExecuted.length,
         confidence: completedInit?.confidence,
         recommendation: completedInit?.recommendation
@@ -420,8 +420,8 @@ export async function runMainLoop(
   // ============================================================
 
   const completedInits = getCompletedResearchQuestions(doc);
-  const activeFindings = doc.questions.reduce(
-    (sum, i) => sum + i.findings.filter(f => f.status === 'active').length,
+  const totalMemory = doc.questions.reduce(
+    (sum, q) => sum + q.memory.length,
     0
   );
 
@@ -430,7 +430,7 @@ export async function runMainLoop(
   log('DONE', 'Final stats:', {
     totalResearchQuestions: doc.questions.length,
     completedResearchQuestions: completedInits.length,
-    totalFindings: activeFindings,
+    totalMemory,
     totalCycles,
     totalCreditsUsed,
     confidence: synthResult.confidence
@@ -439,7 +439,7 @@ export async function runMainLoop(
   emitProgress('research_complete', {
     totalResearchQuestions: doc.questions.length,
     completedResearchQuestions: completedInits.length,
-    totalFindings: activeFindings,
+    totalMemory,
     confidence: synthResult.confidence
   });
 

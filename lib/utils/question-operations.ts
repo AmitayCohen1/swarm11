@@ -1,5 +1,9 @@
 /**
  * ResearchQuestion Operations - Utility functions for BrainDoc manipulation
+ *
+ * SIMPLIFIED MEMORY MODEL:
+ * - Each question has a `memory` array (list of messages)
+ * - No more separate searches/episodes/reflections/findings
  */
 
 import {
@@ -8,22 +12,16 @@ import {
   ResearchQuestion,
   BrainDecision,
   BrainAction,
-  Episode,
-  generateEpisodeId,
+  MemoryEntry,
   createResearchQuestion,
   createBrainDecision,
   createBrainDoc,
-  generateFindingId,
 } from '../types/research-question';
-import type { Finding, Source } from '../types/research-doc';
 
 // ============================================================
 // Document Creation & Parsing
 // ============================================================
 
-/**
- * Initialize a new BrainDoc from research brief
- */
 export function initializeBrainDoc(
   objective: string,
   successCriteria: string[]
@@ -31,16 +29,10 @@ export function initializeBrainDoc(
   return createBrainDoc(objective, successCriteria);
 }
 
-/**
- * Serialize BrainDoc to JSON string
- */
 export function serializeBrainDoc(doc: BrainDoc): string {
   return JSON.stringify(doc, null, 2);
 }
 
-/**
- * Parse JSON string to BrainDoc
- */
 export function parseBrainDoc(json: string): BrainDoc | null {
   if (!json?.trim()) return null;
 
@@ -62,9 +54,6 @@ export function parseBrainDoc(json: string): BrainDoc | null {
 // Research Round Operations
 // ============================================================
 
-/**
- * Increment the research round (called when Brain spawns new questions after evaluation)
- */
 export function incrementResearchRound(doc: BrainDoc): BrainDoc {
   return {
     ...doc,
@@ -76,9 +65,6 @@ export function incrementResearchRound(doc: BrainDoc): BrainDoc {
 // ResearchQuestion Operations
 // ============================================================
 
-/**
- * Add a new question to the document
- */
 export function addResearchQuestion(
   doc: BrainDoc,
   name: string,
@@ -94,37 +80,22 @@ export function addResearchQuestion(
   };
 }
 
-/**
- * Get an question by ID
- */
 export function getResearchQuestion(doc: BrainDoc, questionId: string): ResearchQuestion | undefined {
-  return doc.questions.find(i => i.id === questionId);
+  return doc.questions.find(q => q.id === questionId);
 }
 
-/**
- * Get all pending questions
- */
 export function getPendingResearchQuestions(doc: BrainDoc): ResearchQuestion[] {
-  return doc.questions.filter(i => i.status === 'pending');
+  return doc.questions.filter(q => q.status === 'pending');
 }
 
-/**
- * Get all running questions
- */
 export function getRunningResearchQuestions(doc: BrainDoc): ResearchQuestion[] {
-  return doc.questions.filter(i => i.status === 'running');
+  return doc.questions.filter(q => q.status === 'running');
 }
 
-/**
- * Get all completed questions
- */
 export function getCompletedResearchQuestions(doc: BrainDoc): ResearchQuestion[] {
-  return doc.questions.filter(i => i.status === 'done');
+  return doc.questions.filter(q => q.status === 'done');
 }
 
-/**
- * Update an question's status
- */
 export function updateResearchQuestionStatus(
   doc: BrainDoc,
   questionId: string,
@@ -132,22 +103,16 @@ export function updateResearchQuestionStatus(
 ): BrainDoc {
   return {
     ...doc,
-    questions: doc.questions.map(i =>
-      i.id === questionId ? { ...i, status } : i
+    questions: doc.questions.map(q =>
+      q.id === questionId ? { ...q, status } : q
     ),
   };
 }
 
-/**
- * Start an question (set status to running)
- */
 export function startResearchQuestion(doc: BrainDoc, questionId: string): BrainDoc {
   return updateResearchQuestionStatus(doc, questionId, 'running');
 }
 
-/**
- * Complete an question with results
- */
 export function completeResearchQuestion(
   doc: BrainDoc,
   questionId: string,
@@ -157,314 +122,157 @@ export function completeResearchQuestion(
 ): BrainDoc {
   return {
     ...doc,
-    questions: doc.questions.map(i =>
-      i.id === questionId
-        ? { ...i, status: 'done' as const, summary, confidence, recommendation }
-        : i
+    questions: doc.questions.map(q =>
+      q.id === questionId
+        ? { ...q, status: 'done' as const, summary, confidence, recommendation }
+        : q
     ),
   };
 }
 
-/**
- * Increment cycle count for an question
- */
 export function incrementResearchQuestionCycle(doc: BrainDoc, questionId: string): BrainDoc {
   return {
     ...doc,
-    questions: doc.questions.map(i =>
-      i.id === questionId ? { ...i, cycles: i.cycles + 1 } : i
+    questions: doc.questions.map(q =>
+      q.id === questionId ? { ...q, cycles: q.cycles + 1 } : q
     ),
   };
 }
 
 // ============================================================
-// Finding Operations (within ResearchQuestions)
+// Memory Operations (the new simple model)
 // ============================================================
 
 /**
- * Add a finding to an question
+ * Add a memory entry to a question
  */
-export function addFindingToResearchQuestion(
+export function addMemoryEntry(
   doc: BrainDoc,
   questionId: string,
-  content: string,
-  sources: Source[] = []
+  entry: MemoryEntry
 ): BrainDoc {
-  const finding: Finding = {
-    id: generateFindingId(),
-    content,
-    sources,
-    status: 'active',
-  };
-
-  return {
-    ...doc,
-    questions: doc.questions.map(i =>
-      i.id === questionId
-        ? { ...i, findings: [...i.findings, finding] }
-        : i
-    ),
-  };
-}
-
-/**
- * Edit a finding within an question
- */
-export function editFindingInResearchQuestion(
-  doc: BrainDoc,
-  questionId: string,
-  findingId: string,
-  content: string
-): BrainDoc {
-  return {
-    ...doc,
-    questions: doc.questions.map(i =>
-      i.id === questionId
-        ? {
-            ...i,
-            findings: i.findings.map(f =>
-              f.id === findingId ? { ...f, content } : f
-            ),
-          }
-        : i
-    ),
-  };
-}
-
-/**
- * Disqualify a finding within an question
- */
-export function disqualifyFindingInResearchQuestion(
-  doc: BrainDoc,
-  questionId: string,
-  findingId: string,
-  reason: string
-): BrainDoc {
-  return {
-    ...doc,
-    questions: doc.questions.map(i =>
-      i.id === questionId
-        ? {
-            ...i,
-            findings: i.findings.map(f =>
-              f.id === findingId
-                ? { ...f, status: 'disqualified' as const, disqualifyReason: reason }
-                : f
-            ),
-          }
-        : i
-    ),
-  };
-}
-
-/**
- * Add full search result to question
- */
-export function addSearchToResearchQuestion(
-  doc: BrainDoc,
-  questionId: string,
-  query: string,
-  answer: string,
-  sources: { url: string; title?: string }[] = [],
-  reasoning?: string
-): BrainDoc {
-  return {
-    ...doc,
-    questions: doc.questions.map(i =>
-      i.id === questionId
-        ? {
-            ...i,
-            searches: [...(i.searches || []), { query, answer, sources, reasoning }],
-          }
-        : i
-    ),
-  };
-}
-
-/**
- * Check if a query has been run in an question
- */
-export function hasQueryBeenRunInResearchQuestion(
-  doc: BrainDoc,
-  questionId: string,
-  query: string
-): boolean {
-  const question = getResearchQuestion(doc, questionId);
-  if (!question) return false;
-  const normalized = query.toLowerCase().trim();
-  return (question.searches || []).some(sr => sr.query.toLowerCase().trim() === normalized);
-}
-
-/**
- * Add a cycle reflection to an question
- */
-export function addReflectionToResearchQuestion(
-  doc: BrainDoc,
-  questionId: string,
-  cycle: number,
-  learned: string,
-  nextStep: string,
-  status: 'continue' | 'done'
-): BrainDoc {
-  return {
-    ...doc,
-    questions: doc.questions.map(i =>
-      i.id === questionId
-        ? {
-            ...i,
-            reflections: [...(i.reflections || []), { cycle, learned, nextStep, status }],
-          }
-        : i
-    ),
-  };
-}
-
-// ============================================================
-// Episode Memory (Structured deltas)
-// ============================================================
-
-export function normalizeQuery(q: string): string {
-  return (q || '').toLowerCase().trim().replace(/\s+/g, ' ');
-}
-
-/**
- * Add a new episode to a question.
- */
-export function addEpisodeToResearchQuestion(
-  doc: BrainDoc,
-  questionId: string,
-  episode: Omit<Episode, 'id' | 'timestamp'> & { id?: string; timestamp?: string }
-): BrainDoc {
-  const ep: Episode = {
-    id: episode.id || generateEpisodeId(),
-    timestamp: episode.timestamp || new Date().toISOString(),
-    cycle: episode.cycle,
-    query: episode.query,
-    purpose: episode.purpose || '',
-    sources: episode.sources || [],
-    deltaType: episode.deltaType,
-    nextStep: episode.nextStep || '',
-    status: episode.status,
-  };
-
   return {
     ...doc,
     questions: doc.questions.map(q =>
       q.id === questionId
-        ? { ...q, episodes: [...(q.episodes || []), ep] }
+        ? { ...q, memory: [...q.memory, entry] }
         : q
     ),
   };
 }
 
 /**
- * Return the number of consecutive episodes at the end of the list that had no useful delta.
- * (deltaType === 'no_change' OR empty delta)
+ * Add a search entry to memory
  */
-export function getNoDeltaStreak(doc: BrainDoc, questionId: string): number {
-  const q = getResearchQuestion(doc, questionId);
-  if (!q) return 0;
-  const eps = q.episodes || [];
-  let streak = 0;
-  for (let i = eps.length - 1; i >= 0; i--) {
-    const e = eps[i];
-    const noDelta = e.deltaType === 'no_change';
-    if (!noDelta) break;
-    streak++;
-  }
-  return streak;
+export function addSearchToMemory(
+  doc: BrainDoc,
+  questionId: string,
+  query: string
+): BrainDoc {
+  return addMemoryEntry(doc, questionId, { type: 'search', query });
 }
 
 /**
- * Merge a set of "don't repeat" queries into a question's episode stream (latest episode),
- * returning a unique, normalized list.
+ * Add a result entry to memory
  */
-export function mergeDontRepeat(base: string[], extra: string[]): string[] {
-  const out = new Set<string>();
-  for (const q of [...(base || []), ...(extra || [])]) {
-    const n = normalizeQuery(q);
-    if (n) out.add(n);
-  }
-  return Array.from(out);
+export function addResultToMemory(
+  doc: BrainDoc,
+  questionId: string,
+  answer: string,
+  sources: { url: string; title?: string }[] = []
+): BrainDoc {
+  return addMemoryEntry(doc, questionId, { type: 'result', answer, sources });
+}
+
+/**
+ * Add a reflect entry to memory
+ */
+export function addReflectToMemory(
+  doc: BrainDoc,
+  questionId: string,
+  thought: string,
+  delta?: 'progress' | 'no_change' | 'dead_end'
+): BrainDoc {
+  return addMemoryEntry(doc, questionId, { type: 'reflect', thought, delta });
+}
+
+/**
+ * Get the last N memory entries for a question
+ */
+export function getRecentMemory(doc: BrainDoc, questionId: string, n: number = 10): MemoryEntry[] {
+  const q = getResearchQuestion(doc, questionId);
+  if (!q) return [];
+  return q.memory.slice(-n);
+}
+
+/**
+ * Get all search queries from a question's memory
+ */
+export function getSearchQueries(doc: BrainDoc, questionId: string): string[] {
+  const q = getResearchQuestion(doc, questionId);
+  if (!q) return [];
+  return q.memory
+    .filter((m): m is Extract<MemoryEntry, { type: 'search' }> => m.type === 'search')
+    .map(m => m.query);
+}
+
+/**
+ * Check if a query has been searched in a question
+ */
+export function hasQueryBeenSearched(
+  doc: BrainDoc,
+  questionId: string,
+  query: string
+): boolean {
+  const queries = getSearchQueries(doc, questionId);
+  const normalized = query.toLowerCase().trim();
+  return queries.some(q => q.toLowerCase().trim() === normalized);
 }
 
 // ============================================================
-// Compaction & Guardrails (keep brain bounded)
+// Compaction (keep memory bounded)
 // ============================================================
 
 export interface CompactionOptions {
-  maxEpisodesPerQuestion: number;
-  maxSearchsPerQuestion: number;
-  maxReflectionsPerQuestion: number;
+  maxMemoryPerQuestion: number;
 }
 
 const DEFAULT_COMPACTION: CompactionOptions = {
-  maxEpisodesPerQuestion: 30,
-  maxSearchsPerQuestion: 25,
-  maxReflectionsPerQuestion: 30,
+  maxMemoryPerQuestion: 50,
 };
 
-function compactArray<T>(items: T[], keepLast: number): { kept: T[]; removedCount: number } {
-  if (!Array.isArray(items)) return { kept: [], removedCount: 0 };
-  if (items.length <= keepLast) return { kept: items, removedCount: 0 };
-  return { kept: items.slice(items.length - keepLast), removedCount: items.length - keepLast };
-}
-
-/**
- * Compact a single question to keep memory bounded.
- *
- * Strategy:
- * - Keep the latest N episodes/searches/reflections for "live debugging" + UI
- * - If we dropped any episodes, prepend a synthetic episode summarizing that compaction happened
- */
 export function compactResearchQuestion(
   q: ResearchQuestion,
   options: Partial<CompactionOptions> = {}
 ): ResearchQuestion {
-  const opts: CompactionOptions = { ...DEFAULT_COMPACTION, ...options };
+  const opts = { ...DEFAULT_COMPACTION, ...options };
 
-  const { kept: keptEpisodes, removedCount: removedEpisodes } = compactArray(q.episodes || [], opts.maxEpisodesPerQuestion);
-  const { kept: keptSearches, removedCount: removedSearches } = compactArray(q.searches || [], opts.maxSearchsPerQuestion);
-  const { kept: keptReflections, removedCount: removedReflections } = compactArray(q.reflections || [], opts.maxReflectionsPerQuestion);
-
-  let episodesOut = keptEpisodes;
-
-  if (removedEpisodes > 0) {
-    const firstCycleKept = episodesOut[0]?.cycle ?? q.cycles;
-    const synthetic: Episode = {
-      id: generateEpisodeId(),
-      timestamp: new Date().toISOString(),
-      cycle: Math.max(0, firstCycleKept - 1),
-      query: '[compacted]',
-      purpose: '',
-      sources: [],
-      deltaType: 'no_change',
-      nextStep: `Compacted history: removed ${removedEpisodes} older episode(s), ${removedSearches} older search result(s), ${removedReflections} older reflection(s).`,
-      status: 'continue',
-    };
-    episodesOut = [synthetic, ...episodesOut];
+  if (q.memory.length <= opts.maxMemoryPerQuestion) {
+    return q;
   }
+
+  // Keep the most recent entries
+  const kept = q.memory.slice(-opts.maxMemoryPerQuestion);
+
+  // Add a note about compaction
+  const compactionNote: MemoryEntry = {
+    type: 'reflect',
+    thought: `[Earlier memory compacted: ${q.memory.length - opts.maxMemoryPerQuestion} entries removed]`,
+  };
 
   return {
     ...q,
-    episodes: episodesOut,
-    searches: keptSearches,
-    reflections: keptReflections,
+    memory: [compactionNote, ...kept],
   };
 }
 
-/**
- * Compact the entire BrainDoc for storage/streaming.
- * Safe to call frequently (pure, deterministic).
- */
 export function compactBrainDoc(
   doc: BrainDoc,
   options: Partial<CompactionOptions> = {}
 ): BrainDoc {
-  const opts: Partial<CompactionOptions> = options;
   return {
     ...doc,
-    questions: doc.questions.map(q => compactResearchQuestion(q, opts)),
+    questions: doc.questions.map(q => compactResearchQuestion(q, options)),
   };
 }
 
@@ -472,9 +280,6 @@ export function compactBrainDoc(
 // Brain Decision Log
 // ============================================================
 
-/**
- * Add a brain decision to the log
- */
 export function addBrainDecision(
   doc: BrainDoc,
   action: BrainAction,
@@ -488,9 +293,6 @@ export function addBrainDecision(
   };
 }
 
-/**
- * Get the last brain decision
- */
 export function getLastBrainDecision(doc: BrainDoc): BrainDecision | null {
   return doc.brainLog.length > 0 ? doc.brainLog[doc.brainLog.length - 1] : null;
 }
@@ -499,16 +301,10 @@ export function getLastBrainDecision(doc: BrainDoc): BrainDecision | null {
 // Document Status
 // ============================================================
 
-/**
- * Set document status
- */
 export function setDocStatus(doc: BrainDoc, status: BrainDoc['status']): BrainDoc {
   return { ...doc, status };
 }
 
-/**
- * Set final answer
- */
 export function setFinalAnswer(doc: BrainDoc, finalAnswer: string): BrainDoc {
   return { ...doc, finalAnswer, status: 'complete' };
 }
@@ -517,13 +313,10 @@ export function setFinalAnswer(doc: BrainDoc, finalAnswer: string): BrainDoc {
 // Formatting for Agent Context
 // ============================================================
 
-/**
- * Format BrainDoc for agent context
- */
 export function formatBrainDocForAgent(doc: BrainDoc): string {
   const parts: string[] = [];
 
-  parts.push('# Brain Research Document\n');
+  parts.push('# Research Document\n');
   parts.push(`**Objective:** ${doc.objective}`);
   parts.push(`**Status:** ${doc.status}`);
 
@@ -533,65 +326,52 @@ export function formatBrainDocForAgent(doc: BrainDoc): string {
   }
 
   if (doc.questions.length > 0) {
-    parts.push('\n## Research Angles');
-    for (const init of doc.questions) {
-      const statusIcon = init.status === 'done' ? '✓' : init.status === 'running' ? '→' : '○';
-      parts.push(`\n### [${init.id}] ${statusIcon} ${init.name}`);
-      parts.push(`**Question:** ${init.question}`);
-      parts.push(`**Goal:** ${init.goal}`);
-      parts.push(`**Cycles:** ${init.cycles}/${init.maxCycles}`);
-      if ((init.episodes || []).length > 0) {
-        const eps = init.episodes || [];
-        const last = eps[eps.length - 1];
-        parts.push(`**Episodes:** ${eps.length} (last: ${last.deltaType}${last.nextStep ? ` → ${last.nextStep.substring(0, 80)}${last.nextStep.length > 80 ? '...' : ''}` : ''})`);
-      }
+    parts.push('\n## Research Questions');
+    for (const q of doc.questions) {
+      const statusIcon = q.status === 'done' ? '✓' : q.status === 'running' ? '→' : '○';
+      parts.push(`\n### [${q.id}] ${statusIcon} ${q.name}`);
+      parts.push(`**Question:** ${q.question}`);
+      parts.push(`**Goal:** ${q.goal}`);
+      parts.push(`**Cycles:** ${q.cycles}/${q.maxCycles}`);
 
-      if (init.confidence) parts.push(`**Confidence:** ${init.confidence}`);
-      if (init.recommendation) parts.push(`**Recommendation:** ${init.recommendation}`);
-      if (init.summary) parts.push(`**Summary:** ${init.summary}`);
+      if (q.confidence) parts.push(`**Confidence:** ${q.confidence}`);
+      if (q.recommendation) parts.push(`**Recommendation:** ${q.recommendation}`);
+      if (q.summary) parts.push(`**Summary:** ${q.summary}`);
 
-      const activeFindings = init.findings.filter(f => f.status !== 'disqualified');
-      const disqualifiedFindings = init.findings.filter(f => f.status === 'disqualified');
-
-      if (activeFindings.length > 0 || disqualifiedFindings.length > 0) {
-        parts.push('\n**Findings:**');
-        for (const finding of activeFindings) {
-          parts.push(`- [${finding.id}] ${finding.content}`);
+      // Show recent memory
+      const recentMemory = q.memory.slice(-5);
+      if (recentMemory.length > 0) {
+        parts.push(`\n**Recent Memory (${q.memory.length} total):**`);
+        for (const m of recentMemory) {
+          if (m.type === 'search') {
+            parts.push(`- 🔍 ${m.query}`);
+          } else if (m.type === 'result') {
+            const preview = m.answer.length > 100 ? m.answer.slice(0, 100) + '...' : m.answer;
+            parts.push(`- 📄 ${preview}`);
+          } else if (m.type === 'reflect') {
+            parts.push(`- 💭 ${m.thought}`);
+          }
         }
-        for (const finding of disqualifiedFindings) {
-          parts.push(`- [${finding.id}] ~~${finding.content}~~ (${finding.disqualifyReason})`);
-        }
-      } else if (init.status === 'running') {
-        parts.push('(researching...)');
-      }
-
-      if ((init.searches || []).length > 0) {
-        parts.push(`\n**Searches:** ${init.searches.length}`);
       }
     }
-  } else {
-    parts.push('\n## ResearchQuestions');
-    parts.push('(none yet)');
   }
 
   if (doc.brainLog.length > 0) {
-    parts.push('\n## Decision Log (Recent)');
+    parts.push('\n## Brain Decisions (Recent)');
     const recentDecisions = doc.brainLog.slice(-5);
-    for (const decision of recentDecisions) {
-      parts.push(`- [${decision.action}] ${decision.reasoning.substring(0, 100)}${decision.reasoning.length > 100 ? '...' : ''}`);
+    for (const d of recentDecisions) {
+      const preview = d.reasoning.length > 100 ? d.reasoning.slice(0, 100) + '...' : d.reasoning;
+      parts.push(`- [${d.action}] ${preview}`);
     }
   }
 
   return parts.join('\n');
 }
 
-/**
- * Format question for agent context (single question view)
- */
 export function formatResearchQuestionForAgent(q: ResearchQuestion): string {
   const parts: string[] = [];
 
-  parts.push(`# ResearchQuestion: ${q.name}\n`);
+  parts.push(`# Question: ${q.name}\n`);
   parts.push(`**ID:** ${q.id}`);
   parts.push(`**Question:** ${q.question}`);
   parts.push(`**Goal:** ${q.goal}`);
@@ -601,57 +381,25 @@ export function formatResearchQuestionForAgent(q: ResearchQuestion): string {
   if (q.confidence) parts.push(`**Confidence:** ${q.confidence}`);
   if (q.recommendation) parts.push(`**Recommendation:** ${q.recommendation}`);
 
-  const activeFindings = q.findings.filter(f => f.status !== 'disqualified');
-  const disqualifiedFindings = q.findings.filter(f => f.status === 'disqualified');
-
-  if (activeFindings.length > 0 || disqualifiedFindings.length > 0) {
-    parts.push('\n## Findings');
-    for (const finding of activeFindings) {
-      parts.push(`- [${finding.id}] ${finding.content}`);
-      if (finding.sources.length > 0) {
-        const sourceList = finding.sources.map(s => s.title).join(', ');
-        parts.push(`  Sources: ${sourceList}`);
+  if (q.memory.length > 0) {
+    parts.push('\n## Memory');
+    for (const m of q.memory) {
+      if (m.type === 'search') {
+        parts.push(`\n🔍 **Search:** ${m.query}`);
+      } else if (m.type === 'result') {
+        parts.push(`📄 **Result:** ${m.answer}`);
+        if (m.sources.length > 0) {
+          parts.push(`   Sources: ${m.sources.map(s => s.url).join(', ')}`);
+        }
+      } else if (m.type === 'reflect') {
+        parts.push(`💭 **Reflect:** ${m.thought}${m.delta ? ` (${m.delta})` : ''}`);
       }
     }
-    for (const finding of disqualifiedFindings) {
-      parts.push(`- [${finding.id}] ~~${finding.content}~~ (${finding.disqualifyReason})`);
-    }
-  } else {
-    parts.push('\n## Findings');
-    parts.push('(none yet)');
-  }
-
-  const searches = q.searches || [];
-  if (searches.length > 0) {
-    parts.push('\n## Search Results');
-    searches.forEach((sr, i) => {
-      parts.push(`\n### Search ${i + 1}: ${sr.query}`);
-      if (sr.answer) {
-        parts.push(`**Answer:** ${sr.answer}`);
-      }
-      if (sr.learned) {
-        parts.push(`**Learned:** ${sr.learned}`);
-      }
-      if (sr.nextAction) {
-        parts.push(`**Next:** ${sr.nextAction}`);
-      }
-    });
-  }
-
-  const reflections = q.reflections || [];
-  if (reflections.length > 0) {
-    parts.push('\n## Previous Reflections');
-    reflections.forEach(r => {
-      parts.push(`- Cycle ${r.cycle}: ${r.learned} → ${r.nextStep}`);
-    });
   }
 
   return parts.join('\n');
 }
 
-/**
- * Get summary of all questions
- */
 export function getResearchQuestionsSummary(doc: BrainDoc): string {
   const parts: string[] = [];
 
@@ -659,33 +407,41 @@ export function getResearchQuestionsSummary(doc: BrainDoc): string {
   const running = getRunningResearchQuestions(doc);
   const done = getCompletedResearchQuestions(doc);
 
-  parts.push(`**Research Angles:** ${done.length} done, ${running.length} running, ${pending.length} pending`);
+  parts.push(`**Questions:** ${done.length} done, ${running.length} running, ${pending.length} pending`);
 
-  for (const init of doc.questions) {
-    const statusIcon = init.status === 'done' ? '✓' : init.status === 'running' ? '→' : '○';
-    const findingCount = init.findings.filter(f => f.status === 'active').length;
-    parts.push(`- ${statusIcon} **${init.name}**: ${init.goal} (${findingCount} findings)`);
+  for (const q of doc.questions) {
+    const statusIcon = q.status === 'done' ? '✓' : q.status === 'running' ? '→' : '○';
+    const searchCount = q.memory.filter(m => m.type === 'search').length;
+    parts.push(`- ${statusIcon} **${q.name}**: ${q.goal} (${searchCount} searches)`);
   }
 
   return parts.join('\n');
 }
 
 /**
- * Collect all findings across all questions
+ * Get all sources from all questions' memory
  */
-export function getAllFindings(doc: BrainDoc): { questionId: string; finding: Finding }[] {
-  const results: { questionId: string; finding: Finding }[] = [];
-  for (const init of doc.questions) {
-    for (const finding of init.findings) {
-      results.push({ questionId: init.id, finding });
+export function getAllSources(doc: BrainDoc): { questionId: string; url: string; title?: string }[] {
+  const results: { questionId: string; url: string; title?: string }[] = [];
+  for (const q of doc.questions) {
+    for (const m of q.memory) {
+      if (m.type === 'result' && m.sources) {
+        for (const s of m.sources) {
+          results.push({ questionId: q.id, url: s.url, title: s.title });
+        }
+      }
     }
   }
   return results;
 }
 
 /**
- * Collect all active findings across all questions
+ * Get all result answers from a question (for synthesis)
  */
-export function getAllActiveFindings(doc: BrainDoc): { questionId: string; finding: Finding }[] {
-  return getAllFindings(doc).filter(item => item.finding.status === 'active');
+export function getQuestionResults(doc: BrainDoc, questionId: string): string[] {
+  const q = getResearchQuestion(doc, questionId);
+  if (!q) return [];
+  return q.memory
+    .filter((m): m is Extract<MemoryEntry, { type: 'result' }> => m.type === 'result')
+    .map(m => m.answer);
 }

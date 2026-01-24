@@ -19,7 +19,6 @@ import {
   setFinalAnswer,
   formatBrainDocForAgent,
   getResearchQuestionsSummary,
-  getAllActiveFindings,
   getCompletedResearchQuestions,
   getRunningResearchQuestions,
   getPendingResearchQuestions,
@@ -60,7 +59,7 @@ interface GenerateResearchQuestionsResult {
 }
 
 /**
- * Generate diverse questions for the research objective
+ * Generate strategy + questions in one coherent thought
  */
 export async function generateResearchQuestions(
   config: GenerateResearchQuestionsConfig
@@ -71,131 +70,90 @@ export async function generateResearchQuestions(
   let creditsUsed = 0;
   const questionIds: string[] = [];
 
-  log('generateResearchQuestions', `Generating ${count} questions for: ${doc.objective}`);
+  log('generateResearchQuestions', `Generating strategy + ${count} questions for: ${doc.objective}`);
 
-  let strategy = '';
-
-  // Step 1: Generate strategy first
-  const setStrategyTool = tool({
-    description: 'Set the research strategy before creating questions',
+  // Single tool that outputs strategy AND questions together
+  const planResearchTool = tool({
+    description: 'Plan the research: explain your thinking and create research questions',
     inputSchema: z.object({
-      thinking: z.string().describe('Your thinking process in natural language. Write like you\'re explaining to a colleague: "First I\'ll look at X because... Then I\'ll explore Y to understand... After that I\'ll figure out how to continue based on what I find." (3-5 sentences, conversational)'),
+      strategy: z.string().describe('Your thinking in natural language: "First I\'ll look at X because... Then I\'ll explore Y to understand... Based on what I find, I\'ll figure out how to continue." (3-5 sentences, conversational, NO numbered lists)'),
+      questions: z.array(z.object({
+        name: z.string().describe('Short name (2-5 words). E.g., "Podcast Networks"'),
+        question: z.string().describe('The research question. Short and clear.'),
+        goal: z.string().describe('What we need to find out'),
+      })).min(1).max(5).describe(`${count} parallel research questions to explore`),
     }),
-    execute: async ({ thinking }) => {
-      strategy = thinking;
+    execute: async ({ strategy, questions }) => {
+      // Set strategy
       doc = { ...doc, researchStrategy: strategy };
 
       onProgress?.({
         type: 'brain_strategy',
-        strategy: thinking,
+        strategy,
       });
 
-      return { success: true };
+      // Create questions
+      for (const q of questions) {
+        doc = addResearchQuestion(doc, q.name, q.question, q.goal, 10);
+        const newQ = doc.questions[doc.questions.length - 1];
+        questionIds.push(newQ.id);
+
+        doc = addBrainDecision(doc, 'spawn', `${q.name}: ${q.question}`, newQ.id);
+
+        onProgress?.({
+          type: 'question_spawned',
+          questionId: newQ.id,
+          name: q.name,
+          question: q.question,
+          goal: q.goal,
+        });
+      }
+
+      return { success: true, questionCount: questions.length };
     }
   });
 
-  const createQuestionTool = tool({
-    description: 'Create a new research question',
-    inputSchema: z.object({
-      name: z.string().describe('Short name (2-5 words). E.g., "Podcast Networks", "Recent Funding"'),
-      question: z.string().describe('The research question to answer. Short and clear.'),
-      goal: z.string().describe('What we need to find out. E.g., "Find podcast networks that produce fact-heavy content"'),
-      maxCycles: z.number().min(1).max(20).default(10).describe('Max search→reflect cycles (default 10)'),
-    }),
-    execute: async ({ name, question, goal, maxCycles }) => {
-      doc = addResearchQuestion(doc, name, question, goal, maxCycles);
-      const newQ = doc.questions[doc.questions.length - 1];
-      questionIds.push(newQ.id);
+  const systemPrompt = `You are the Brain, the strategic research orchestrator.
 
-      doc = addBrainDecision(doc, 'spawn', `Research question: ${name} - ${question}`, newQ.id);
+OBJECTIVE: ${doc.objective}
 
-      onProgress?.({
-        type: 'question_spawned',
-        questionId: newQ.id,
-        name,
-        question,
-        goal,
-        maxCycles
-      });
+SUCCESS CRITERIA:
+${doc.successCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}
 
-      return { success: true, questionId: newQ.id, name };
-    }
-  });
+---
 
-  const strategyPrompt = `You are the Brain, the strategic research orchestrator.
+Plan your research using the plan_research tool. In ONE call, provide:
 
-Before generating research questions, explain your thinking in NATURAL LANGUAGE using set_strategy.
+1. STRATEGY - Your thinking in natural language:
+   - "First I'll look at X because that's where we'll likely find..."
+   - "Then I'll dig into Y to understand..."
+   - "Based on what I find, I'll figure out whether to go deeper or pivot..."
 
-Write like you're talking to a colleague:
-- "First I'll look at X because that's where we'll likely find..."
-- "Then I'll dig into Y to understand..."
-- "Based on what I find, I'll figure out whether to go deeper on Z or pivot to..."
+   Write conversationally, NOT as a numbered list.
 
-DO NOT use numbered lists or formal headers. Just explain your thinking naturally.
+2. QUESTIONS - ${count} parallel research angles to explore:
+   - Each should be independent (can run in parallel)
+   - Each should be specific and answerable via web search
+   - Cover different angles of the objective
 
-Main objective: ${doc.objective}
-
-Call set_strategy with your thinking.`;
-
-  const questionsPrompt = `You are the Brain, the strategic research orchestrator.
-
-YOUR STRATEGY:
-${strategy || '(generating...)'}
-
-Now generate ${count} PARALLEL and INDEPENDENT research questions that execute this strategy.
-
-RULES:
-- Questions run in parallel - they cannot depend on each other's outputs
-- Each question should be specific and answerable via web search
-- After round 1 finishes, you'll review and may spawn more questions
-
-Main objective: ${doc.objective}
-
-Call create_question for each question.`;
+Call plan_research with your strategy and questions.`;
 
   onProgress?.({ type: 'brain_generating_questions', count });
 
-  // Step 1: Generate strategy
-  log('generateResearchQuestions', 'Generating strategy...');
-  const strategyResult = await generateText({
+  log('generateResearchQuestions', 'Generating strategy + questions...');
+
+  const result = await generateText({
     model,
-    system: strategyPrompt,
-    prompt: 'First, set your research strategy using set_strategy.',
-    tools: { set_strategy: setStrategyTool },
-    toolChoice: { type: 'tool', toolName: 'set_strategy' },
+    system: systemPrompt,
+    prompt: `Plan your research approach for: ${doc.objective}`,
+    tools: { plan_research: planResearchTool },
+    toolChoice: { type: 'tool', toolName: 'plan_research' },
     abortSignal
   });
-  creditsUsed += Math.ceil((strategyResult.usage?.totalTokens || 0) / 1000);
-  log('generateResearchQuestions', 'Strategy set:', strategy);
 
-  // Step 2: Generate questions
-  let attempts = 0;
-  const maxAttempts = count + 2;
+  creditsUsed = Math.ceil((result.usage?.totalTokens || 0) / 1000);
 
-  while (questionIds.length < count && attempts < maxAttempts) {
-    attempts++;
-    const remaining = count - questionIds.length;
-
-    const result = await generateText({
-      model,
-      system: questionsPrompt,
-      prompt: questionIds.length === 0
-        ? `Create ${count} research questions. Call create_question for each.`
-        : `You've created ${questionIds.length} questions. Create ${remaining} more.`,
-      tools: { create_question: createQuestionTool },
-      abortSignal
-    });
-
-    creditsUsed += Math.ceil((result.usage?.totalTokens || 0) / 1000);
-
-    // If no tool calls were made, break to avoid infinite loop
-    if (!result.toolCalls || result.toolCalls.length === 0) {
-      log('generateResearchQuestions', `No tool calls made on attempt ${attempts}, breaking`);
-      break;
-    }
-  }
-
-  log('generateResearchQuestions', `Generated ${questionIds.length} questions after ${attempts} attempts`);
+  log('generateResearchQuestions', `Generated ${questionIds.length} questions`);
 
   onProgress?.({
     type: 'brain_questions_generated',
@@ -245,13 +203,15 @@ export async function evaluateResearchQuestions(
   const completed = getCompletedResearchQuestions(doc);
   const running = getRunningResearchQuestions(doc);
   const pending = getPendingResearchQuestions(doc);
-  const allFindings = getAllActiveFindings(doc);
+
+  // Count total memory entries across all questions
+  const totalMemory = doc.questions.reduce((sum, q) => sum + q.memory.length, 0);
 
   log('evaluateResearchQuestions', 'Evaluating state:', {
     completed: completed.length,
     running: running.length,
     pending: pending.length,
-    totalFindings: allFindings.length
+    totalMemory
   });
 
   const evaluateTool = tool({
@@ -284,7 +244,7 @@ SUMMARY:
 - Completed questions: ${completed.length}
 - Running questions: ${running.length}
 - Pending questions: ${pending.length}
-- Total active findings: ${allFindings.length}
+- Total memory entries: ${totalMemory}
 
 ${getResearchQuestionsSummary(doc)}
 
@@ -298,9 +258,9 @@ OPTIONS:
 
 DECISION CRITERIA:
 - Have we satisfied the success criteria?
-- Are the findings sufficient to answer the objective?
+- Is the memory sufficient to answer the objective?
 - Are there gaps that need new questions?
-- Use EPISODES as your primary signal: each episode has a deltaType (progress/no_change/dead_end) and a delta.
+- Use the question memory as your signal: each reflect entry has a delta (progress/no_change/dead_end) and a thought.
 
 CRITICAL BEHAVIOR:
 - Treat the existing questions as an independent parallel round. After each round, do a batch review.
@@ -391,11 +351,19 @@ export async function synthesizeFinalAnswer(
   const model = openai('gpt-5.2');
   let doc = initialDoc;
 
-  const allFindings = getAllActiveFindings(doc);
+  // Collect all results from memory
+  const allResults: { questionName: string; answer: string }[] = [];
+  for (const q of doc.questions) {
+    for (const m of q.memory) {
+      if (m.type === 'result' && m.answer) {
+        allResults.push({ questionName: q.name, answer: m.answer });
+      }
+    }
+  }
 
   log('synthesizeFinalAnswer', 'Starting synthesis with:', {
     objective: doc.objective,
-    totalFindings: allFindings.length,
+    totalResults: allResults.length,
     questions: doc.questions.length
   });
 
@@ -418,9 +386,9 @@ ${doc.successCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}
 RESEARCH DOCUMENT:
 ${formatBrainDocForAgent(doc)}
 
-ALL FINDINGS (${allFindings.length} total):
-${allFindings.map(({ questionId, finding }) =>
-  `- [${questionId}] ${finding.content}`
+ALL RESULTS (${allResults.length} total):
+${allResults.map(({ questionName, answer }) =>
+  `- [${questionName}] ${answer.length > 200 ? answer.slice(0, 200) + '...' : answer}`
 ).join('\n')}
 
 ---

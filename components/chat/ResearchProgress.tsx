@@ -10,70 +10,33 @@ import {
 } from '@/components/ui/collapsible';
 import {
   Brain,
-  CheckCircle2,
-  Circle,
   Loader2,
   ExternalLink,
   Search,
   ChevronRight,
+  MessageSquare,
 } from 'lucide-react';
 
-function toShortQuestion(text: string): string {
-  const raw = (text || '').trim();
-  if (!raw) return '';
-
-  const qIdx = raw.indexOf('?');
-  if (qIdx !== -1) {
-    return raw.slice(0, qIdx + 1).trim();
-  }
-
-  const stop = Math.min(
-    ...[raw.indexOf('.'), raw.indexOf('!'), raw.indexOf('\n')].filter(i => i !== -1)
-  );
-  if (Number.isFinite(stop)) {
-    return raw.slice(0, stop + 1).trim();
-  }
-
-  return raw.length > 120 ? `${raw.slice(0, 117).trim()}...` : raw;
-}
-
-// Types
-interface Finding {
-  id: string;
-  content: string;
-  sources: { url: string; title: string }[];
-  status?: 'active' | 'disqualified';
-  disqualifyReason?: string;
-}
-
-interface SearchResult {
-  query: string;
-  answer: string;
-  learned?: string;
-  nextAction?: string;
-  sources: { url: string; title?: string }[];
-}
-
-interface CycleReflection {
-  cycle: number;
-  learned: string;
-  nextStep: string;
-  status: 'continue' | 'done';
+// Types matching the new simplified memory model
+interface MemoryEntry {
+  type: 'search' | 'result' | 'reflect';
+  query?: string;
+  answer?: string;
+  sources?: { url: string; title?: string }[];
+  thought?: string;
+  delta?: 'progress' | 'no_change' | 'dead_end';
 }
 
 interface ResearchQuestion {
   id: string;
   researchRound?: number;
-  title?: string;
   name: string;
   question: string;
   goal: string;
   status: 'pending' | 'running' | 'done';
   cycles: number;
   maxCycles: number;
-  findings: Finding[];
-  searches?: SearchResult[];
-  reflections?: CycleReflection[];
+  memory: MemoryEntry[];
   confidence: 'low' | 'medium' | 'high' | null;
   recommendation: 'promising' | 'dead_end' | 'needs_more' | null;
   summary?: string;
@@ -82,7 +45,7 @@ interface ResearchQuestion {
 interface BrainDecision {
   id: string;
   timestamp: string;
-  action: 'spawn' | 'drill_down' | 'kill' | 'synthesize';
+  action: 'spawn' | 'synthesize';
   questionId?: string;
   reasoning: string;
 }
@@ -110,7 +73,7 @@ interface ResearchProgressProps {
 
 /**
  * Research Progress Component
- * Shows vertical timeline: Wave 1 → Brain thinking → Wave 2 → etc.
+ * Shows vertical timeline with questions grouped by research round
  */
 export default function ResearchProgress({ doc: rawDoc, className }: ResearchProgressProps) {
   if (!isBrainDoc(rawDoc)) {
@@ -140,7 +103,6 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
     rounds.forEach(round => {
       const questions = questionsByRound.get(round) || [];
       if (questions.length > 0) {
-        // Default to first question, or keep existing selection if valid
         const existing = activeTabByRound[round];
         if (existing && questions.find(q => q.id === existing)) {
           newActiveTabs[round] = existing;
@@ -154,17 +116,106 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
 
   // Get brain reasoning for transitions between rounds
   const getBrainThinkingAfterRound = (roundNum: number): string | null => {
-    // Find spawn decisions that indicate thinking between rounds
     const decisions = doc.brainLog.filter(d =>
       d.action === 'spawn' && d.reasoning
     );
-    // Get decisions that came after questions from this round were done
-    // For simplicity, we'll show the most recent spawn reasoning
     if (roundNum < rounds[rounds.length - 1]) {
       const relevantDecision = decisions.find(d => d.reasoning && d.reasoning.length > 20);
       return relevantDecision?.reasoning || null;
     }
     return null;
+  };
+
+  // Render memory entries as a conversation
+  const renderMemory = (memory: MemoryEntry[]) => {
+    // Group consecutive search+result pairs
+    const groups: Array<{ search: MemoryEntry; result?: MemoryEntry; reflect?: MemoryEntry }> = [];
+
+    for (let i = 0; i < memory.length; i++) {
+      const m = memory[i];
+      if (m.type === 'search') {
+        const group: { search: MemoryEntry; result?: MemoryEntry; reflect?: MemoryEntry } = { search: m };
+        // Look for result
+        if (i + 1 < memory.length && memory[i + 1].type === 'result') {
+          group.result = memory[i + 1];
+          i++;
+        }
+        // Look for reflect
+        if (i + 1 < memory.length && memory[i + 1].type === 'reflect') {
+          group.reflect = memory[i + 1];
+          i++;
+        }
+        groups.push(group);
+      } else if (m.type === 'reflect' && groups.length === 0) {
+        // Standalone reflect (like compaction note)
+        groups.push({ search: { type: 'search', query: '' }, reflect: m });
+      }
+    }
+
+    return groups.map((group, i) => (
+      <Collapsible key={i} defaultOpen={i === groups.length - 1}>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-2"
+        >
+          {group.search.query && (
+            <CollapsibleTrigger className="w-full text-left group">
+              <div className="flex items-start gap-2">
+                <ChevronRight className="w-4 h-4 text-slate-400 mt-0.5 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
+                <Search className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
+                <p className="text-sm text-slate-700 dark:text-slate-300 font-medium flex-1">
+                  {group.search.query}
+                </p>
+              </div>
+            </CollapsibleTrigger>
+          )}
+
+          <CollapsibleContent>
+            {group.result && (
+              <div className="ml-10 p-3 rounded-lg bg-slate-50 dark:bg-white/3 border border-slate-100 dark:border-white/5">
+                <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+                  {group.result.answer || 'No results'}
+                </p>
+                {group.result.sources && group.result.sources.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {group.result.sources.slice(0, 5).map((source, j) => {
+                      let domain = '';
+                      try {
+                        domain = new URL(source.url).hostname.replace('www.', '');
+                      } catch {
+                        domain = source.url;
+                      }
+                      return (
+                        <a
+                          key={j}
+                          href={source.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-blue-500 transition-colors"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          {domain}
+                        </a>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </CollapsibleContent>
+
+          {group.reflect && group.reflect.thought && (
+            <div className="ml-10 py-1 flex items-start gap-2">
+              <MessageSquare className="w-3 h-3 text-slate-400 mt-1 shrink-0" />
+              <p className="text-sm text-slate-500 dark:text-slate-400 italic">
+                {group.reflect.thought}
+              </p>
+            </div>
+          )}
+        </motion.div>
+      </Collapsible>
+    ));
   };
 
   return (
@@ -204,7 +255,7 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
                       const isActive = question.id === activeTab;
                       const isDone = question.status === 'done';
                       const isRunning = question.status === 'running';
-                      const label = question.title || question.name || toShortQuestion(question.question);
+                      const searchCount = question.memory.filter(m => m.type === 'search').length;
 
                       return (
                         <button
@@ -223,15 +274,15 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
                               isDone ? "bg-emerald-500" : isRunning ? "bg-amber-500" : "bg-slate-300 dark:bg-slate-600"
                             )}
                           />
-                          <span className="max-w-[200px] truncate">{label}</span>
-                          {(question.searches?.length || 0) > 0 && (
+                          <span className="max-w-[200px] truncate">{question.name}</span>
+                          {searchCount > 0 && (
                             <span className={cn(
                               "text-xs px-1.5 py-0.5 rounded-full",
                               isActive
                                 ? "bg-white/15 text-white/80 dark:bg-black/15 dark:text-black/60"
                                 : "bg-slate-100 dark:bg-white/8 text-slate-500 dark:text-slate-400"
                             )}>
-                              {question.searches?.length || 0}
+                              {searchCount}
                             </span>
                           )}
                         </button>
@@ -247,84 +298,26 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
                   {/* Header */}
                   <div className="pb-3 border-b border-slate-100 dark:border-white/5">
                     <h3 className="font-semibold text-slate-800 dark:text-slate-100 mb-1">
-                      {activeQuestion.title || activeQuestion.name || toShortQuestion(activeQuestion.question)}
+                      {activeQuestion.name}
                     </h3>
                     <p className="text-sm text-slate-500 dark:text-slate-400">
                       {activeQuestion.goal}
                     </p>
                     <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
                       <span>{activeQuestion.cycles}/{activeQuestion.maxCycles} cycles</span>
-                      <span>{activeQuestion.searches?.length || 0} searches</span>
+                      <span>{activeQuestion.memory.filter(m => m.type === 'search').length} searches</span>
                     </div>
                   </div>
 
-                  {/* Searches */}
+                  {/* Memory */}
                   <div className="space-y-3">
-                    {(activeQuestion.searches?.length || 0) === 0 && activeQuestion.status === 'running' && (
+                    {activeQuestion.memory.length === 0 && activeQuestion.status === 'running' && (
                       <p className="text-sm text-slate-400 italic text-center py-4">
                         Researching...
                       </p>
                     )}
 
-                    {activeQuestion.searches?.map((sr, i) => (
-                      <Collapsible key={i} defaultOpen={false}>
-                        <motion.div
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="space-y-2"
-                        >
-                          <CollapsibleTrigger className="w-full text-left group">
-                            <div className="flex items-start gap-2">
-                              <ChevronRight className="w-4 h-4 text-slate-400 mt-0.5 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
-                              <Search className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
-                              <p className="text-sm text-slate-700 dark:text-slate-300 font-medium flex-1">
-                                {sr.query}
-                              </p>
-                            </div>
-                          </CollapsibleTrigger>
-
-                          <CollapsibleContent>
-                            <div className="ml-10 p-3 rounded-lg bg-slate-50 dark:bg-white/3 border border-slate-100 dark:border-white/5">
-                              <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
-                                {sr.answer || 'No results'}
-                              </p>
-                              {sr.sources?.length > 0 && (
-                                <div className="flex flex-wrap gap-2 mt-2">
-                                  {sr.sources.slice(0, 5).map((source, j) => {
-                                    let domain = '';
-                                    try {
-                                      domain = new URL(source.url).hostname.replace('www.', '');
-                                    } catch {
-                                      domain = source.url;
-                                    }
-                                    return (
-                                      <a
-                                        key={j}
-                                        href={source.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-blue-500 transition-colors"
-                                      >
-                                        <ExternalLink className="w-3 h-3" />
-                                        {domain}
-                                      </a>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          </CollapsibleContent>
-
-                          {sr.nextAction && (
-                            <div className="ml-10 py-1">
-                              <p className="text-sm text-slate-500 dark:text-slate-400 italic">
-                                {sr.nextAction}
-                              </p>
-                            </div>
-                          )}
-                        </motion.div>
-                      </Collapsible>
-                    ))}
+                    {renderMemory(activeQuestion.memory)}
 
                     {activeQuestion.status === 'done' && activeQuestion.summary && (
                       <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20">

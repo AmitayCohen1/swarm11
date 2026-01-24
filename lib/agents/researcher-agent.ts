@@ -3,6 +3,10 @@
  *
  * The worker that does the actual web research.
  * Executes one research question via search → reflect loops.
+ *
+ * MEMORY MODEL:
+ * - Appends to question.memory (simple message list)
+ * - Three entry types: search, result, reflect
  */
 
 import { generateText, tool } from 'ai';
@@ -11,12 +15,13 @@ import { z } from 'zod';
 import { search } from '@/lib/tools/tavily-search';
 import type { BrainDoc } from '@/lib/types/research-question';
 import {
-  addSearchToResearchQuestion,
-  addReflectionToResearchQuestion,
-  addEpisodeToResearchQuestion,
+  addSearchToMemory,
+  addResultToMemory,
+  addReflectToMemory,
   incrementResearchQuestionCycle,
   completeResearchQuestion,
   getResearchQuestion,
+  getSearchQueries,
 } from '@/lib/utils/question-operations';
 
 const log = (questionId: string, message: string, data?: any) => {
@@ -82,10 +87,11 @@ export async function runResearchQuestionToCompletion(
     return `${icon} ${i + 1}. ${q.name}${isCurrent ? ' ← YOU' : ''}`;
   }).join('\n');
 
-  const previousQueries = (currentQuestion.searches || [])
-    .slice(-10)
-    .map(sr => `- ${sr.query}`)
-    .join('\n') || '(none yet)';
+  // Get previous queries to avoid repeating
+  const previousQueries = getSearchQueries(doc, questionId);
+  const previousQueriesText = previousQueries.length > 0
+    ? previousQueries.slice(-10).map(q => `- ${q}`).join('\n')
+    : '(none yet)';
 
   const systemPrompt = `You are researching ONE specific question via web search.
 
@@ -109,12 +115,12 @@ RULES:
 - ONE search query at a time
 - Each search query must target ONE thing only (one fact / one entity / one decision)
 - You MUST reflect after each search
-- Don't repeat: ${previousQueries}
+- Don't repeat: ${previousQueriesText}
 - MINIMUM 4 searches before marking done (unless truly exhausted)
 - When reflect.status="done", use the complete tool to summarize findings
 
 REFLECTION STYLE:
-Write your nextStep like you're thinking out loud:
+Write your thought like you're thinking out loud:
 - "Interesting, I found several studios. Let me dig into Gimlet's contact page..."
 - "Hmm, that search was too broad. Let me try something more specific..."
 - "Good progress! Now I need to find their business development contacts..."
@@ -145,61 +151,33 @@ DEPTH EXPECTATIONS:
   const reflectTool = tool({
     description: 'Reflect on the most recent search and decide what to do next.',
     inputSchema: z.object({
-      deltaType: z.enum(['progress', 'no_change', 'dead_end']).describe('How much did this step change our understanding?'),
-      nextStep: z.string().describe('Natural language reflection: "Interesting, I found X... Now let me look for Y" or "Hmm, that didn\'t help much. Let me try Z instead." Keep it conversational, like thinking out loud.'),
-      status: z.enum(['continue', 'done']).describe('continue=keep searching, done=question answered or exhausted'),
+      delta: z.enum(['progress', 'no_change', 'dead_end']).describe('How much did this step help?'),
+      thought: z.string().describe('Natural language reflection: "Interesting, I found X... Now let me look for Y" or "Hmm, that didn\'t help much. Let me try Z instead." Think out loud.'),
+      status: z.enum(['continue', 'done']).describe('continue=keep searching, done=question answered'),
     }),
-    execute: async ({ deltaType, nextStep, status: requestedStatus }) => {
+    execute: async ({ delta, thought, status: requestedStatus }) => {
       const q = getResearchQuestion(doc, questionId);
-      const searchCount = q?.searches?.length || 0;
+      const searchCount = getSearchQueries(doc, questionId).length;
 
-      // Prevent marking done too early unless truly exhausted
+      // Prevent marking done too early
       let status = requestedStatus;
-      if (requestedStatus === 'done' && searchCount < MIN_SEARCHES_BEFORE_DONE && deltaType !== 'dead_end') {
+      if (requestedStatus === 'done' && searchCount < MIN_SEARCHES_BEFORE_DONE && delta !== 'dead_end') {
         status = 'continue';
-        log(questionId, `Preventing early done - only ${searchCount} searches, need ${MIN_SEARCHES_BEFORE_DONE}`);
-      }
-      // Patch nextAction into the most recent search result (for UI continuity)
-      if (q && q.searches && q.searches.length > 0) {
-        const updatedResults = [...q.searches];
-        const lastIdx = updatedResults.length - 1;
-        updatedResults[lastIdx] = {
-          ...updatedResults[lastIdx],
-          nextAction: nextStep
-        };
-        doc = {
-          ...doc,
-          questions: doc.questions.map(i =>
-            i.id === questionId ? { ...i, searches: updatedResults } : i
-          )
-        };
+        log(questionId, `Preventing early done - only ${searchCount} searches`);
       }
 
-      // Record a structured reflection in the brain (keeps Brain robust)
-      const cycleNumber = getResearchQuestion(doc, questionId)?.cycles || 0;
-      doc = addReflectionToResearchQuestion(doc, questionId, cycleNumber, `${deltaType}`, nextStep, status);
+      // Add reflect to memory
+      doc = addReflectToMemory(doc, questionId, thought, delta);
 
-      // Add Episode memory (robust unit for Brain decisions)
-      const lastSearch = getResearchQuestion(doc, questionId)?.searches?.slice(-1)[0];
-      doc = addEpisodeToResearchQuestion(doc, questionId, {
-        cycle: cycleNumber,
-        query: lastSearch?.query || '',
-        purpose: '',
-        sources: lastSearch?.sources || [],
-        deltaType,
-        nextStep,
-        status,
-      });
-
-      return { deltaType, nextStep, status };
+      return { delta, thought, status };
     }
   });
 
   // Complete tool - generate final summary when done
   const completeTool = tool({
-    description: 'Complete this research question with a final summary. Call this after reflect returns status=done.',
+    description: 'Complete this research question with a final summary. Call after reflect returns status=done.',
     inputSchema: z.object({
-      summary: z.string().describe('Concise final summary of what was learned for this question.'),
+      summary: z.string().describe('Concise final summary of what was learned.'),
       confidence: z.enum(['low', 'medium', 'high']).describe('Confidence in the answer quality.'),
       recommendation: z.enum(['promising', 'dead_end', 'needs_more']).describe('How useful was this research angle?'),
     }),
@@ -215,7 +193,6 @@ DEPTH EXPECTATIONS:
   let recommendation: 'promising' | 'dead_end' | 'needs_more' = 'needs_more';
   let lastWasSearch = false;
 
-  // All tools available (we control flow via toolChoice)
   const allTools = {
     search,
     reflect: reflectTool,
@@ -253,15 +230,20 @@ DEPTH EXPECTATIONS:
       const tc = toolCall as any;
 
       if (tc.toolName === 'search') {
-        const queries = tc.input?.queries || tc.args?.queries || [];
         const toolResult = result.toolResults?.find((tr: any) => tr.toolCallId === tc.toolCallId);
         const toolOutput = (toolResult as any)?.output || (toolResult as any)?.result || {};
         const searches = toolOutput.results || [];
 
         for (const sr of searches) {
-          queriesExecuted.push(sr.query);
+          const query = sr.query;
+          const answer = sr.answer || '';
           const sources = sr.results?.map((r: any) => ({ url: r.url, title: r.title })) || [];
-          doc = addSearchToResearchQuestion(doc, questionId, sr.query, sr.answer || '', sources);
+
+          queriesExecuted.push(query);
+
+          // Add to memory: search + result
+          doc = addSearchToMemory(doc, questionId, query);
+          doc = addResultToMemory(doc, questionId, answer, sources);
         }
 
         onProgress?.({
@@ -278,10 +260,8 @@ DEPTH EXPECTATIONS:
 
         // Include the search output in the message context for reflect
         const sr0 = searches?.[0];
-        const qText = (sr0?.query || queries?.[0]?.query || '').trim();
+        const qText = (sr0?.query || '').trim();
         const answer = (sr0?.answer || '').toString().trim();
-        const status = sr0?.status || 'success';
-        const err = (sr0?.error || '').toString().trim();
         const topSources = (sr0?.results || [])
           .slice(0, 5)
           .map((r: any) => `- ${r.title ? `${r.title} — ` : ''}${r.url}`)
@@ -294,8 +274,6 @@ DEPTH EXPECTATIONS:
           content:
             `SEARCH RESULTS\n` +
             `${qText ? `Query: ${qText}\n` : ''}` +
-            `Status: ${status}\n` +
-            `${err ? `Error: ${err}\n` : ''}` +
             `Answer:\n${answerBlock}\n` +
             `Sources:\n${topSources || '(none)'}`
         });
@@ -304,22 +282,22 @@ DEPTH EXPECTATIONS:
       if (tc.toolName === 'reflect') {
         const toolResult = result.toolResults?.find((tr: any) => tr.toolCallId === tc.toolCallId);
         const output = (toolResult as any)?.output || (toolResult as any)?.result || {};
-        const deltaType = output.deltaType || 'no_change';
-        const nextStep = output.nextStep || '';
+        const delta = output.delta || 'no_change';
+        const thought = output.thought || '';
         const status = output.status || 'continue';
 
         onProgress?.({
           type: 'question_reflection',
           questionId,
-          deltaType,
-          nextStep,
+          delta,
+          thought,
           status,
         });
         onProgress?.({ type: 'doc_updated', doc });
 
         messages.push({
           role: 'assistant',
-          content: `DeltaType: ${deltaType}\nNext: ${nextStep}\nStatus: ${status}`
+          content: `Thought: ${thought}\nDelta: ${delta}\nStatus: ${status}`
         });
 
         lastWasSearch = false;
