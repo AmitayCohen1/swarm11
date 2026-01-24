@@ -153,7 +153,6 @@ DEPTH EXPECTATIONS:
         log(questionId, `Preventing early done - only ${searchCount} searches, need ${MIN_SEARCHES_BEFORE_DONE}`);
       }
       // Patch nextAction into the most recent search result (for UI continuity)
-      const q = getResearchQuestion(doc, questionId);
       if (q && q.searches && q.searches.length > 0) {
         const updatedResults = [...q.searches];
         const lastIdx = updatedResults.length - 1;

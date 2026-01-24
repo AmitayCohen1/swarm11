@@ -293,33 +293,25 @@ ${getResearchQuestionsSummary(doc)}
 
 ---
 
-EVALUATE EACH SUCCESS CRITERION:
-
-You MUST go through each success criterion and explicitly assess:
-- COVERED: We have concrete evidence (cite the specific finding/episode)
-- PARTIAL: We have some evidence but gaps remain (state what's missing)
-- NOT COVERED: No meaningful evidence yet
+EVALUATE and DECIDE what to do next:
 
 OPTIONS:
 1. SPAWN_NEW - Need to research something new to answer the objective
 2. SYNTHESIZE - We have enough findings, finish the research
 
 DECISION CRITERIA:
-- Use EPISODES as your primary signal: each episode has deltaType (progress/no_change/dead_end) and a delta.
-
-DEFAULT BEHAVIOR:
-- If even ONE criterion is PARTIAL or NOT COVERED → choose SPAWN_NEW.
-- Prefer over-research to premature synthesis (unless we're clearly done).
+- Have we satisfied the success criteria?
+- Are the findings sufficient to answer the objective?
+- Are there gaps that need new questions?
+- Use EPISODES as your primary signal: each episode has a deltaType (progress/no_change/dead_end) and a delta.
 
 CRITICAL BEHAVIOR:
 - Treat the existing questions as an independent parallel wave. After each wave, do a batch review.
-- When choosing SPAWN_NEW, target the BIGGEST GAP: the missing/partial criterion that would most improve the answer.
+- For EACH success criterion, explicitly decide: covered vs not covered.
+  - If NOT covered: you MUST choose SPAWN_NEW and create ONE new question targeted at that missing criterion.
+  - If covered: cite which question(s) provide the evidence (use episodes/search results as signal).
 - This is an iterative multi-wave process and can take MANY WAVES (10–20+) if needed.
-- Only choose SYNTHESIZE if:
-  1) ALL success criteria are COVERED with concrete evidence, AND
-  2) You can cite the evidence for each criterion, AND
-  3) There are no obvious follow-up questions.
-  If gaps remain but are out-of-scope or not findable, you may synthesize ONLY if you explicitly state those gaps.
+- Only choose SYNTHESIZE if ALL success criteria are covered OR the remaining gaps are explicitly declared as out-of-scope / not findable.
 
 `;
 
@@ -337,14 +329,7 @@ CRITICAL BEHAVIOR:
   creditsUsed = Math.ceil((result.usage?.totalTokens || 0) / 1000);
 
   const toolCall = result.toolCalls?.[0] as any;
-  // Default to spawn_new if tool call fails - safer than premature synthesis
-  const params = toolCall?.input || toolCall?.args || {
-    decision: 'spawn_new',
-    reasoning: 'Fallback - continuing research',
-    newName: 'Follow-up',
-    newQuestion: 'What else do we need to answer the objective?',
-    newGoal: 'Fill gaps from previous research'
-  };
+  const params = toolCall?.input || toolCall?.args || { decision: 'synthesize', reasoning: 'Fallback' };
 
   let nextAction: BrainNextAction;
 
