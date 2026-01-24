@@ -114,7 +114,7 @@ ALL QUESTIONS:
 ${siblingInfo}
 
 YOUR QUESTION: ${currentQuestion.question}
-GOAL: ${currentQuestion.goal}
+GOAL: ${currentQuestion.goal}${priorKnowledge}
 
 ---
 

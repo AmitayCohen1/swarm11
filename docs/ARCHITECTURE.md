@@ -77,10 +77,11 @@ Every `doc_updated` event triggers immediate DB persistence.
 
 **Strict Tool Flow:**
 ```
-search(1 query) → reflect() → search(1 query) → reflect() → ...
+search(1 query) → reflect() → search(1 query) → reflect() → ... → complete()
 ```
 
 After each `search`, the agent must call `reflect` before it can search again.
+When done, agent calls `complete` to generate a structured document.
 
 **Available Tools:**
 
@@ -88,6 +89,11 @@ After each `search`, the agent must call `reflect` before it can search again.
 |------|---------|----------------|
 | `search` | Execute web search (1 query max) | When NOT awaiting reflection |
 | `reflect` | Record natural language reflection | REQUIRED after every search |
+| `complete` | Generate structured QuestionDocument | After reflect returns status=done |
+
+**Context:**
+- Sees BOTH the main objective AND its specific question/goal
+- Sees completed question documents from prior research rounds (to build on, not duplicate)
 
 **Memory Model:**
 Each step appends to the question's `memory` array:
@@ -101,12 +107,18 @@ Each step appends to the question's `memory` array:
 
 **Purpose:** Higher-level reasoning functions.
 
+**Philosophy:**
+- Kickoff is exploratory, NOT end-to-end planning
+- Start with big unknowns, get a sense of the landscape
+- Each round builds on prior findings via question documents
+- Brain sees ALL completed question documents when evaluating
+
 **Functions:**
 | Function | Purpose |
 |----------|---------|
-| `generateResearchQuestions()` | Create strategy + 3 research angles in one call |
-| `evaluateResearchQuestions()` | Decide next action after running questions |
-| `synthesizeFinalAnswer()` | Combine memory into final answer |
+| `generateResearchQuestions()` | Kickoff with 3 exploratory questions (biggest unknowns) |
+| `evaluateResearchQuestions()` | Decide next action based on all question documents |
+| `synthesizeFinalAnswer()` | Combine all question documents into final answer |
 
 ---
 
@@ -138,14 +150,31 @@ interface ResearchQuestion {
   researchRound: number;           // Which round this belongs to
   name: string;                    // Short label: "Market Analysis"
   question: string;                // The research question
+  description?: string;            // Why this matters / context
   goal: string;                    // What we're looking for
   status: 'pending' | 'running' | 'done';
   cycles: number;
-  maxCycles: number;               // Default: 10
+  maxCycles: number;               // Default: 30
   memory: MemoryEntry[];           // Simple message list
   confidence: 'low' | 'medium' | 'high' | null;
   recommendation: 'promising' | 'dead_end' | 'needs_more' | null;
-  summary?: string;
+  summary?: string;                // Legacy: short summary
+  document?: QuestionDocument;     // Structured output when done
+}
+```
+
+### QuestionDocument
+
+```typescript
+interface QuestionDocument {
+  answer: string;                  // 2-3 paragraph comprehensive answer
+  keyFindings: string[];           // Bullet points of main facts
+  sources: {
+    url: string;
+    title: string;
+    contribution: string;          // What this source contributed
+  }[];
+  limitations?: string;            // What we couldn't find
 }
 ```
 
@@ -249,7 +278,7 @@ interface BrainDecision {
 ```
 1. User sends message
    ↓
-2. POST /api/chat/[id]/message (SSE stream)
+2. POST /api/sessions/[id]/message (SSE stream)
    ↓
 3. Intake Agent analyzes
    ├─→ Ask clarification → return question
@@ -257,13 +286,16 @@ interface BrainDecision {
    ↓
 4. Main Loop
    ├─→ Initialize BrainDoc
-   ├─→ Generate strategy + questions (one call)
+   ├─→ Kickoff: explore big unknowns with 3 questions
    ├─→ For each question:
-   │       └─→ Researcher Agent loop (search → reflect → ...)
+   │       └─→ Researcher Agent loop (search → reflect → ... → complete)
+   │       └─→ Researcher sees prior completed docs (builds on, not duplicates)
    │       └─→ Append to memory after each step
    │       └─→ Emit SSE events
-   ├─→ Evaluate after all complete
-   └─→ Synthesize final answer
+   ├─→ Evaluate after all complete (brain sees all question documents)
+   │       └─→ spawn_new: add focused follow-up question
+   │       └─→ synthesize: enough evidence gathered
+   └─→ Synthesize final answer from all question documents
    ↓
 5. Stream final answer to UI
 ```
@@ -292,6 +324,21 @@ interface BrainDecision {
 
 ---
 
+## Constraints
+
+| Constraint | Default | Env Var |
+|------------|---------|---------|
+| Max Eval Rounds | 50 | `BRAIN_MAX_EVAL_ROUNDS` |
+| Max Wall Time | 15 min | `BRAIN_MAX_WALL_TIME_MS` |
+| Max Credits | 1000 | `BRAIN_MAX_CREDITS_BUDGET` |
+| Max Iterations/Question | 30 | hardcoded |
+| Max Cycles/Question | 30 | hardcoded |
+| Min Searches Before Done | 4 | hardcoded |
+
+When guardrails are hit, research gracefully synthesizes with available evidence.
+
+---
+
 ## Key Files
 
 ```
@@ -309,10 +356,10 @@ lib/
     └── question-operations.ts    # BrainDoc helpers
 
 hooks/
-└── useChatAgent.ts               # SSE + React state
+└── useSession.ts                 # SSE + React state
 
-components/chat/
-├── ChatAgentView.tsx             # Main chat UI
+components/sessions/
+├── SessionView.tsx               # Main session UI
 └── ResearchProgress.tsx          # Research progress view
 ```
 
