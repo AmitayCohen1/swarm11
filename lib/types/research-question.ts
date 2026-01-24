@@ -1,11 +1,21 @@
 /**
  * Research System Types
- * Parallel question-based research system with Brain + Researcher agents
  *
- * MEMORY MODEL:
- * - Each ResearchQuestion has a simple `memory` array (list of messages)
- * - Three entry types: search (what we searched), result (what we found), reflect (what we think)
- * - Brain decisions are tracked separately in `brainLog`
+ * MEMORY MODEL (simplified):
+ *
+ * Each ResearchQuestion has one `memory` array - a simple message list:
+ *
+ *   [
+ *     { type: 'search', query: "podcast networks" },
+ *     { type: 'result', answer: "Found Gimlet, Wondery...", sources: [...] },
+ *     { type: 'reflect', thought: "Interesting, let me dig into Gimlet..." },
+ *     { type: 'search', query: "Gimlet Media contact" },
+ *     ...
+ *   ]
+ *
+ * That's it. No separate searches/episodes/reflections/findings arrays.
+ * Brain reads this conversation to understand what happened.
+ * Brain decisions are tracked separately in `brainLog`.
  */
 
 import { z } from 'zod';

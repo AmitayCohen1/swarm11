@@ -55,7 +55,7 @@ PHASE 3: Execute ResearchQuestions (sequential in v1)
     │       ↓
     │   Researcher Agent loop
     │       ↓
-    └─→ Evaluate: continue / drill_down / spawn_new / synthesize
+    └─→ Evaluate: spawn_new / synthesize
     ↓
 PHASE 4: Synthesize Final Answer
 ```
@@ -63,8 +63,6 @@ PHASE 4: Synthesize Final Answer
 **Evaluation Decisions:**
 | Action | When |
 |--------|------|
-| `continue` | More pending questions to run |
-| `drill_down` | ResearchQuestion found something worth deeper exploration |
 | `spawn_new` | Gap identified, need new angle |
 | `synthesize` | Sufficient evidence gathered |
 
@@ -75,7 +73,7 @@ Every `doc_updated` event triggers immediate DB persistence.
 
 ### 3. Researcher Agent (`lib/agents/researcher-agent.ts`)
 
-**Purpose:** Execute one research question with a disciplined loop and structured memory.
+**Purpose:** Execute one research question with a disciplined loop and simple memory.
 
 **Strict Tool Flow:**
 ```
@@ -89,15 +87,13 @@ After each `search`, the agent must call `reflect` before it can search again.
 | Tool | Purpose | When Available |
 |------|---------|----------------|
 | `search` | Execute web search (1 query max) | When NOT awaiting reflection |
-| `reflect` | Record structured reflection + episode delta | REQUIRED after every search |
+| `reflect` | Record natural language reflection | REQUIRED after every search |
 
-**Context Provided:**
-- Overall research objective
-- Success criteria (for whole research)
-- List of ALL sibling questions with status
-- ALL previous search results (no truncation)
-- ALL previous reflections
-- Current question details (name, description, goal)
+**Memory Model:**
+Each step appends to the question's `memory` array:
+- `{ type: 'search', query: "..." }` - what we searched
+- `{ type: 'result', answer: "...", sources: [...] }` - what we found
+- `{ type: 'reflect', thought: "...", delta: "progress" }` - what we think
 
 ---
 
@@ -108,9 +104,9 @@ After each `search`, the agent must call `reflect` before it can search again.
 **Functions:**
 | Function | Purpose |
 |----------|---------|
-| `generateResearchQuestions()` | Create 3 research angles from objective |
+| `generateResearchQuestions()` | Create strategy + 3 research angles in one call |
 | `evaluateResearchQuestions()` | Decide next action after running questions |
-| `synthesizeFinalAnswer()` | Combine findings into final answer |
+| `synthesizeFinalAnswer()` | Combine memory into final answer |
 
 ---
 
@@ -125,9 +121,11 @@ interface BrainDoc {
   version: 1;
   objective: string;
   successCriteria: string[];
+  researchRound: number;           // Current research round
+  researchStrategy?: string;       // Brain's initial thinking
   status: 'running' | 'synthesizing' | 'complete';
   questions: ResearchQuestion[];
-  brainLog: BrainDecision[];
+  brainLog: BrainDecision[];       // Brain's decisions
   finalAnswer?: string;
 }
 ```
@@ -136,72 +134,41 @@ interface BrainDoc {
 
 ```typescript
 interface ResearchQuestion {
-  id: string;                    // e.g., "init-abc123"
-  name: string;                  // Short label: "Market Analysis"
-  description: string;           // Why this matters
-  goal: string;                  // What we're looking for
+  id: string;                      // e.g., "q_1234_abc123"
+  researchRound: number;           // Which round this belongs to
+  name: string;                    // Short label: "Market Analysis"
+  question: string;                // The research question
+  goal: string;                    // What we're looking for
   status: 'pending' | 'running' | 'done';
   cycles: number;
-  maxCycles: number;             // Default: 10
-  findings: Finding[];
-  searches: Search[];
-  reflections: CycleReflection[];
+  maxCycles: number;               // Default: 10
+  memory: MemoryEntry[];           // Simple message list
   confidence: 'low' | 'medium' | 'high' | null;
   recommendation: 'promising' | 'dead_end' | 'needs_more' | null;
   summary?: string;
 }
 ```
 
-### Search
+### MemoryEntry (Simple Message List)
 
 ```typescript
-interface Search {
-  query: string;                 // Human-readable question
-  answer: string;                // Tavily's answer
-  sources: { url: string; title?: string }[];
-  learned?: string;              // What we learned (from reflect)
-  nextAction?: string;           // What to do next (from reflect)
-}
-
-### Episode (Structured Delta Memory)
-
-Each `reflect` also appends an `Episode` entry, which is the primary unit Brain should reason over:
-
-```typescript
-interface Episode {
-  cycle: number;
-  query: string;
-  learned: string;
-  stillNeed: string;
-  deltaType: 'progress' | 'no_change' | 'dead_end';
-  delta: string;
-  dontRepeat: string[];
-  nextStep: string;
-  status: 'continue' | 'done';
-}
-```
+type MemoryEntry =
+  | { type: 'search'; query: string }
+  | { type: 'result'; answer: string; sources: { url: string; title?: string }[] }
+  | { type: 'reflect'; thought: string; delta?: 'progress' | 'no_change' | 'dead_end' }
 ```
 
-### Finding
+This is the core of the simplified memory model - just a list of messages.
+
+### BrainDecision
 
 ```typescript
-interface Finding {
+interface BrainDecision {
   id: string;
-  content: string;
-  sources: { url: string; title: string }[];
-  status: 'active' | 'disqualified';
-  disqualifyReason?: string;
-}
-```
-
-### CycleReflection
-
-```typescript
-interface CycleReflection {
-  cycle: number;
-  learned: string;
-  nextStep: string;
-  status: 'continue' | 'done';
+  timestamp: string;
+  action: 'spawn' | 'synthesize';
+  questionId?: string;
+  reasoning: string;
 }
 ```
 
@@ -219,25 +186,19 @@ interface CycleReflection {
 ### ResearchQuestion Operations
 | Function | Purpose |
 |----------|---------|
-| `addResearchQuestion(doc, name, desc, goal)` | Add new question |
+| `addResearchQuestion(doc, name, question, goal)` | Add new question |
 | `startResearchQuestion(doc, id)` | Set status to running |
 | `completeResearchQuestion(doc, id, summary, confidence, rec)` | Mark done |
-| `getPendingResearchQuestions(doc)` | Get pending questions |
-| `getRunningResearchQuestions(doc)` | Get running questions |
+| `incrementResearchRound(doc)` | Bump round counter |
 
-### Finding Operations
+### Memory Operations
 | Function | Purpose |
 |----------|---------|
-| `addFindingToResearchQuestion(doc, initId, content, sources)` | Add finding |
-| `editFindingInResearchQuestion(doc, initId, findingId, content)` | Update finding |
-| `disqualifyFindingInResearchQuestion(doc, initId, findingId, reason)` | Invalidate |
-
-### Search/Reflection Operations
-| Function | Purpose |
-|----------|---------|
-| `addSearchToResearchQuestion(doc, initId, query, answer, sources, reasoning)` | Record search |
-| `addReflectionToResearchQuestion(doc, initId, cycle, learned, nextStep, status)` | Record reflection |
-| `hasQueryBeenRunInResearchQuestion(doc, initId, query)` | Dedup check |
+| `addSearchToMemory(doc, questionId, query)` | Add search entry |
+| `addResultToMemory(doc, questionId, answer, sources)` | Add result entry |
+| `addReflectToMemory(doc, questionId, thought, delta)` | Add reflect entry |
+| `getSearchQueries(doc, questionId)` | Get all queries from memory |
+| `hasQueryBeenSearched(doc, questionId, query)` | Dedup check |
 
 ### Formatting
 | Function | Purpose |
@@ -296,10 +257,10 @@ interface CycleReflection {
    ↓
 4. Main Loop
    ├─→ Initialize BrainDoc
-   ├─→ Generate questions
+   ├─→ Generate strategy + questions (one call)
    ├─→ For each question:
-   │       └─→ Researcher Agent loop (search → reason → ...)
-   │       └─→ Save to DB after each step
+   │       └─→ Researcher Agent loop (search → reflect → ...)
+   │       └─→ Append to memory after each step
    │       └─→ Emit SSE events
    ├─→ Evaluate after all complete
    └─→ Synthesize final answer
@@ -315,13 +276,13 @@ interface CycleReflection {
 | Event | Data |
 |-------|------|
 | `brain_initialized` | `{ objective, successCriteria, version }` |
+| `brain_strategy` | `{ strategy }` |
 | `question_started` | `{ questionId, name, goal }` |
-| `search_completed` | `{ questionId, query, answer, sources }` |
-| `reasoning_completed` | `{ questionId, reasoning }` |
-| `reflection_completed` | `{ questionId, learned, nextStep }` |
+| `question_search_completed` | `{ questionId, queries }` |
+| `question_reflection` | `{ questionId, thought, delta }` |
 | `question_completed` | `{ questionId, confidence, recommendation }` |
 | `synthesizing_started` | `{}` |
-| `research_complete` | `{ totalResearchQuestions, totalFindings, confidence }` |
+| `research_complete` | `{ totalResearchQuestions, totalMemory, confidence }` |
 
 ### State Updates
 | Event | Data |
@@ -337,32 +298,44 @@ interface CycleReflection {
 lib/
 ├── agents/
 │   ├── intake-agent.ts           # Intent clarification
-│   ├── brain-agent.ts           # Generate/evaluate/synthesize
-│   ├── main-loop.ts    # Full flow management
+│   ├── brain-agent.ts            # Generate/evaluate/synthesize
+│   ├── main-loop.ts              # Full flow management
 │   └── researcher-agent.ts       # Single question execution
 ├── types/
-│   └── question-doc.ts         # Zod schemas + types
+│   └── research-question.ts      # Zod schemas + types
 ├── tools/
 │   └── tavily-search.ts          # Web search (1 query max)
 └── utils/
-    └── question-operations.ts  # BrainDoc helpers
+    └── question-operations.ts    # BrainDoc helpers
 
 hooks/
 └── useChatAgent.ts               # SSE + React state
 
 components/chat/
 ├── ChatAgentView.tsx             # Main chat UI
-└── ResearchProgress.tsx          # Tabbed question view
-
-app/api/chat/
-├── start/route.ts                # Create session
-├── [id]/message/route.ts         # Message handler (SSE)
-└── [id]/stop/route.ts            # Stop research
+└── ResearchProgress.tsx          # Research progress view
 ```
 
 ---
 
 ## Design Decisions
+
+### Why Simple Memory Model?
+
+**Before:** 4 overlapping arrays per question:
+- `searches` - query + result
+- `episodes` - structured deltas
+- `reflections` - what was learned
+- `findings` - curated facts
+
+**After:** 1 simple array:
+- `memory` - just messages: search, result, reflect
+
+**Benefits:**
+- One source of truth
+- Easier to understand
+- Less duplication
+- Brain reads a conversation, not structured data
 
 ### Why Inference-Hostile Intake?
 
@@ -382,18 +355,7 @@ app/api/chat/
 search(1) → must call reflect() → can search again
 ```
 
-This ensures every search gets explicit reasoning (and a structured Episode delta) before proceeding.
-
-### Why Full Context (No Truncation)?
-
-**Problem:** Truncating history loses important context for decisions.
-
-**Solution:** ResearchQuestion agents receive:
-- ALL previous search results
-- ALL previous reflections
-- Full objective and sibling question list
-
-**Note:** In production, we compact older history into Episodes and keep only the most recent detailed logs to prevent context bloat.
+This ensures every search gets explicit reasoning before proceeding.
 
 ### Why Real-Time Saves?
 
@@ -401,18 +363,9 @@ This ensures every search gets explicit reasoning (and a structured Episode delt
 
 **Solution:** Save to DB after every:
 - Search completion
-- Reasoning completion
 - Reflection completion
 
 User sees real-time progress. Crash recovery is automatic.
-
-### Why Guardrails + Compaction?
-
-**Problem:** Long-running sessions can bloat memory and exceed time/budget.
-
-**Solution:** The orchestrator applies:
-- **Compaction**: keep only the latest N search results / reflections / episodes per question.
-- **Guardrails**: synthesize early when time/budget limits are hit.
 
 ---
 
@@ -421,6 +374,6 @@ User sees real-time progress. Crash recovery is automatic.
 - **Framework:** Next.js 15 (App Router)
 - **Database:** Neon PostgreSQL + Drizzle ORM
 - **Auth:** Clerk
-- **AI:** OpenAI gpt-5.2 (intake/brain), gpt-5.2 (questions)
+- **AI:** OpenAI gpt-5.2 (intake/brain/researcher)
 - **Search:** Tavily API
 - **UI:** Tailwind + Framer Motion
