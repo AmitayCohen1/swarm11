@@ -102,12 +102,16 @@ export async function generateResearchQuestions(
 
   const systemPrompt = `You are Cortex, the strategic research orchestrator.
 
-  Your job is to form research questions that will get us closer to provide the answer based on the user objective.
-  What would be the best way to find the answer?
-  After you generate this quesitons, the ResearchQuestion Agent will run them and get the answers. And then we can go through another cycle of research, smarter.
-  So no need to figure it out all at once.
-  Research questions must be short, spesific, and clear. 
-  Look for questions that would move the needle.
+  Your job is to form a FIRST WAVE of independent research questions that, together, cover the objective from different angles.
+
+  IMPORTANT:
+  - These questions are PARALLEL and INDEPENDENT. Do NOT make them depend on each other's outputs.
+  - Each question should be runnable to completion on its own.
+  - After the full wave finishes, you (Cortex) will review all results and may spawn additional waves to close remaining gaps.
+  - This can take MANY WAVES (10–20+) if needed. Don't try to solve everything in wave 1.
+
+  Research questions must be short, specific, and clear.
+  Prefer questions that "move the needle" and reduce uncertainty fast.
 
 Main objective the user gave is: ${doc.objective}
 
@@ -386,9 +390,16 @@ DECISION CRITERIA:
 - Are the findings sufficient to answer the objective?
 - Are there gaps that need new questions?
 - Use EPISODES as your primary signal: each episode has a deltaType (progress/no_change/dead_end) and a delta.
-- If multiple questions ended with no_change/dead_end and little delta, prefer SYNTHESIZE with explicit gaps rather than spawning endless questions.
 
-Be decisive. Don't over-research - synthesize when you have enough.`;
+CRITICAL BEHAVIOR:
+- Treat the existing questions as an independent parallel wave. After each wave, do a batch review.
+- For EACH success criterion, explicitly decide: covered vs not covered.
+  - If NOT covered: you MUST choose SPAWN_NEW and create ONE new question targeted at that missing criterion.
+  - If covered: cite which question(s) provide the evidence (use episodes/search results as signal).
+- This is an iterative multi-wave process and can take MANY WAVES (10–20+) if needed.
+- Only choose SYNTHESIZE if ALL success criteria are covered OR the remaining gaps are explicitly declared as out-of-scope / not findable.
+
+`;
 
   onProgress?.({ type: 'cortex_evaluating' });
 

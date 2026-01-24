@@ -83,7 +83,8 @@ export async function executeCortexResearch(
     abortSignal
   } = config;
 
-  const MAX_EVAL_ROUNDS = 5;  // Max evaluation cycles
+  // Max multi-wave cycles (waves of questions + evaluation). Still bounded by guardrails (time/budget/user stop).
+  const MAX_EVAL_ROUNDS = Number(process.env.CORTEX_MAX_EVAL_ROUNDS || 20);
   const INITIAL_INITIATIVES = 3;
   const START_TIME_MS = Date.now();
   const MAX_WALL_TIME_MS = Number(process.env.CORTEX_MAX_WALL_TIME_MS || 4 * 60 * 1000); // default 4 minutes

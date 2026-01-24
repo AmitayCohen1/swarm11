@@ -64,6 +64,7 @@ Make sure we understand these, if you don't ask.
 2. Why he wants to do this research? What the reason? What does he plan to do with the research outputs?
 3. Any question that you think is relevant to the research?
 4. What should we optimize for?
+5. Make sure you have full understanding of the backstory of the intended research.
 
 
 ---
@@ -77,7 +78,7 @@ DECISION TYPES:
 
 QUESTION RULES:
 - Max 20 words for every question.
-- Use multi_choice_select. Only if something is deeply unclear, use text_input.
+- Use multi_choice_select for close-ended questions and text-input for open-ended questions.
 `;
 
   // Build messages array from conversation history
