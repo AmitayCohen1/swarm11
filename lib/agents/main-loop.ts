@@ -376,11 +376,11 @@ export async function runMainLoop(
     }
 
     if (evalResult.nextAction.action === 'spawn_new') {
-      const { name, question, goal } = evalResult.nextAction;
-      log('PHASE3', 'Decision: SPAWN_NEW', { name, question, goal });
+      const { name, question, description, goal } = evalResult.nextAction;
+      log('PHASE3', 'Decision: SPAWN_NEW', { name, question, description, goal });
       // Increment research round before adding new question
       doc = incrementResearchRound(doc);
-      doc = addResearchQuestion(doc, name, question, goal, 5);
+      doc = addResearchQuestion(doc, name, question, goal, 5, description);
       await saveDocToDb(doc);
       continue;
     }

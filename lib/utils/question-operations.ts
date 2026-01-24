@@ -70,10 +70,11 @@ export function addResearchQuestion(
   name: string,
   question: string,
   goal: string,
-  maxCycles: number = 10
+  maxCycles: number = 10,
+  description?: string
 ): BrainDoc {
   const currentRound = doc.researchRound || 1;
-  const newQuestion = createResearchQuestion(name, question, goal, maxCycles, currentRound);
+  const newQuestion = createResearchQuestion(name, question, goal, maxCycles, currentRound, description);
   return {
     ...doc,
     questions: [...doc.questions, newQuestion],

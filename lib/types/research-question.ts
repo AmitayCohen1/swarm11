@@ -79,8 +79,9 @@ export const ResearchQuestionSchema = z.object({
   id: z.string(),                                  // q_xxx
   researchRound: z.number().default(1),            // Which research round this belongs to
   name: z.string(),                                // Short label (2-5 words) for tabs
-  question: z.string(),                            // The research question
-  goal: z.string(),                                // What we're looking to find out
+  question: z.string(),                            // The main research question (shown prominently)
+  description: z.string().optional(),              // Why this matters / context
+  goal: z.string(),                                // What success looks like
   status: ResearchQuestionStatusSchema.default('pending'),
   cycles: z.number().default(0),                   // How many search→reflect loops
   maxCycles: z.number().default(10),               // Cap (default 10)
@@ -155,13 +156,15 @@ export function createResearchQuestion(
   question: string,
   goal: string,
   maxCycles: number = 10,
-  researchRound: number = 1
+  researchRound: number = 1,
+  description?: string
 ): ResearchQuestion {
   return {
     id: generateResearchQuestionId(),
     researchRound,
     name,
     question,
+    description,
     goal,
     status: 'pending',
     cycles: 0,

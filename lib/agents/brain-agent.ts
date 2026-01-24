@@ -78,10 +78,11 @@ export async function generateResearchQuestions(
     inputSchema: z.object({
       strategy: z.string().describe('Your thinking in natural language: "First I\'ll look at X because... Then I\'ll explore Y to understand... Based on what I find, I\'ll figure out how to continue." (3-5 sentences, conversational, NO numbered lists)'),
       questions: z.array(z.object({
-        name: z.string().describe('Short name (2-5 words). E.g., "Podcast Networks"'),
-        question: z.string().describe('The research question. Short and clear.'),
-        goal: z.string().describe('What we need to find out'),
-      })).min(1).max(5).describe(`${count} parallel research questions to explore`),
+        name: z.string().describe('Tab label (2-4 words). E.g., "Podcast Networks"'),
+        question: z.string().describe('Short, precise question (max 15 words). E.g., "Which podcast networks have the biggest advertising budgets?"'),
+        description: z.string().describe('Why this matters (1 sentence)'),
+        goal: z.string().describe('What success looks like (1 sentence)'),
+      })).min(1).max(5).describe(`${count} parallel research questions`),
     }),
     execute: async ({ strategy, questions }) => {
       // Set strategy
@@ -94,7 +95,7 @@ export async function generateResearchQuestions(
 
       // Create questions
       for (const q of questions) {
-        doc = addResearchQuestion(doc, q.name, q.question, q.goal, 10);
+        doc = addResearchQuestion(doc, q.name, q.question, q.goal, 10, q.description);
         const newQ = doc.questions[doc.questions.length - 1];
         questionIds.push(newQ.id);
 
@@ -105,6 +106,7 @@ export async function generateResearchQuestions(
           questionId: newQ.id,
           name: q.name,
           question: q.question,
+          description: q.description,
           goal: q.goal,
         });
       }
@@ -179,7 +181,7 @@ interface EvaluateResearchQuestionsConfig {
 }
 
 type BrainNextAction =
-  | { action: 'spawn_new'; name: string; question: string; goal: string }
+  | { action: 'spawn_new'; name: string; question: string; description: string; goal: string }
   | { action: 'synthesize' };
 
 interface EvaluateResearchQuestionsResult {
@@ -220,12 +222,15 @@ export async function evaluateResearchQuestions(
       decision: z.enum(['spawn_new', 'synthesize']).describe(
         'spawn_new=need to research something new, synthesize=we have enough, finish research'
       ),
-      reasoning: z.string().describe('Why this decision'),
+      keyFindings: z.string().describe('2-3 sentence summary of what we learned from completed questions. E.g., "We identified 15 podcast networks including Gimlet and Wondery. Found that most have dedicated ad sales teams..."'),
+      gaps: z.string().describe('What information is still missing? E.g., "We still need contact emails and budget ranges for the top 5 networks."'),
+      reasoning: z.string().describe('Your decision rationale combining findings and gaps. E.g., "Based on our findings about networks, we now need to dig into their specific contact details..."'),
 
       // For spawn_new
-      newName: z.string().optional().describe('Name for new question (2-5 words)'),
-      newQuestion: z.string().optional().describe('The research question to answer'),
-      newGoal: z.string().optional().describe('What we need to find out'),
+      newName: z.string().optional().describe('Tab label (2-4 words)'),
+      newQuestion: z.string().optional().describe('Short, precise question (max 15 words)'),
+      newDescription: z.string().optional().describe('Why this matters (1 sentence)'),
+      newGoal: z.string().optional().describe('What success looks like (1 sentence)'),
     }),
     execute: async (params) => params
   });
@@ -296,6 +301,7 @@ CRITICAL BEHAVIOR:
         action: 'spawn_new',
         name: params.newName || '',
         question: params.newQuestion || '',
+        description: params.newDescription || '',
         goal: params.newGoal || ''
       };
       doc = addBrainDecision(doc, 'spawn', `Spawning new: ${params.newName} - ${params.newQuestion}`);

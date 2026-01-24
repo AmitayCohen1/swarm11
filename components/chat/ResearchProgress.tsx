@@ -32,6 +32,7 @@ interface ResearchQuestion {
   researchRound?: number;
   name: string;
   question: string;
+  description?: string;
   goal: string;
   status: 'pending' | 'running' | 'done';
   cycles: number;
@@ -298,10 +299,15 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
                   {/* Header */}
                   <div className="pb-3 border-b border-slate-100 dark:border-white/5">
                     <h3 className="font-semibold text-slate-800 dark:text-slate-100 mb-1">
-                      {activeQuestion.name}
+                      {activeQuestion.question}
                     </h3>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">
-                      {activeQuestion.goal}
+                    {activeQuestion.description && (
+                      <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">
+                        {activeQuestion.description}
+                      </p>
+                    )}
+                    <p className="text-xs text-slate-400 dark:text-slate-500">
+                      Goal: {activeQuestion.goal}
                     </p>
                     <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
                       <span>{activeQuestion.cycles}/{activeQuestion.maxCycles} cycles</span>
