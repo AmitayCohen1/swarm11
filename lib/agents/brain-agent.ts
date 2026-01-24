@@ -76,7 +76,7 @@ export async function generateResearchQuestions(
   const planResearchTool = tool({
     description: 'Plan the research: explain your thinking and create research questions',
     inputSchema: z.object({
-      strategy: z.string().describe('Your thinking in natural language: "First I\'ll look at X because... Then I\'ll explore Y to understand... Based on what I find, I\'ll figure out how to continue." (3-5 sentences, conversational, NO numbered lists)'),
+      strategy: z.string().describe('Your thinking in natural language: "First I\'ll look at X because... Then I\'ll explore Y to understand... Based on what I find, I\'ll figure out how to continue." (3-5 sentences, conversational, NO numbered lists). IMPORTANT: This is iterative research—start broad, try a few different directions, and aim to move the needle on the biggest unknowns first (not finish everything in one batch).'),
       questions: z.array(z.object({
         name: z.string().describe('Tab label (2-4 words). E.g., "Podcast Networks"'),
         question: z.string().describe('Short, precise question (max 15 words). E.g., "Which podcast networks have the biggest advertising budgets?"'),
@@ -132,6 +132,7 @@ Plan your research using the plan_research tool. In ONE call, provide:
    - "Based on what I find, I'll figure out whether to go deeper or pivot..."
 
    Write conversationally, NOT as a numbered list.
+   Gentle reminder: don't try to complete the entire research in one batch. Start broad, explore a few different directions, and prioritize the biggest unknowns that will move the needle first.
 
 2. QUESTIONS - ${count} parallel research angles to explore:
    - Each should be independent (can run in parallel)
