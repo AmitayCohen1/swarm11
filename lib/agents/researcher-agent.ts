@@ -149,7 +149,13 @@ DEPTH EXPECTATIONS:
 
   // Reflect tool - analyze what was learned and decide next step
   const reflectTool = tool({
-    description: 'Reflect on the most recent search and decide what to do next.',
+    description: `Reflect on the most recent search and decide what to do next.
+
+MAIN OBJECTIVE: ${objective}
+YOUR QUESTION: ${currentQuestion.question}
+YOUR GOAL: ${currentQuestion.goal}
+
+Consider: Does what you found help answer YOUR question? Does it contribute to the MAIN OBJECTIVE?`,
     inputSchema: z.object({
       delta: z.enum(['progress', 'no_change', 'dead_end']).describe('How much did this step help?'),
       thought: z.string().describe('Natural language reflection: "Interesting, I found X... Now let me look for Y" or "Hmm, that didn\'t help much. Let me try Z instead." Think out loud.'),
@@ -175,9 +181,15 @@ DEPTH EXPECTATIONS:
 
   // Complete tool - generate structured document when done
   const completeTool = tool({
-    description: 'Complete this research question with a structured document. Call after reflect returns status=done.',
+    description: `Complete this research question with a structured document. Call after reflect returns status=done.
+
+MAIN OBJECTIVE: ${objective}
+YOUR QUESTION: ${currentQuestion.question}
+YOUR GOAL: ${currentQuestion.goal}
+
+Write your answer to help achieve the MAIN OBJECTIVE. Focus on what's useful for the bigger picture.`,
     inputSchema: z.object({
-      answer: z.string().describe('Comprehensive answer to the research question (2-3 paragraphs). Be specific with names, numbers, and facts.'),
+      answer: z.string().describe('Comprehensive answer to the research question (2-3 paragraphs). Be specific with names, numbers, and facts. Frame it in context of the main objective.'),
       keyFindings: z.array(z.string()).describe('3-7 bullet points of the most important facts discovered. Each should be a complete, standalone statement.'),
       sources: z.array(z.object({
         url: z.string(),

@@ -74,9 +74,9 @@ export async function generateResearchQuestions(
 
   // Single tool that kicks off research with initial questions
   const kickoffTool = tool({
-    description: 'Kickoff the research: explain your initial thinking and create first batch of questions',
+    description: 'Kickoff the research with a few exploratory questions to understand the landscape',
     inputSchema: z.object({
-      strategy: z.string().describe('Your thinking in natural language: "First I\'ll look at X because... Then I\'ll explore Y to understand... Based on what I find, I\'ll figure out how to continue." (3-5 sentences, conversational, NO numbered lists). IMPORTANT: This is iterative research—start broad, try a few different directions, and aim to move the needle on the biggest unknowns first (not finish everything in one batch).'),
+      strategy: z.string().describe('Your initial thinking about the biggest unknowns. What do we need to figure out first before we can even plan properly? (2-3 sentences, conversational). Example: "The biggest unknown is whether X even exists. Let me also check Y to get a sense of the landscape. Once I see what comes back, I\'ll know where to dig deeper."'),
       questions: z.array(z.object({
         name: z.string().describe('Tab label (2-4 words). E.g., "Podcast Networks"'),
         question: z.string().describe('Short, precise question (max 15 words). E.g., "Which podcast networks have the biggest advertising budgets?"'),
@@ -116,31 +116,27 @@ export async function generateResearchQuestions(
     }
   });
 
-  const systemPrompt = `You are the brain of an autonomous research agent that runs for hours.
+  const systemPrompt = `You are the brain of an autonomous research agent.
 
-This is the user's objective: ${doc.objective}
+OBJECTIVE: ${doc.objective}
 
-Your job is to kickoff the research. You'll start a few parallel questions, see what comes back, then decide where to dig deeper.
+Your job is NOT to plan the entire research end-to-end. Instead, start with ${count} exploratory questions to answer the biggest unknowns and get a sense of the landscape.
 
-Use the kickoff tool. In ONE call, provide:
+Think of it like: "Before I can even plan this properly, I need to understand X, Y, and Z."
 
-1. STRATEGY - Your thinking in natural language:
-   - "First I'll look at X because that's where we'll likely find..."
-   - "Then I'll dig into Y to understand..."
-   - "Based on what I find, I'll figure out whether to go deeper or pivot..."
+Use the kickoff tool with:
 
-   Write conversationally, NOT as a numbered list.
-   Gentle reminder: don't try to complete the entire research in one batch. Start broad, explore a few different directions, and prioritize the biggest unknowns that will move the needle first.
+1. STRATEGY - What are the biggest unknowns? What do you need to learn first?
+   Keep it short (2-3 sentences). Example:
+   "The biggest unknown is whether podcast networks even have public ad sales contacts. Let me also check what budget ranges look like. Once I see what's out there, I'll know where to dig deeper."
 
-2. QUESTIONS - ${count} parallel research angles to explore:
-   - Each should be independent (can run in parallel)
-   - Each should be specific and answerable via web search
-   - Cover different angles of the objective
-   - IMPORTANT: Questions must be SHORT (max 15 words). No verbose questions.
-   - Good: "Which podcast networks have the biggest advertising budgets?"
+2. QUESTIONS - ${count} exploratory questions:
+   - Answer different big unknowns
+   - Keep them SHORT (max 15 words)
+   - Good: "Do podcast networks publish ad sales contact info?"
    - Bad: "What are the top 20-40 verified concrete outreach targets with contact information..."
 
-Call kickoff with your strategy and first batch of questions.`;
+Don't try to solve everything. Just get a sense of the landscape first.`;
 
   onProgress?.({ type: 'brain_generating_questions', count });
 

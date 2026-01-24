@@ -18,6 +18,8 @@ import {
   CheckCircle,
   Lightbulb,
 } from 'lucide-react';
+import BlurText from '@/components/BlurText';
+import ShinyText from '@/components/ShinyText';
 
 // Types matching the new simplified memory model
 interface MemoryEntry {
@@ -227,15 +229,30 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
     <div className={cn("w-full space-y-8", className)}>
       {/* Research Header */}
       <div className="pb-6 border-b border-white/5">
-        <h2 className="text-2xl font-black tracking-tighter text-white mb-3">
-          {doc.objective}
-        </h2>
+        <BlurText
+          text={doc.objective}
+          className="text-2xl font-black tracking-tighter text-white mb-3"
+          delay={50}
+          animateBy="words"
+          direction="top"
+        />
         {doc.researchStrategy && (
-          <div className="p-4 rounded-2xl bg-white/2 border border-white/5 italic">
-            <p className="text-sm text-slate-400 leading-relaxed font-medium">
-              <span className="text-slate-500 not-italic font-black text-[10px] uppercase tracking-widest block mb-1">Current Protocol:</span>
-              {doc.researchStrategy}
-            </p>
+          <div className="p-4 rounded-2xl bg-white/2 border border-white/5">
+            <ShinyText
+              text="Current Protocol"
+              className="text-slate-500 font-black text-[10px] uppercase tracking-widest block mb-2"
+              color="#64748b"
+              shineColor="#94a3b8"
+              speed={4}
+            />
+            <BlurText
+              text={doc.researchStrategy}
+              className="text-sm text-slate-400 leading-relaxed font-medium italic"
+              delay={40}
+              animateBy="words"
+              direction="top"
+              stepDuration={0.25}
+            />
           </div>
         )}
       </div>
@@ -322,7 +339,13 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
                     {activeQuestion.memory.length === 0 && activeQuestion.status === 'running' ? (
                       <div className="flex flex-col items-center justify-center py-12 space-y-4">
                         <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
-                        <p className="text-xs font-black text-slate-600 uppercase tracking-[0.3em]">Processing Neural Chains...</p>
+                        <ShinyText
+                          text="Processing Neural Chains..."
+                          className="text-xs font-black uppercase tracking-[0.3em]"
+                          color="#475569"
+                          shineColor="#94a3b8"
+                          speed={3}
+                        />
                       </div>
                     ) : (
                       renderMemory(activeQuestion.memory)
@@ -332,7 +355,14 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
                       <div className="mt-6 p-5 rounded-2xl bg-emerald-500/[0.03] border border-emerald-500/10 shadow-lg shadow-emerald-500/5">
                         <div className="flex items-center gap-2 mb-3">
                           <CheckCircle className="w-4 h-4 text-emerald-500" />
-                          <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Research complete</p>
+                          <ShinyText
+                            text="Research Complete"
+                            className="text-[10px] font-black uppercase tracking-widest"
+                            color="#10b981"
+                            shineColor="#6ee7b7"
+                            speed={4}
+                            disabled={false}
+                          />
                         </div>
 
                         {activeQuestion.document?.answer ? (
@@ -408,10 +438,21 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
                 <div className="absolute left-[-24px] top-1/2 -translate-y-1/2 w-6 h-[2px] bg-purple-500/20" />
                 <Brain className="w-6 h-6 text-purple-400 shrink-0 mt-1" />
                 <div className="space-y-1">
-                  <p className="text-[10px] font-black text-purple-400 uppercase tracking-[0.2em] mb-2">Cognitive Shift</p>
-                  <p className="text-sm text-slate-400 italic font-medium leading-relaxed">
-                    {brainThinking}
-                  </p>
+                  <ShinyText
+                    text="Cognitive Shift"
+                    className="text-[10px] font-black uppercase tracking-[0.2em] mb-2 block"
+                    color="#a78bfa"
+                    shineColor="#c4b5fd"
+                    speed={3}
+                  />
+                  <BlurText
+                    text={brainThinking}
+                    className="text-sm text-slate-400 italic font-medium leading-relaxed"
+                    delay={30}
+                    animateBy="words"
+                    direction="top"
+                    stepDuration={0.2}
+                  />
                 </div>
               </div>
             )}
@@ -422,15 +463,27 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
       {/* Global Status */}
       <div className="flex flex-col items-center justify-center py-10 space-y-4">
         {doc.status === 'running' && (
-          <div className="flex items-center gap-3 px-6 py-3 rounded-full bg-blue-500/5 border border-blue-500/10 text-blue-400">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-xs font-black uppercase tracking-[0.2em]">Neural Research Active</span>
+          <div className="flex items-center gap-3 px-6 py-3 rounded-full bg-blue-500/5 border border-blue-500/10">
+            <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
+            <ShinyText
+              text="Neural Research Active"
+              className="text-xs font-black uppercase tracking-[0.2em]"
+              color="#60a5fa"
+              shineColor="#93c5fd"
+              speed={2.5}
+            />
           </div>
         )}
         {doc.status === 'synthesizing' && (
-          <div className="flex items-center gap-3 px-6 py-3 rounded-full bg-emerald-500/5 border border-emerald-500/10 text-emerald-400">
-            <Lightbulb className="w-4 h-4 animate-pulse" />
-            <span className="text-xs font-black uppercase tracking-[0.2em]">Final Synthesis Protocol</span>
+          <div className="flex items-center gap-3 px-6 py-3 rounded-full bg-emerald-500/5 border border-emerald-500/10">
+            <Lightbulb className="w-4 h-4 animate-pulse text-emerald-400" />
+            <ShinyText
+              text="Final Synthesis Protocol"
+              className="text-xs font-black uppercase tracking-[0.2em]"
+              color="#34d399"
+              shineColor="#6ee7b7"
+              speed={2}
+            />
           </div>
         )}
       </div>
