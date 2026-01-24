@@ -137,6 +137,9 @@ Plan your research using the plan_research tool. In ONE call, provide:
    - Each should be independent (can run in parallel)
    - Each should be specific and answerable via web search
    - Cover different angles of the objective
+   - IMPORTANT: Questions must be SHORT (max 15 words). No verbose questions.
+   - Good: "Which podcast networks have the biggest advertising budgets?"
+   - Bad: "What are the top 20-40 verified concrete outreach targets with contact information..."
 
 Call plan_research with your strategy and questions.`;
 
@@ -255,25 +258,27 @@ ${getResearchQuestionsSummary(doc)}
 
 ---
 
-EVALUATE and DECIDE what to do next:
+EVALUATE and DECIDE what to do next.
+
+YOUR RESPONSE MUST INCLUDE:
+1. KEY FINDINGS - Summarize what we learned (2-3 sentences). Be specific: names, numbers, facts.
+   Example: "We identified 15 podcast networks including Gimlet, Wondery, and iHeart. Found that Gimlet was acquired by Spotify for $230M..."
+
+2. GAPS - What's still missing to satisfy success criteria?
+   Example: "We still need direct contact emails for ad sales teams and typical budget ranges."
+
+3. REASONING - Your decision based on findings and gaps.
+   Example: "We have good coverage of networks but lack actionable contact info. Let's dig into specific contact details..."
 
 OPTIONS:
-1. SPAWN_NEW - Need to research something new to answer the objective
-2. SYNTHESIZE - We have enough findings, finish the research
-
-DECISION CRITERIA:
-- Have we satisfied the success criteria?
-- Is the memory sufficient to answer the objective?
-- Are there gaps that need new questions?
-- Use the question memory as your signal: each reflect entry has a delta (progress/no_change/dead_end) and a thought.
+- SPAWN_NEW: Create a new focused research question (short and precise, max 15 words)
+- SYNTHESIZE: We have enough, finish the research
 
 CRITICAL BEHAVIOR:
-- Treat the existing questions as an independent parallel round. After each round, do a batch review.
-- For EACH success criterion, explicitly decide: covered vs not covered.
-  - If NOT covered: you MUST choose SPAWN_NEW and create ONE new question targeted at that missing criterion.
-  - If covered: cite which question(s) provide the evidence (use episodes/search results as signal).
-- This is an iterative multi-round process and can take MANY ROUNDS (10–20+) if needed.
-- Only choose SYNTHESIZE if ALL success criteria are covered OR the remaining gaps are explicitly declared as out-of-scope / not findable.
+- This is iterative - can take MANY ROUNDS (10–20+) if needed.
+- For EACH success criterion: is it covered or not?
+- Only SYNTHESIZE if ALL criteria are covered OR gaps are declared unfindable.
+- New questions must be SHORT and SPECIFIC (max 15 words).
 
 `;
 
@@ -291,7 +296,14 @@ CRITICAL BEHAVIOR:
   creditsUsed = Math.ceil((result.usage?.totalTokens || 0) / 1000);
 
   const toolCall = result.toolCalls?.[0] as any;
-  const params = toolCall?.input || toolCall?.args || { decision: 'synthesize', reasoning: 'Fallback' };
+  const params = toolCall?.input || toolCall?.args || { decision: 'synthesize', reasoning: 'Fallback', keyFindings: '', gaps: '' };
+
+  // Build rich reasoning from findings + gaps + reasoning
+  const richReasoning = [
+    params.keyFindings && `We found: ${params.keyFindings}`,
+    params.gaps && `Still needed: ${params.gaps}`,
+    params.reasoning
+  ].filter(Boolean).join(' ');
 
   let nextAction: BrainNextAction;
 
@@ -304,13 +316,13 @@ CRITICAL BEHAVIOR:
         description: params.newDescription || '',
         goal: params.newGoal || ''
       };
-      doc = addBrainDecision(doc, 'spawn', `Spawning new: ${params.newName} - ${params.newQuestion}`);
+      doc = addBrainDecision(doc, 'spawn', richReasoning);
       break;
 
     case 'synthesize':
     default:
       nextAction = { action: 'synthesize' };
-      doc = addBrainDecision(doc, 'synthesize', params.reasoning);
+      doc = addBrainDecision(doc, 'synthesize', richReasoning);
       doc = setDocStatus(doc, 'synthesizing');
       break;
   }
@@ -318,14 +330,16 @@ CRITICAL BEHAVIOR:
   onProgress?.({
     type: 'brain_decision',
     decision: params.decision,
-    reasoning: params.reasoning,
+    reasoning: richReasoning,
+    keyFindings: params.keyFindings,
+    gaps: params.gaps,
     nextAction
   });
 
   return {
     doc,
     nextAction,
-    reasoning: params.reasoning,
+    reasoning: richReasoning,
     creditsUsed
   };
 }
