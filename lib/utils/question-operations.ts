@@ -347,12 +347,24 @@ export function formatBrainDocForAgent(doc: BrainDoc): string {
       if (q.confidence) parts.push(`**Confidence:** ${q.confidence}`);
       if (q.recommendation) parts.push(`**Recommendation:** ${q.recommendation}`);
 
-      // Show document if available (preferred), otherwise fall back to summary
+      // Show full document for completed questions
       if (q.document) {
-        parts.push(`\n**Key Findings:**`);
-        q.document.keyFindings.slice(0, 5).forEach(f => parts.push(`- ${f}`));
+        if (q.document.answer) {
+          parts.push(`\n**Answer:**`);
+          parts.push(q.document.answer);
+        }
+        if (q.document.keyFindings?.length > 0) {
+          parts.push(`\n**Key Findings:**`);
+          q.document.keyFindings.forEach(f => parts.push(`- ${f}`));
+        }
+        if (q.document.sources?.length > 0) {
+          parts.push(`\n**Sources:**`);
+          q.document.sources.slice(0, 5).forEach(s => {
+            parts.push(`- ${s.title || s.url}${s.contribution ? `: ${s.contribution}` : ''}`);
+          });
+        }
         if (q.document.limitations) {
-          parts.push(`**Limitations:** ${q.document.limitations}`);
+          parts.push(`\n**Limitations:** ${q.document.limitations}`);
         }
       } else if (q.summary) {
         parts.push(`**Summary:** ${q.summary}`);

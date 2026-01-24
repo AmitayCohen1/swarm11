@@ -165,54 +165,58 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
 
     return (
       <div className="space-y-4">
+        {/* Search queries - visible, results in accordion */}
         {groups.map((group, i) => (
-          <div key={i} className="group/item relative pl-6 py-1">
-            <div className="absolute left-1 top-0 bottom-0 w-px bg-white/5 group-last/item:bg-transparent" />
-            <div className="absolute left-0 top-3 w-2 h-2 rounded-full border border-white/20 bg-black group-hover/item:border-white/40 transition-colors" />
-
-            <div className="space-y-3">
-              {group.search.query && (
+          <div key={i} className="space-y-2">
+            {group.search.query && (
+              <Collapsible>
                 <div className="flex items-start gap-2">
-                  <Search className="w-3.5 h-3.5 text-blue-400 mt-1 shrink-0" />
-                  <p className="text-sm text-slate-200 font-semibold leading-relaxed">
-                    {group.search.query}
-                  </p>
+                  <Search className="w-3 h-3 text-slate-600 mt-1 shrink-0" />
+                  <div className="flex-1">
+                    <CollapsibleTrigger className="text-left group/search">
+                      <span className="text-sm text-slate-400 hover:text-slate-200 transition-colors cursor-pointer">
+                        {group.search.query}
+                      </span>
+                      {group.result && (
+                        <ChevronRight className="w-3 h-3 text-slate-600 inline ml-2 transition-transform group-data-[state=open]/search:rotate-90" />
+                      )}
+                    </CollapsibleTrigger>
+                    {group.result && (
+                      <CollapsibleContent className="mt-2">
+                        <p className="text-xs text-slate-500 leading-relaxed pl-1 border-l border-slate-800 ml-0.5">
+                          {group.result.answer || 'No findings recorded.'}
+                        </p>
+                        {group.result.sources && group.result.sources.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mt-2 pl-1 ml-0.5">
+                            {group.result.sources.slice(0, 3).map((source, j) => (
+                              <a
+                                key={j}
+                                href={source.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] text-slate-600 hover:text-slate-400 transition-colors"
+                              >
+                                {source.url.includes('http') ? new URL(source.url).hostname.replace('www.', '') : source.url}
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </CollapsibleContent>
+                    )}
+                  </div>
                 </div>
-              )}
+              </Collapsible>
+            )}
 
-              {group.result && (
-                <div className="p-4 rounded-2xl bg-white/2 border border-white/5">
-                  <p className="text-sm text-slate-400 leading-relaxed font-medium">
-                    {group.result.answer || 'No findings recorded.'}
-                  </p>
-                  {group.result.sources && group.result.sources.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-white/5">
-                      {group.result.sources.slice(0, 3).map((source, j) => (
-                        <a
-                          key={j}
-                          href={source.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-2 py-1 text-[10px] font-bold rounded-lg bg-white/5 text-slate-500 hover:text-white transition-all"
-                        >
-                          <ExternalLink className="w-2.5 h-2.5" />
-                          {source.url.includes('http') ? new URL(source.url).hostname.replace('www.', '') : source.url}
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {group.reflect && group.reflect.thought && (
-                <div className="flex items-start gap-2 pl-1">
-                  <Lightbulb className="w-3 h-3 text-purple-400/60 mt-1 shrink-0" />
-                  <p className="text-xs text-slate-500 italic font-medium">
-                    {group.reflect.thought}
-                  </p>
-                </div>
-              )}
-            </div>
+            {/* Reflection - prominent but minimal */}
+            {group.reflect && group.reflect.thought && (
+              <div className="flex items-start gap-2 mt-3 mb-4">
+                <Lightbulb className="w-3.5 h-3.5 text-amber-500/70 mt-0.5 shrink-0" />
+                <p className="text-sm text-slate-200 leading-relaxed">
+                  {group.reflect.thought}
+                </p>
+              </div>
+            )}
           </div>
         ))}
       </div>

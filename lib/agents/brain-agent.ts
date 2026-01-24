@@ -72,9 +72,9 @@ export async function generateResearchQuestions(
 
   log('generateResearchQuestions', `Generating strategy + ${count} questions for: ${doc.objective}`);
 
-  // Single tool that outputs strategy AND questions together
-  const planResearchTool = tool({
-    description: 'Plan the research: explain your thinking and create research questions',
+  // Single tool that kicks off research with initial questions
+  const kickoffTool = tool({
+    description: 'Kickoff the research: explain your initial thinking and create first batch of questions',
     inputSchema: z.object({
       strategy: z.string().describe('Your thinking in natural language: "First I\'ll look at X because... Then I\'ll explore Y to understand... Based on what I find, I\'ll figure out how to continue." (3-5 sentences, conversational, NO numbered lists). IMPORTANT: This is iterative research—start broad, try a few different directions, and aim to move the needle on the biggest unknowns first (not finish everything in one batch).'),
       questions: z.array(z.object({
@@ -116,16 +116,13 @@ export async function generateResearchQuestions(
     }
   });
 
-  const systemPrompt = `You are the Brain, the strategic research orchestrator.
+  const systemPrompt = `You are the brain of an autonomous research agent that runs for hours.
 
-OBJECTIVE: ${doc.objective}
+This is the user's objective: ${doc.objective}
 
-SUCCESS CRITERIA:
-${doc.successCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}
+Your job is to kickoff the research. You'll start a few parallel questions, see what comes back, then decide where to dig deeper.
 
----
-
-Plan your research using the plan_research tool. In ONE call, provide:
+Use the kickoff tool. In ONE call, provide:
 
 1. STRATEGY - Your thinking in natural language:
    - "First I'll look at X because that's where we'll likely find..."
@@ -143,7 +140,7 @@ Plan your research using the plan_research tool. In ONE call, provide:
    - Good: "Which podcast networks have the biggest advertising budgets?"
    - Bad: "What are the top 20-40 verified concrete outreach targets with contact information..."
 
-Call plan_research with your strategy and questions.`;
+Call kickoff with your strategy and first batch of questions.`;
 
   onProgress?.({ type: 'brain_generating_questions', count });
 
@@ -153,8 +150,8 @@ Call plan_research with your strategy and questions.`;
     model,
     system: systemPrompt,
     prompt: `Plan your research approach for: ${doc.objective}`,
-    tools: { plan_research: planResearchTool },
-    toolChoice: { type: 'tool', toolName: 'plan_research' },
+    tools: { kickoff: kickoffTool },
+    toolChoice: { type: 'tool', toolName: 'kickoff' },
     abortSignal
   });
 
@@ -251,11 +248,6 @@ CURRENT STATE:
 ${formatBrainDocForAgent(doc)}
 
 SUMMARY:
-- Completed questions: ${completed.length}
-- Running questions: ${running.length}
-- Pending questions: ${pending.length}
-- Total memory entries: ${totalMemory}
-
 ${getResearchQuestionsSummary(doc)}
 
 ---
@@ -281,7 +273,6 @@ CRITICAL BEHAVIOR:
 - For EACH success criterion: is it covered or not?
 - Only SYNTHESIZE if ALL criteria are covered OR gaps are declared unfindable.
 - New questions must be SHORT and SPECIFIC (max 15 words).
-
 `;
 
   onProgress?.({ type: 'brain_evaluating' });

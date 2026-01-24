@@ -63,6 +63,7 @@ export async function analyzeUserMessage(
   - What he needs to research? 
   - What the user expects to get from the research?
   - Any valuebale inforamtion that could understand the problem better and support the research?
+  - Make sure the research agnet wont get confused, ask clarifying questions if needed.
 
   You can use: 
   - text_input to ask a broad question, where the user type a full response.

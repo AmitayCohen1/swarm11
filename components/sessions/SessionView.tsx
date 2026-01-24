@@ -525,9 +525,19 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
            lastAssistantMsg?.metadata?.type === 'ask_user';
   })();
 
+  // Only auto-scroll on new user messages or when research completes, not during research updates
+  const lastUserMsgCount = messages.filter(m => m.role === 'user').length;
   useEffect(() => {
+    // Scroll when user sends a message
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isResearching]);
+  }, [lastUserMsgCount]);
+
+  useEffect(() => {
+    // Scroll when research finishes
+    if (!isResearching && status === 'ready') {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [isResearching, status]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
