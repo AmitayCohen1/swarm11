@@ -72,6 +72,25 @@ export const ResearchQuestionRecommendationSchema = z.enum(['promising', 'dead_e
 export type ResearchQuestionRecommendation = z.infer<typeof ResearchQuestionRecommendationSchema>;
 
 // ============================================================
+// Question Document - structured output when question completes
+// ============================================================
+
+export const QuestionDocumentSourceSchema = z.object({
+  url: z.string(),
+  title: z.string(),
+  contribution: z.string(),  // What this source told us
+});
+export type QuestionDocumentSource = z.infer<typeof QuestionDocumentSourceSchema>;
+
+export const QuestionDocumentSchema = z.object({
+  answer: z.string(),                              // 2-3 paragraph comprehensive answer
+  keyFindings: z.array(z.string()),                // Bullet points of main facts
+  sources: z.array(QuestionDocumentSourceSchema),  // Sources with their contributions
+  limitations: z.string().optional(),              // What we couldn't find
+});
+export type QuestionDocument = z.infer<typeof QuestionDocumentSchema>;
+
+// ============================================================
 // ResearchQuestion - one research angle
 // ============================================================
 
@@ -88,7 +107,8 @@ export const ResearchQuestionSchema = z.object({
   memory: z.array(MemoryEntrySchema).default([]),  // Simple message list
   confidence: ResearchQuestionConfidenceSchema.default(null),
   recommendation: ResearchQuestionRecommendationSchema.default(null),
-  summary: z.string().optional(),                  // Final summary when done
+  summary: z.string().optional(),                  // Legacy: short summary
+  document: QuestionDocumentSchema.optional(),     // Structured document when done
 });
 
 export type ResearchQuestion = z.infer<typeof ResearchQuestionSchema>;

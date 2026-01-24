@@ -1,13 +1,13 @@
 import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
-import ChatAgentView from '@/components/chat/ChatAgentView';
+import SessionView from '@/components/sessions/SessionView';
 
-export default async function ChatPage() {
+export default async function NewSessionPage() {
   const { userId } = await auth();
 
   if (!userId) {
     redirect('/sign-in');
   }
 
-  return <ChatAgentView />;
+  return <SessionView />;
 }

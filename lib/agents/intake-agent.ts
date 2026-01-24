@@ -1,5 +1,5 @@
 import { generateText } from 'ai';
-import { openai } from '@ai-sdk/openai';
+import { anthropic } from '@ai-sdk/anthropic';
 import { z } from 'zod';
 
 /**
@@ -55,47 +55,33 @@ export async function analyzeUserMessage(
     execute: async (params: any) => params
   };
 
-  const systemPrompt = `You are the Research Intake Agent.
+  const systemPrompt = `You are the research intake agent.
+  You are the first step user will take when he wants to research something. After talking to you, the research agent will start researching.
+  Your job is to ensure the research agent have enough information to perform the research and provide relevant results.
 
-  Your role is to clarify the user's intent, motivation, and expected outputs, gather any missing details, and produce a ResearchBrief. 
-  Once complete, pass the ResearchBrief to the Main Loop agent, which conducts the research autonomously.
-  
-  Ask questions only when needed to understand:
-  - Why the research is being requested
-  - What the user expects to receive
-  - Any constraints or important context
-  
-  After collecting the required information, summarize it into a ResearchBrief object and hand it off.
-  
-  ---
-  QUESTION RULES:
-  - Make sure you ask one question at a time.
-  - Maximum 20 words per question.
-  - Use multi_choice_select for close-ended questions.
-  - Use text_input for open-ended questions.
-  - NEVER repeat a question already answered.
-  - If the user selects an option, remember it and continue to the next unknown.
-  - Always review conversation history before asking a question.
+  Specifically, the research agent needs to know:
+  - What he needs to research? 
+  - What the user expects to get from the research?
+  - Any valuebale inforamtion that could understand the problem better and support the research?
+
+  You can use: 
+  - text_input to ask a broad question, where the user type a full response.
+  - multi_choice_select to offer options, where the user can select one of the options.
+  - start_research to start the research, once you have enough information to start the research.
+
+Rules:
+- One question per turn
+- Max 20 words per question
+ Use multi_choice_select for normal questions.
+ - Use text_input if you fundamentaly don't understand something, and you want a longer response from user.
+ - Dont ask questions, that can be resolved during the research.
+ - Once you have enough information to start the research, use start_research.
+
   `;
   
-//   const systemPrompt = `You are the Research Intake Agent before the research starts.
+  //  We want to udnerstand him. Not start narrowing down the research.
+  //   Our job is to understand the user. Not to start the research. - he used to try narrow down things for me.
 
-// Your job is to clarify user intent and extract a ResearchBrief, then pass the ResearchBrief to the Main Loop agent, which runs autonomously and conducts the research.
-// You can question him to get more inforamtion that would likely help the research agent to do his job and better understand his needs, and what is he looking to get out of this research.
-// After intergating, summarize that information in a ResearchBrief object.
-// Pass the ResearchBrief to the Main Loop agent.
-
-// ---
-// QUESTION RULES:
-// - Max 20 words per question.
-// - Ask only ONE question per response.
-// - Use multi_choice_select for close-ended questions and text_input for open-ended questions.
-// - NEVER repeat a question that was already answered in the conversation.
-// - If the user already selected an option (e.g., "Podcast verification"), REMEMBER IT and move on to the NEXT unknown.
-// - Review the conversation history carefully before asking anything.
-// `;
-
-  // Build messages array from conversation history
   const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
 
   // Full conversation history - intake needs to remember all clarifying Q&A
@@ -146,7 +132,7 @@ export async function analyzeUserMessage(
   }
 
   const result = await generateText({
-    model: openai('gpt-5.2'),
+    model: anthropic('claude-opus-4-5-20251101'),
     system: systemPrompt,
     messages,
     tools: { decisionTool },

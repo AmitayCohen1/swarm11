@@ -5,8 +5,8 @@ import { chatSessions } from '@/lib/db/schema';
 import { getOrCreateUser } from '@/lib/credits';
 
 /**
- * POST /api/chat/start
- * Creates a new chat session
+ * POST /api/sessions/create
+ * Creates a new session
  */
 export async function POST(req: NextRequest) {
   const { userId: clerkUserId } = await auth();
@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
     // Get or create user
     const user = await getOrCreateUser(clerkUserId, null);
 
-    // Create new chat session
+    // Create new session
     const [session] = await db
       .insert(chatSessions)
       .values({
@@ -35,13 +35,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       sessionId: session.id,
       status: 'created',
-      message: 'Chat session created successfully'
+      message: 'Session created successfully'
     });
 
   } catch (error: any) {
-    console.error('Error creating chat session:', error);
+    console.error('Error creating session:', error);
     return NextResponse.json(
-      { error: 'Failed to create chat session', details: error.message },
+      { error: 'Failed to create session', details: error.message },
       { status: 500 }
     );
   }

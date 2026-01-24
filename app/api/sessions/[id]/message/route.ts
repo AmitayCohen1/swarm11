@@ -13,8 +13,8 @@ import {
 // export const maxDuration = 300; // 5 minutes
 
 /**
- * POST /api/chat/[id]/message
- * Send a message to the chat session (SSE stream)
+ * POST /api/sessions/[id]/message
+ * Send a message to the session (SSE stream)
  */
 export async function POST(
   req: NextRequest,
@@ -27,7 +27,7 @@ export async function POST(
   }
 
   const params = await context.params;
-  const chatSessionId = params.id;
+  const sessionId = params.id;
 
   try {
     // Parse JSON with error handling
@@ -51,14 +51,14 @@ export async function POST(
       );
     }
 
-    // Get chat session
+    // Get session
     const [session] = await db
       .select()
       .from(chatSessions)
-      .where(eq(chatSessions.id, chatSessionId));
+      .where(eq(chatSessions.id, sessionId));
 
     if (!session) {
-      return new Response('Chat session not found', { status: 404 });
+      return new Response('Session not found', { status: 404 });
     }
 
     // Get user
@@ -114,7 +114,7 @@ export async function POST(
         messages: conversationHistory,
         updatedAt: new Date()
       })
-      .where(eq(chatSessions.id, chatSessionId));
+      .where(eq(chatSessions.id, sessionId));
 
     // Create SSE stream
     const encoder = new TextEncoder();
@@ -159,7 +159,7 @@ export async function POST(
             await db
               .update(chatSessions)
               .set({ messages: conversationHistory, updatedAt: new Date() })
-              .where(eq(chatSessions.id, chatSessionId));
+              .where(eq(chatSessions.id, sessionId));
 
             sendEvent({ type: 'message', message: assistantMessage, role: 'assistant', reason });
             sendEvent({ type: 'complete' });
@@ -179,7 +179,7 @@ export async function POST(
             await db
               .update(chatSessions)
               .set({ messages: conversationHistory, updatedAt: new Date() })
-              .where(eq(chatSessions.id, chatSessionId));
+              .where(eq(chatSessions.id, sessionId));
 
             // Send as multi_choice_select so UI renders clickable buttons
             sendEvent({ type: 'multi_choice_select', question, options, reason });
@@ -212,14 +212,14 @@ export async function POST(
                 status: 'researching',
                 updatedAt: new Date()
               })
-              .where(eq(chatSessions.id, chatSessionId));
+              .where(eq(chatSessions.id, sessionId));
 
             // Create research session record
             const [researchSession] = await db
               .insert(researchSessions)
               .values({
                 userId: user.id,
-                chatSessionId,
+                chatSessionId: sessionId,
                 objective: researchBrief.objective,
                 status: 'running'
               })
@@ -248,7 +248,7 @@ export async function POST(
                 messages: conversationHistory,
                 updatedAt: new Date()
               })
-              .where(eq(chatSessions.id, chatSessionId));
+              .where(eq(chatSessions.id, sessionId));
 
             // Start research
             sendEvent({
@@ -266,7 +266,7 @@ export async function POST(
             let researchResult: any = null;
             try {
               researchResult = await runMainLoop({
-                chatSessionId,
+                chatSessionId: sessionId,
                 researchSessionId,
                 userId: user.id,
                 researchBrief,
@@ -322,7 +322,7 @@ export async function POST(
             const [updatedSession] = await db
               .select({ messages: chatSessions.messages })
               .from(chatSessions)
-              .where(eq(chatSessions.id, chatSessionId));
+              .where(eq(chatSessions.id, sessionId));
 
             // Build final message from structured output
             let finalMessage = '';
@@ -353,7 +353,8 @@ export async function POST(
             const updatedConversation = (updatedSession?.messages as any[] || []).concat([{
               role: 'assistant',
               content: finalMessage,
-              timestamp: new Date().toISOString()
+              timestamp: new Date().toISOString(),
+              metadata: { kind: 'final' }
             }]);
 
             await db
@@ -363,7 +364,7 @@ export async function POST(
                 status: 'active',
                 updatedAt: new Date()
               })
-              .where(eq(chatSessions.id, chatSessionId));
+              .where(eq(chatSessions.id, sessionId));
 
             sendEvent({
               type: 'message',

@@ -5,8 +5,8 @@ import { chatSessions } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 
 /**
- * POST /api/chat/[id]/stop
- * Stops ongoing research in a chat session
+ * POST /api/sessions/[id]/stop
+ * Stops ongoing research in a session
  */
 export async function POST(
   req: NextRequest,
@@ -19,17 +19,17 @@ export async function POST(
   }
 
   const params = await context.params;
-  const chatSessionId = params.id;
+  const sessionId = params.id;
 
   try {
-    // Get chat session
+    // Get session
     const [session] = await db
       .select()
       .from(chatSessions)
-      .where(eq(chatSessions.id, chatSessionId));
+      .where(eq(chatSessions.id, sessionId));
 
     if (!session) {
-      return NextResponse.json({ error: 'Chat session not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
     // Stop research by clearing current research state
@@ -40,7 +40,7 @@ export async function POST(
         currentResearch: null,
         updatedAt: new Date()
       })
-      .where(eq(chatSessions.id, chatSessionId));
+      .where(eq(chatSessions.id, sessionId));
 
     return NextResponse.json({
       status: 'stopped',

@@ -22,7 +22,7 @@ export default function LandingPage() {
                 </SignInButton>
               </SignedOut>
               <SignedIn>
-                <Link href="/chat" className="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+                <Link href="/sessions" className="text-sm text-gray-600 hover:text-gray-900 transition-colors">
                   Dashboard
                 </Link>
                 <UserButton afterSignOutUrl="/" />
@@ -55,7 +55,7 @@ export default function LandingPage() {
             </SignInButton>
           </SignedOut>
           <SignedIn>
-            <Link href="/chat" className="inline-block px-8 py-4 text-lg font-medium text-white bg-black rounded-full hover:bg-gray-800 transition-all">
+            <Link href="/sessions" className="inline-block px-8 py-4 text-lg font-medium text-white bg-black rounded-full hover:bg-gray-800 transition-all">
               Go to dashboard
             </Link>
           </SignedIn>

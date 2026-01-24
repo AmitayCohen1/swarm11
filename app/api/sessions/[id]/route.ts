@@ -5,7 +5,7 @@ import { chatSessions, users } from '@/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
 
 /**
- * GET /api/chat/[id]
+ * GET /api/sessions/[id]
  * Fetch a specific session by ID
  */
 export async function GET(
@@ -59,7 +59,7 @@ export async function GET(
 }
 
 /**
- * DELETE /api/chat/[id]
+ * DELETE /api/sessions/[id]
  * Delete a specific session
  */
 export async function DELETE(

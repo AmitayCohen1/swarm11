@@ -13,6 +13,7 @@ import {
   BrainDecision,
   BrainAction,
   MemoryEntry,
+  QuestionDocument,
   createResearchQuestion,
   createBrainDecision,
   createBrainDoc,
@@ -119,13 +120,21 @@ export function completeResearchQuestion(
   questionId: string,
   summary: string,
   confidence: ResearchQuestion['confidence'],
-  recommendation: ResearchQuestion['recommendation']
+  recommendation: ResearchQuestion['recommendation'],
+  document?: QuestionDocument
 ): BrainDoc {
   return {
     ...doc,
     questions: doc.questions.map(q =>
       q.id === questionId
-        ? { ...q, status: 'done' as const, summary, confidence, recommendation }
+        ? {
+            ...q,
+            status: 'done' as const,
+            summary,  // Keep for backwards compatibility
+            confidence,
+            recommendation,
+            document,  // New structured document
+          }
         : q
     ),
   };
@@ -337,20 +346,32 @@ export function formatBrainDocForAgent(doc: BrainDoc): string {
 
       if (q.confidence) parts.push(`**Confidence:** ${q.confidence}`);
       if (q.recommendation) parts.push(`**Recommendation:** ${q.recommendation}`);
-      if (q.summary) parts.push(`**Summary:** ${q.summary}`);
 
-      // Show recent memory
-      const recentMemory = q.memory.slice(-5);
-      if (recentMemory.length > 0) {
-        parts.push(`\n**Recent Memory (${q.memory.length} total):**`);
-        for (const m of recentMemory) {
-          if (m.type === 'search') {
-            parts.push(`- 🔍 ${m.query}`);
-          } else if (m.type === 'result') {
-            const preview = m.answer.length > 100 ? m.answer.slice(0, 100) + '...' : m.answer;
-            parts.push(`- 📄 ${preview}`);
-          } else if (m.type === 'reflect') {
-            parts.push(`- 💭 ${m.thought}`);
+      // Show document if available (preferred), otherwise fall back to summary
+      if (q.document) {
+        parts.push(`\n**Key Findings:**`);
+        q.document.keyFindings.slice(0, 5).forEach(f => parts.push(`- ${f}`));
+        if (q.document.limitations) {
+          parts.push(`**Limitations:** ${q.document.limitations}`);
+        }
+      } else if (q.summary) {
+        parts.push(`**Summary:** ${q.summary}`);
+      }
+
+      // Show recent memory only for running questions
+      if (q.status === 'running') {
+        const recentMemory = q.memory.slice(-5);
+        if (recentMemory.length > 0) {
+          parts.push(`\n**Recent Memory (${q.memory.length} total):**`);
+          for (const m of recentMemory) {
+            if (m.type === 'search') {
+              parts.push(`- 🔍 ${m.query}`);
+            } else if (m.type === 'result') {
+              const preview = m.answer.length > 100 ? m.answer.slice(0, 100) + '...' : m.answer;
+              parts.push(`- 📄 ${preview}`);
+            } else if (m.type === 'reflect') {
+              parts.push(`- 💭 ${m.thought}`);
+            }
           }
         }
       }

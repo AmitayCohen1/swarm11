@@ -80,8 +80,8 @@ export async function generateResearchQuestions(
       questions: z.array(z.object({
         name: z.string().describe('Tab label (2-4 words). E.g., "Podcast Networks"'),
         question: z.string().describe('Short, precise question (max 15 words). E.g., "Which podcast networks have the biggest advertising budgets?"'),
-        description: z.string().describe('Why this matters (1 sentence)'),
-        goal: z.string().describe('What success looks like (1 sentence)'),
+        description: z.string().describe('Explain how this question helps the main objective (2-3 sentences). Start with "This will help us understand..." and explain the connection. E.g., "This will help us understand who the major players are in the podcast advertising space. By mapping out the networks, we can identify which ones are most likely to have the budget and interest in our solution."'),
+        goal: z.string().describe('What specific output we need (1 sentence). E.g., "List of 10+ networks with their estimated ad revenue."'),
       })).min(1).max(5).describe(`${count} parallel research questions`),
     }),
     execute: async ({ strategy, questions }) => {
@@ -93,13 +93,14 @@ export async function generateResearchQuestions(
         strategy,
       });
 
+      // Log the strategy as brain decision for this batch
+      doc = addBrainDecision(doc, 'spawn', strategy);
+
       // Create questions
       for (const q of questions) {
         doc = addResearchQuestion(doc, q.name, q.question, q.goal, 10, q.description);
         const newQ = doc.questions[doc.questions.length - 1];
         questionIds.push(newQ.id);
-
-        doc = addBrainDecision(doc, 'spawn', `${q.name}: ${q.question}`, newQ.id);
 
         onProgress?.({
           type: 'question_spawned',
@@ -230,11 +231,11 @@ export async function evaluateResearchQuestions(
       gaps: z.string().describe('What information is still missing? E.g., "We still need contact emails and budget ranges for the top 5 networks."'),
       reasoning: z.string().describe('Your decision rationale combining findings and gaps. E.g., "Based on our findings about networks, we now need to dig into their specific contact details..."'),
 
-      // For spawn_new
-      newName: z.string().optional().describe('Tab label (2-4 words)'),
-      newQuestion: z.string().optional().describe('Short, precise question (max 15 words)'),
-      newDescription: z.string().optional().describe('Why this matters (1 sentence)'),
-      newGoal: z.string().optional().describe('What success looks like (1 sentence)'),
+      // For spawn_new - the new question to create
+      name: z.string().optional().describe('Tab label (2-4 words)'),
+      question: z.string().optional().describe('Short, precise question (max 15 words)'),
+      description: z.string().optional().describe('Explain how this helps the objective (2-3 sentences). Start with "This will help us understand..." E.g., "This will help us understand the specific contact routes for ad sales teams. With this info, we can prioritize outreach to networks most likely to respond."'),
+      goal: z.string().optional().describe('What specific output we need (1 sentence). E.g., "Direct emails or contact forms for 5+ network ad sales teams."'),
     }),
     execute: async (params) => params
   });
@@ -312,10 +313,10 @@ CRITICAL BEHAVIOR:
     case 'spawn_new':
       nextAction = {
         action: 'spawn_new',
-        name: params.newName || '',
-        question: params.newQuestion || '',
-        description: params.newDescription || '',
-        goal: params.newGoal || ''
+        name: params.name || '',
+        question: params.question || '',
+        description: params.description || '',
+        goal: params.goal || ''
       };
       doc = addBrainDecision(doc, 'spawn', richReasoning);
       break;
@@ -363,7 +364,7 @@ interface SynthesizeResult {
 }
 
 /**
- * Synthesize final answer from all findings
+ * Synthesize final answer from all question documents
  */
 export async function synthesizeFinalAnswer(
   config: SynthesizeConfig
@@ -372,20 +373,20 @@ export async function synthesizeFinalAnswer(
   const model = openai('gpt-5.2');
   let doc = initialDoc;
 
-  // Collect all results from memory
-  const allResults: { questionName: string; answer: string }[] = [];
-  for (const q of doc.questions) {
-    for (const m of q.memory) {
-      if (m.type === 'result' && m.answer) {
-        allResults.push({ questionName: q.name, answer: m.answer });
-      }
-    }
-  }
+  // Collect question documents (the new structured output)
+  const questionDocs = doc.questions
+    .filter(q => q.status === 'done' && q.document)
+    .map(q => ({
+      name: q.name,
+      question: q.question,
+      document: q.document!,
+      confidence: q.confidence,
+    }));
 
   log('synthesizeFinalAnswer', 'Starting synthesis with:', {
     objective: doc.objective,
-    totalResults: allResults.length,
-    questions: doc.questions.length
+    questionDocuments: questionDocs.length,
+    totalQuestions: doc.questions.length
   });
 
   const synthesizeTool = tool({
@@ -397,29 +398,49 @@ export async function synthesizeFinalAnswer(
     execute: async ({ confidence, finalAnswer }) => ({ confidence, finalAnswer })
   });
 
-  const systemPrompt = `You are synthesizing the final research answer.
+  // Format question documents for the prompt
+  const formatQuestionDoc = (qd: typeof questionDocs[0], index: number) => {
+    const doc = qd.document;
+    const findings = doc.keyFindings.map(f => `  • ${f}`).join('\n');
+    const sources = doc.sources.slice(0, 3).map(s => `  - ${s.title}: ${s.contribution}`).join('\n');
+    return `
+### ${index + 1}. ${qd.name}
+**Question:** ${qd.question}
+**Confidence:** ${qd.confidence || 'medium'}
+
+**Answer:**
+${doc.answer}
+
+**Key Findings:**
+${findings}
+
+**Sources:**
+${sources}
+${doc.limitations ? `\n**Limitations:** ${doc.limitations}` : ''}`;
+  };
+
+  const systemPrompt = `You are synthesizing the final research answer from ${questionDocs.length} research documents.
 
 OBJECTIVE: ${doc.objective}
 
 SUCCESS CRITERIA:
 ${doc.successCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}
 
-RESEARCH DOCUMENT:
-${formatBrainDocForAgent(doc)}
+---
 
-ALL RESULTS (${allResults.length} total):
-${allResults.map(({ questionName, answer }) =>
-  `- [${questionName}] ${answer.length > 200 ? answer.slice(0, 200) + '...' : answer}`
-).join('\n')}
+## RESEARCH DOCUMENTS
+
+${questionDocs.map((qd, i) => formatQuestionDoc(qd, i)).join('\n\n---\n')}
 
 ---
 
 SYNTHESIZE a comprehensive final answer:
 1. Address the objective directly
-2. Reference the success criteria
-3. Organize findings logically
-4. Note any gaps or limitations
-5. Provide actionable conclusions`;
+2. Check each success criterion - is it satisfied?
+3. Combine findings from all documents into a coherent narrative
+4. Include specific facts, names, and numbers from the research
+5. Note any gaps or limitations
+6. Provide actionable conclusions`;
 
   onProgress?.({ type: 'brain_synthesizing' });
 

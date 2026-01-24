@@ -13,7 +13,7 @@ import { generateText, tool } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { search } from '@/lib/tools/tavily-search';
-import type { BrainDoc } from '@/lib/types/research-question';
+import type { BrainDoc, QuestionDocument } from '@/lib/types/research-question';
 import {
   addSearchToMemory,
   addResultToMemory,
@@ -173,22 +173,29 @@ DEPTH EXPECTATIONS:
     }
   });
 
-  // Complete tool - generate final summary when done
+  // Complete tool - generate structured document when done
   const completeTool = tool({
-    description: 'Complete this research question with a final summary. Call after reflect returns status=done.',
+    description: 'Complete this research question with a structured document. Call after reflect returns status=done.',
     inputSchema: z.object({
-      summary: z.string().describe('Concise final summary of what was learned.'),
-      confidence: z.enum(['low', 'medium', 'high']).describe('Confidence in the answer quality.'),
+      answer: z.string().describe('Comprehensive answer to the research question (2-3 paragraphs). Be specific with names, numbers, and facts.'),
+      keyFindings: z.array(z.string()).describe('3-7 bullet points of the most important facts discovered. Each should be a complete, standalone statement.'),
+      sources: z.array(z.object({
+        url: z.string(),
+        title: z.string(),
+        contribution: z.string().describe('What this source contributed (1 sentence)')
+      })).describe('Key sources used, with what each contributed'),
+      limitations: z.string().optional().describe('What we could NOT find or verify (if any)'),
+      confidence: z.enum(['low', 'medium', 'high']).describe('Confidence in the answer quality'),
       recommendation: z.enum(['promising', 'dead_end', 'needs_more']).describe('How useful was this research angle?'),
     }),
-    execute: async ({ summary, confidence, recommendation }) => {
-      return { summary, confidence, recommendation };
+    execute: async ({ answer, keyFindings, sources, limitations, confidence, recommendation }) => {
+      return { answer, keyFindings, sources, limitations, confidence, recommendation };
     }
   });
 
   let done = false;
   let needsComplete = false;
-  let summary = '';
+  let questionDocument: QuestionDocument | undefined;
   let confidence: 'low' | 'medium' | 'high' = 'medium';
   let recommendation: 'promising' | 'dead_end' | 'needs_more' = 'needs_more';
   let lastWasSearch = false;
@@ -309,9 +316,17 @@ DEPTH EXPECTATIONS:
 
       if (tc.toolName === 'complete') {
         const toolResult = result.toolResults?.find((tr: any) => tr.toolCallId === tc.toolCallId);
-        const output = (toolResult as any)?.output || (toolResult as any)?.result || {};
+        const output = (toolResult as any)?.output || (toolResult as any)?.result || (tc as any)?.args || {};
 
-        summary = output.summary || '';
+        console.log('[complete tool] Raw output:', JSON.stringify(output, null, 2));
+
+        // Build the structured document
+        questionDocument = {
+          answer: output.answer || 'Research completed.',
+          keyFindings: Array.isArray(output.keyFindings) ? output.keyFindings : [],
+          sources: Array.isArray(output.sources) ? output.sources : [],
+          limitations: output.limitations || undefined,
+        };
         confidence = output.confidence || 'medium';
         recommendation = output.recommendation || 'needs_more';
         done = true;
@@ -319,7 +334,7 @@ DEPTH EXPECTATIONS:
         onProgress?.({
           type: 'question_complete',
           questionId,
-          summary,
+          document: questionDocument,
           confidence,
           recommendation,
         });
@@ -335,12 +350,16 @@ DEPTH EXPECTATIONS:
     }
   }
 
-  // Complete the question
-  doc = completeResearchQuestion(doc, questionId, summary, confidence, recommendation);
+  // Complete the question with document
+  // Generate a short summary from the answer for backwards compatibility
+  const answerText = questionDocument?.answer || '';
+  const summary = answerText ? (answerText.substring(0, 200) + (answerText.length > 200 ? '...' : '')) : '';
+  doc = completeResearchQuestion(doc, questionId, summary, confidence, recommendation, questionDocument);
 
   onProgress?.({
     type: 'question_completed',
     questionId,
+    document: questionDocument,
     summary,
     confidence,
     recommendation

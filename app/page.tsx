@@ -5,9 +5,9 @@ import LandingPage from './LandingPage';
 export default async function Home() {
   const { userId } = await auth();
 
-  // If logged in, go straight to chat
+  // If logged in, go straight to sessions
   if (userId) {
-    redirect('/chat');
+    redirect('/sessions');
   }
 
   // Show landing page for non-logged-in users

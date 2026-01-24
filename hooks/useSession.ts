@@ -117,11 +117,11 @@ export interface EventLogEntry {
   icon: 'plan' | 'search' | 'reflect' | 'phase' | 'complete' | 'error' | 'info' | 'log';
 }
 
-interface UseChatAgentOptions {
+interface UseSessionOptions {
   existingSessionId?: string;
 }
 
-export function useChatAgent(options: UseChatAgentOptions = {}) {
+export function useSession(options: UseSessionOptions = {}) {
   const { existingSessionId } = options;
   const router = useRouter();
 
@@ -166,11 +166,11 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
     setError(null);
 
     try {
-      const response = await fetch(`/api/chat/${id}`);
+      const response = await fetch(`/api/sessions/${id}`);
 
       if (!response.ok) {
         if (response.status === 404) {
-          router.replace('/chat');
+          router.replace('/sessions/new');
           return;
         }
         throw new Error('Failed to load session');
@@ -195,6 +195,20 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
             setResearchProgress({
               objective: parsed.objective
             });
+            // Add anchor message for ResearchProgress if not already present
+            const loadedMessages = session.messages || [];
+            const hasAnchor = loadedMessages.some((m: Message) => m.metadata?.type === 'research_progress');
+            if (!hasAnchor && parsed.questions?.length > 0) {
+              setMessages([
+                ...loadedMessages,
+                {
+                  role: 'assistant' as const,
+                  content: '',
+                  timestamp: new Date().toISOString(),
+                  metadata: { type: 'research_progress' }
+                }
+              ]);
+            }
           }
         } catch {
           // Invalid brain JSON
@@ -207,27 +221,27 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
     }
   }, [router]);
 
-  // Initialize new chat session
+  // Initialize new session
   const initializeNewSession = useCallback(async () => {
     setStatus('initializing');
     setError(null);
 
     try {
-      const response = await fetch('/api/chat/start', {
+      const response = await fetch('/api/sessions/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
 
       if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.error || 'Failed to start chat session');
+        throw new Error(data.error || 'Failed to start session');
       }
 
       const data = await response.json();
       setSessionId(data.sessionId);
       setStatus('ready');
 
-      window.history.replaceState(window.history.state, '', `/chat/${data.sessionId}`);
+      window.history.replaceState(window.history.state, '', `/sessions/${data.sessionId}`);
 
       setMessages([{
         role: 'assistant',
@@ -262,7 +276,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
       abortControllerRef.current?.abort();
       abortControllerRef.current = new AbortController();
 
-      const response = await fetch(`/api/chat/${sessionId}/message`, {
+      const response = await fetch(`/api/sessions/${sessionId}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: userMessage }),
@@ -683,7 +697,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
 
     try {
       abortControllerRef.current?.abort();
-      await fetch(`/api/chat/${sessionId}/stop`, { method: 'POST' });
+      await fetch(`/api/sessions/${sessionId}/stop`, { method: 'POST' });
       setIsResearching(false);
       setStatus('ready');
       setResearchProgress({});
