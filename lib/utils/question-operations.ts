@@ -327,11 +327,7 @@ export function addEpisodeToResearchQuestion(
     query: episode.query,
     purpose: episode.purpose || '',
     sources: episode.sources || [],
-    learned: episode.learned,
-    stillNeed: episode.stillNeed || '',
     deltaType: episode.deltaType,
-    delta: episode.delta || '',
-    dontRepeat: (episode.dontRepeat || []).map(normalizeQuery).filter(Boolean),
     nextStep: episode.nextStep || '',
     status: episode.status,
   };
@@ -357,7 +353,7 @@ export function getNoDeltaStreak(doc: CortexDoc, questionId: string): number {
   let streak = 0;
   for (let i = eps.length - 1; i >= 0; i--) {
     const e = eps[i];
-    const noDelta = e.deltaType === 'no_change' || !e.delta?.trim();
+    const noDelta = e.deltaType === 'no_change';
     if (!noDelta) break;
     streak++;
   }
@@ -427,12 +423,8 @@ export function compactResearchQuestion(
       query: '[compacted]',
       purpose: '',
       sources: [],
-      learned: `Compacted history: removed ${removedEpisodes} older episode(s), ${removedSearches} older search result(s), ${removedReflections} older reflection(s).`,
-      stillNeed: '',
       deltaType: 'no_change',
-      delta: '',
-      dontRepeat: [],
-      nextStep: '',
+      nextStep: `Compacted history: removed ${removedEpisodes} older episode(s), ${removedSearches} older search result(s), ${removedReflections} older reflection(s).`,
       status: 'continue',
     };
     episodesOut = [synthetic, ...episodesOut];
@@ -536,7 +528,7 @@ export function formatCortexDocForAgent(doc: CortexDoc): string {
       if ((init.episodes || []).length > 0) {
         const eps = init.episodes || [];
         const last = eps[eps.length - 1];
-        parts.push(`**Episodes:** ${eps.length} (last: ${last.deltaType}${last.delta ? ` - ${last.delta.substring(0, 80)}${last.delta.length > 80 ? '...' : ''}` : ''})`);
+        parts.push(`**Episodes:** ${eps.length} (last: ${last.deltaType}${last.nextStep ? ` → ${last.nextStep.substring(0, 80)}${last.nextStep.length > 80 ? '...' : ''}` : ''})`);
       }
 
       if (init.confidence) parts.push(`**Confidence:** ${init.confidence}`);

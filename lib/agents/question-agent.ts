@@ -127,12 +127,8 @@ RULES:
   const reflectTool = tool({
     description: 'Reflect on the most recent search and decide what to do next.',
     inputSchema: z.object({
-      learned: z.string().describe('Key facts learned from the most recent search.'),
-      stillNeed: z.string().describe('What is still missing to fully answer the question?'),
       deltaType: z.enum(['progress', 'no_change', 'dead_end']).describe('How much did this step change our understanding?'),
-      delta: z.string().describe('What changed since the last step? (Can be empty only if deltaType=no_change)'),
-      nextStep: z.string().describe('What to search next, or explain why you are done.'),
-      dontRepeat: z.array(z.string()).default([]).describe('0-5 queries/angles not to repeat.'),
+      nextStep: z.string().describe('ONE sentence: what to do next, or why you are done.'),
       status: z.enum(['continue', 'done']).describe('continue=keep searching, done=question answered or exhausted'),
 
       // Required when status="done"
@@ -140,15 +136,14 @@ RULES:
       confidence: z.enum(['low', 'medium', 'high']).optional().describe('Confidence in this question’s answer (required when done).'),
       recommendation: z.enum(['promising', 'dead_end', 'needs_more']).optional().describe('Usefulness of this research angle (required when done).'),
     }),
-    execute: async ({ learned, stillNeed, deltaType, delta, nextStep, dontRepeat, status, summary, confidence, recommendation }) => {
-      // Patch learned/nextAction into the most recent search result (for UI + later synthesis)
+    execute: async ({ deltaType, nextStep, status, summary, confidence, recommendation }) => {
+      // Patch nextAction into the most recent search result (for UI continuity)
       const q = getResearchQuestion(doc, questionId);
       if (q && q.searchResults && q.searchResults.length > 0) {
         const updatedResults = [...q.searchResults];
         const lastIdx = updatedResults.length - 1;
         updatedResults[lastIdx] = {
           ...updatedResults[lastIdx],
-          learned: `${learned}${stillNeed ? `\nStill need: ${stillNeed}` : ''}`,
           nextAction: nextStep
         };
         doc = {
@@ -161,7 +156,7 @@ RULES:
 
       // Record a structured reflection in the brain (keeps Cortex robust)
       const cycleNumber = getResearchQuestion(doc, questionId)?.cycles || 0;
-      doc = addReflectionToResearchQuestion(doc, questionId, cycleNumber, learned, nextStep, status);
+      doc = addReflectionToResearchQuestion(doc, questionId, cycleNumber, `${deltaType}`, nextStep, status);
 
       // Add Episode memory (robust unit for Cortex decisions)
       const lastSearch = getResearchQuestion(doc, questionId)?.searchResults?.slice(-1)[0];
@@ -170,11 +165,7 @@ RULES:
         query: lastSearch?.query || '',
         purpose: '',
         sources: lastSearch?.sources || [],
-        learned,
-        stillNeed,
         deltaType,
-        delta,
-        dontRepeat,
         nextStep,
         status,
       });
@@ -191,12 +182,8 @@ RULES:
       }
 
       return {
-        learned,
-        stillNeed,
         deltaType,
-        delta,
         nextStep,
-        dontRepeat,
         status,
         summary,
         confidence,
@@ -288,23 +275,16 @@ RULES:
       if (tc.toolName === 'reflect') {
         const toolResult = result.toolResults?.find((tr: any) => tr.toolCallId === tc.toolCallId);
         const output = (toolResult as any)?.output || (toolResult as any)?.result || {};
-        const learned = output.learned || '';
-        const stillNeed = output.stillNeed || '';
         const deltaType = output.deltaType || 'no_change';
-        const delta = output.delta || '';
         const nextStep = output.nextStep || '';
         const status = output.status || 'continue';
 
         onProgress?.({
           type: 'question_reflection',
           questionId,
-          learned,
-          stillNeed,
           deltaType,
-          delta,
           nextStep,
           status,
-          dontRepeat: output.dontRepeat,
           forcedStop: output.forcedStop,
           noDeltaStreak: output.noDeltaStreak
         });
@@ -313,14 +293,14 @@ RULES:
         // Keep reflection text in the worker's context for continuity
         messages.push({
           role: 'assistant',
-          content: `Learned: ${learned}\nStill need: ${stillNeed}\nDelta: ${delta}\nNext: ${nextStep}\nStatus: ${status}`
+          content: `DeltaType: ${deltaType}\nNext: ${nextStep}\nStatus: ${status}`
         });
 
         lastWasSearch = false;
 
         if (status === 'done') {
           done = true;
-          summary = output.summary || learned || '';
+          summary = output.summary || '';
           confidence = output.confidence || 'medium';
           recommendation = output.recommendation || 'needs_more';
         }

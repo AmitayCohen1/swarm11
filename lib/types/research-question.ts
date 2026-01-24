@@ -70,17 +70,9 @@ export const EpisodeSchema = z.object({
   purpose: z.string().default(''),
   sources: z.array(z.object({ url: z.string(), title: z.string().optional() })).default([]),
 
-  // The interpretation
-  learned: z.string(),
-  stillNeed: z.string().default(''),
   deltaType: EpisodeDeltaTypeSchema,
-  delta: z.string().default(''),
-
-  // Guardrails / anti-looping
-  dontRepeat: z.array(z.string()).default([]),
-
   // Decision
-  nextStep: z.string().default(''),
+  nextStep: z.string(),
   status: z.enum(['continue', 'done']),
 });
 export type Episode = z.infer<typeof EpisodeSchema>;

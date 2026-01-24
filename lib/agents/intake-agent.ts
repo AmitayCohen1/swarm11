@@ -59,10 +59,11 @@ export async function analyzeUserMessage(
 
 Your job is to get prepeared for a long research. Ask any question that could help us understand the user needs better, or anything that could reveal more about his needs.
 
-Ask him until you are sure you understand:
+Make sure we understand these, if you don't ask.
 1. What he expect to get back from the research? How does success look like?
 2. Why he wants to do this research? What the reason? What does he plan to do with the research outputs?
 3. Any question that you think is relevant to the research?
+4. What should we optimize for?
 
 
 ---
@@ -75,9 +76,8 @@ DECISION TYPES:
 ---
 
 QUESTION RULES:
-- Ask only ONE question at a time.
 - Max 20 words for every question.
-- Use multi_choice_select. Only if something is deeply unclear, use text_input only if it's absolutely necessary.
+- Use multi_choice_select. Only if something is deeply unclear, use text_input.
 `;
 
   // Build messages array from conversation history
