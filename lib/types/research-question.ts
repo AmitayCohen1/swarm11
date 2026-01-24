@@ -54,11 +54,44 @@ export const CycleReflectionSchema = z.object({
 export type CycleReflection = z.infer<typeof CycleReflectionSchema>;
 
 /**
+ * Episode memory - one search→reflect step distilled into structured state.
+ * This is the primary unit Cortex should reason over (not raw chat messages).
+ */
+export const EpisodeDeltaTypeSchema = z.enum(['progress', 'no_change', 'dead_end']);
+export type EpisodeDeltaType = z.infer<typeof EpisodeDeltaTypeSchema>;
+
+export const EpisodeSchema = z.object({
+  id: z.string(),
+  timestamp: z.string(),
+  cycle: z.number(),
+
+  // The action we took
+  query: z.string(),
+  purpose: z.string().default(''),
+  sources: z.array(z.object({ url: z.string(), title: z.string().optional() })).default([]),
+
+  // The interpretation
+  learned: z.string(),
+  stillNeed: z.string().default(''),
+  deltaType: EpisodeDeltaTypeSchema,
+  delta: z.string().default(''),
+
+  // Guardrails / anti-looping
+  dontRepeat: z.array(z.string()).default([]),
+
+  // Decision
+  nextStep: z.string().default(''),
+  status: z.enum(['continue', 'done']),
+});
+export type Episode = z.infer<typeof EpisodeSchema>;
+
+/**
  * Single research question - explores one angle of the research
  */
 export const ResearchQuestionSchema = z.object({
   id: z.string(),                                  // q_xxx
-  name: z.string(),                                // Short name (e.g., "Podcast Networks")
+  title: z.string().optional(),                    // Short tab title (3–5 words). Defaults to `name`.
+  name: z.string(),                                // Short label/category (2-5 words). Historically used for tabs.
   question: z.string(),                            // The research question (e.g., "Which podcast networks produce fact-heavy content?")
   goal: z.string(),                                // What we're looking to find out
   status: ResearchQuestionStatusSchema.default('pending'),
@@ -67,6 +100,7 @@ export const ResearchQuestionSchema = z.object({
   findings: z.array(FindingSchema).default([]),    // Accumulated facts
   searchResults: z.array(SearchResultSchema).default([]), // Full search results with answers
   reflections: z.array(CycleReflectionSchema).default([]), // What was learned each cycle
+  episodes: z.array(EpisodeSchema).default([]),    // Episode memory (structured deltas)
   confidence: ResearchQuestionConfidenceSchema.default(null),
   recommendation: ResearchQuestionRecommendationSchema.default(null),
   summary: z.string().optional(),                  // Final summary when done
@@ -133,6 +167,13 @@ export function generateCortexDecisionId(): string {
 }
 
 /**
+ * Generate episode ID
+ */
+export function generateEpisodeId(): string {
+  return `ep_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+}
+
+/**
  * Generate finding ID (re-export for convenience)
  */
 export function generateFindingId(): string {
@@ -154,6 +195,7 @@ export function createResearchQuestion(
 ): ResearchQuestion {
   return {
     id: generateResearchQuestionId(),
+    title: name,
     name,
     question,
     goal,
@@ -163,6 +205,7 @@ export function createResearchQuestion(
     findings: [],
     searchResults: [],
     reflections: [],
+    episodes: [],
     confidence: null,
     recommendation: null,
   };

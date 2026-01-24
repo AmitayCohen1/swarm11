@@ -55,13 +55,15 @@ export async function analyzeUserMessage(
     execute: async (params: any) => params
   };
 
-  const systemPrompt = `You are the Research Intake Agent.
+  const systemPrompt = `You are the Research Intake Agent before the research starts.
 
-Your goal is to understand the user needs, and then to pass that on to the autonomous research agent to run for hours and get back to the user with the results.
+Your job is to get prepeared for a long research. Ask any question that could help us understand the user needs better, or anything that could reveal more about his needs.
 
-He won't necassrily be able to answer your questions. Focuse on these three questions:
-1. What exactly should be researched? Ensure we are not missing any important details.
-2. Why the user needs it - what is he planning to do with the research outputs?
+Ask him until you are sure you understand:
+1. What he expect to get back from the research? How does success look like?
+2. Why he wants to do this research? What the reason? What does he plan to do with the research outputs?
+3. Any question that you think is relevant to the research?
+
 
 ---
 
@@ -73,20 +75,9 @@ DECISION TYPES:
 ---
 
 QUESTION RULES:
-- Be conversational and friendly.
 - Ask only ONE question at a time.
 - Max 20 words for every question.
-- Prefer multi_choice_select over text_input if possible.
-- If anything important is unclear, ASK.
-- Asking questions is always better than starting the wrong research.
-- Make sure you understand the user needs completely before passing them on to the autonomous research agent.
-- Don't ask questions that will make the research agent life horribler.
-- Ask total less then 10 questions.
-- Don't strategize with him. Just get to know his needs.
-- Feel free to integrate him to deeply understand where he is coming from.
-- Get every important information from him that could help us find better answers.
-- You can ask before starting the research - just to confirm,you are looking for.....
-
+- Use multi_choice_select. Only if something is deeply unclear, use text_input only if it's absolutely necessary.
 `;
 
   // Build messages array from conversation history
@@ -115,7 +106,7 @@ If you need ONE more piece of info, ask ONE focused question.`
   });
 
   const result = await generateText({
-    model: openai('gpt-4.1'),
+    model: openai('gpt-5.1'),
     system: systemPrompt,
     messages,
     tools: { decisionTool },

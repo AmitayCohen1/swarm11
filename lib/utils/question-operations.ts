@@ -8,6 +8,8 @@ import {
   ResearchQuestion,
   CortexDecision,
   CortexAction,
+  Episode,
+  generateEpisodeId,
   createResearchQuestion,
   createCortexDecision,
   createCortexDoc,
@@ -303,6 +305,163 @@ export function addReflectionToResearchQuestion(
 }
 
 // ============================================================
+// Episode Memory (Structured deltas)
+// ============================================================
+
+export function normalizeQuery(q: string): string {
+  return (q || '').toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+/**
+ * Add a new episode to a question.
+ */
+export function addEpisodeToResearchQuestion(
+  doc: CortexDoc,
+  questionId: string,
+  episode: Omit<Episode, 'id' | 'timestamp'> & { id?: string; timestamp?: string }
+): CortexDoc {
+  const ep: Episode = {
+    id: episode.id || generateEpisodeId(),
+    timestamp: episode.timestamp || new Date().toISOString(),
+    cycle: episode.cycle,
+    query: episode.query,
+    purpose: episode.purpose || '',
+    sources: episode.sources || [],
+    learned: episode.learned,
+    stillNeed: episode.stillNeed || '',
+    deltaType: episode.deltaType,
+    delta: episode.delta || '',
+    dontRepeat: (episode.dontRepeat || []).map(normalizeQuery).filter(Boolean),
+    nextStep: episode.nextStep || '',
+    status: episode.status,
+  };
+
+  return {
+    ...doc,
+    questions: doc.questions.map(q =>
+      q.id === questionId
+        ? { ...q, episodes: [...(q.episodes || []), ep] }
+        : q
+    ),
+  };
+}
+
+/**
+ * Return the number of consecutive episodes at the end of the list that had no useful delta.
+ * (deltaType === 'no_change' OR empty delta)
+ */
+export function getNoDeltaStreak(doc: CortexDoc, questionId: string): number {
+  const q = getResearchQuestion(doc, questionId);
+  if (!q) return 0;
+  const eps = q.episodes || [];
+  let streak = 0;
+  for (let i = eps.length - 1; i >= 0; i--) {
+    const e = eps[i];
+    const noDelta = e.deltaType === 'no_change' || !e.delta?.trim();
+    if (!noDelta) break;
+    streak++;
+  }
+  return streak;
+}
+
+/**
+ * Merge a set of "don't repeat" queries into a question's episode stream (latest episode),
+ * returning a unique, normalized list.
+ */
+export function mergeDontRepeat(base: string[], extra: string[]): string[] {
+  const out = new Set<string>();
+  for (const q of [...(base || []), ...(extra || [])]) {
+    const n = normalizeQuery(q);
+    if (n) out.add(n);
+  }
+  return Array.from(out);
+}
+
+// ============================================================
+// Compaction & Guardrails (keep brain bounded)
+// ============================================================
+
+export interface CompactionOptions {
+  maxEpisodesPerQuestion: number;
+  maxSearchResultsPerQuestion: number;
+  maxReflectionsPerQuestion: number;
+}
+
+const DEFAULT_COMPACTION: CompactionOptions = {
+  maxEpisodesPerQuestion: 30,
+  maxSearchResultsPerQuestion: 25,
+  maxReflectionsPerQuestion: 30,
+};
+
+function compactArray<T>(items: T[], keepLast: number): { kept: T[]; removedCount: number } {
+  if (!Array.isArray(items)) return { kept: [], removedCount: 0 };
+  if (items.length <= keepLast) return { kept: items, removedCount: 0 };
+  return { kept: items.slice(items.length - keepLast), removedCount: items.length - keepLast };
+}
+
+/**
+ * Compact a single question to keep memory bounded.
+ *
+ * Strategy:
+ * - Keep the latest N episodes/searchResults/reflections for "live debugging" + UI
+ * - If we dropped any episodes, prepend a synthetic episode summarizing that compaction happened
+ */
+export function compactResearchQuestion(
+  q: ResearchQuestion,
+  options: Partial<CompactionOptions> = {}
+): ResearchQuestion {
+  const opts: CompactionOptions = { ...DEFAULT_COMPACTION, ...options };
+
+  const { kept: keptEpisodes, removedCount: removedEpisodes } = compactArray(q.episodes || [], opts.maxEpisodesPerQuestion);
+  const { kept: keptSearches, removedCount: removedSearches } = compactArray(q.searchResults || [], opts.maxSearchResultsPerQuestion);
+  const { kept: keptReflections, removedCount: removedReflections } = compactArray(q.reflections || [], opts.maxReflectionsPerQuestion);
+
+  let episodesOut = keptEpisodes;
+
+  if (removedEpisodes > 0) {
+    const firstCycleKept = episodesOut[0]?.cycle ?? q.cycles;
+    const synthetic: Episode = {
+      id: generateEpisodeId(),
+      timestamp: new Date().toISOString(),
+      cycle: Math.max(0, firstCycleKept - 1),
+      query: '[compacted]',
+      purpose: '',
+      sources: [],
+      learned: `Compacted history: removed ${removedEpisodes} older episode(s), ${removedSearches} older search result(s), ${removedReflections} older reflection(s).`,
+      stillNeed: '',
+      deltaType: 'no_change',
+      delta: '',
+      dontRepeat: [],
+      nextStep: '',
+      status: 'continue',
+    };
+    episodesOut = [synthetic, ...episodesOut];
+  }
+
+  return {
+    ...q,
+    episodes: episodesOut,
+    searchResults: keptSearches,
+    reflections: keptReflections,
+  };
+}
+
+/**
+ * Compact the entire CortexDoc for storage/streaming.
+ * Safe to call frequently (pure, deterministic).
+ */
+export function compactCortexDoc(
+  doc: CortexDoc,
+  options: Partial<CompactionOptions> = {}
+): CortexDoc {
+  const opts: Partial<CompactionOptions> = options;
+  return {
+    ...doc,
+    questions: doc.questions.map(q => compactResearchQuestion(q, opts)),
+  };
+}
+
+// ============================================================
 // Cortex Decision Log
 // ============================================================
 
@@ -374,6 +533,11 @@ export function formatCortexDocForAgent(doc: CortexDoc): string {
       parts.push(`**Question:** ${init.question}`);
       parts.push(`**Goal:** ${init.goal}`);
       parts.push(`**Cycles:** ${init.cycles}/${init.maxCycles}`);
+      if ((init.episodes || []).length > 0) {
+        const eps = init.episodes || [];
+        const last = eps[eps.length - 1];
+        parts.push(`**Episodes:** ${eps.length} (last: ${last.deltaType}${last.delta ? ` - ${last.delta.substring(0, 80)}${last.delta.length > 80 ? '...' : ''}` : ''})`);
+      }
 
       if (init.confidence) parts.push(`**Confidence:** ${init.confidence}`);
       if (init.recommendation) parts.push(`**Recommendation:** ${init.recommendation}`);

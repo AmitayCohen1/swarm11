@@ -57,9 +57,7 @@ PHASE 3: Execute ResearchQuestions (sequential in v1)
     │       ↓
     └─→ Evaluate: continue / drill_down / spawn_new / synthesize
     ↓
-PHASE 4: Adversarial Review
-    ↓
-PHASE 5: Synthesize Final Answer
+PHASE 4: Synthesize Final Answer
 ```
 
 **Evaluation Decisions:**
@@ -77,37 +75,21 @@ Every `doc_updated` event triggers immediate DB persistence.
 
 ### 3. ResearchQuestion Agent (`lib/agents/question-agent.ts`)
 
-**Purpose:** Execute one research question with enforced reasoning.
+**Purpose:** Execute one research question with a disciplined loop and structured memory.
 
 **Strict Tool Flow:**
 ```
-search(1 query) → search_reasoning() → search(1 query) → search_reasoning() → ...
+search(1 query) → reflect() → search(1 query) → reflect() → ...
 ```
 
-**State Machine Enforcement:**
-```typescript
-let awaitingReasoning = false;
-
-// After search():
-awaitingReasoning = true;
-// Only search_reasoning tool available
-
-// After search_reasoning():
-awaitingReasoning = false;
-// All tools available
-```
+After each `search`, the agent must call `reflect` before it can search again.
 
 **Available Tools:**
 
 | Tool | Purpose | When Available |
 |------|---------|----------------|
-| `search` | Execute web search (1 query max) | When NOT awaiting reasoning |
-| `search_reasoning` | Explain what was learned | REQUIRED after every search |
-| `add_finding` | Record a fact with sources | When NOT awaiting reasoning |
-| `edit_finding` | Update existing finding | When NOT awaiting reasoning |
-| `disqualify_finding` | Mark finding as invalid | When NOT awaiting reasoning |
-| `reflect` | Cycle-level reflection | When NOT awaiting reasoning |
-| `done` | Complete this question | When NOT awaiting reasoning |
+| `search` | Execute web search (1 query max) | When NOT awaiting reflection |
+| `reflect` | Record structured reflection + episode delta | REQUIRED after every search |
 
 **Context Provided:**
 - Overall research objective
@@ -129,7 +111,6 @@ awaitingReasoning = false;
 | `generateResearchQuestions()` | Create 3 research angles from objective |
 | `evaluateResearchQuestions()` | Decide next action after running questions |
 | `synthesizeFinalAnswer()` | Combine findings into final answer |
-| `adversarialReview()` | Challenge findings before synthesis |
 
 ---
 
@@ -178,8 +159,27 @@ interface SearchResult {
   query: string;                 // Human-readable question
   answer: string;                // Tavily's answer
   sources: { url: string; title?: string }[];
-  reasoning?: string;            // What we learned (from search_reasoning)
+  learned?: string;              // What we learned (from reflect)
+  nextAction?: string;           // What to do next (from reflect)
 }
+
+### Episode (Structured Delta Memory)
+
+Each `reflect` also appends an `Episode` entry, which is the primary unit Cortex should reason over:
+
+```typescript
+interface Episode {
+  cycle: number;
+  query: string;
+  learned: string;
+  stillNeed: string;
+  deltaType: 'progress' | 'no_change' | 'dead_end';
+  delta: string;
+  dontRepeat: string[];
+  nextStep: string;
+  status: 'continue' | 'done';
+}
+```
 ```
 
 ### Finding
@@ -302,7 +302,6 @@ interface CycleReflection {
    │       └─→ Save to DB after each step
    │       └─→ Emit SSE events
    ├─→ Evaluate after all complete
-   ├─→ Adversarial review
    └─→ Synthesize final answer
    ↓
 5. Stream final answer to UI
@@ -321,8 +320,6 @@ interface CycleReflection {
 | `reasoning_completed` | `{ questionId, reasoning }` |
 | `reflection_completed` | `{ questionId, learned, nextStep }` |
 | `question_completed` | `{ questionId, confidence, recommendation }` |
-| `review_started` | `{}` |
-| `review_completed` | `{ verdict, critique, missing }` |
 | `synthesizing_started` | `{}` |
 | `research_complete` | `{ totalResearchQuestions, totalFindings, confidence }` |
 
@@ -382,10 +379,10 @@ app/api/chat/
 
 **Solution:** State machine enforces:
 ```
-search(1) → must call search_reasoning → can search again
+search(1) → must call reflect() → can search again
 ```
 
-This ensures every search gets explicit reasoning about what was learned.
+This ensures every search gets explicit reasoning (and a structured Episode delta) before proceeding.
 
 ### Why Full Context (No Truncation)?
 
@@ -396,7 +393,7 @@ This ensures every search gets explicit reasoning about what was learned.
 - ALL previous reflections
 - Full objective and sibling question list
 
-Memory is cheap. Wrong decisions are expensive.
+**Note:** In production, we compact older history into Episodes and keep only the most recent detailed logs to prevent context bloat.
 
 ### Why Real-Time Saves?
 
@@ -409,6 +406,14 @@ Memory is cheap. Wrong decisions are expensive.
 
 User sees real-time progress. Crash recovery is automatic.
 
+### Why Guardrails + Compaction?
+
+**Problem:** Long-running sessions can bloat memory and exceed time/budget.
+
+**Solution:** The orchestrator applies:
+- **Compaction**: keep only the latest N search results / reflections / episodes per question.
+- **Guardrails**: synthesize early when time/budget limits are hit.
+
 ---
 
 ## Tech Stack
@@ -416,6 +421,6 @@ User sees real-time progress. Crash recovery is automatic.
 - **Framework:** Next.js 15 (App Router)
 - **Database:** Neon PostgreSQL + Drizzle ORM
 - **Auth:** Clerk
-- **AI:** OpenAI GPT-4.1 (intake/cortex), GPT-4.1-mini (questions)
+- **AI:** OpenAI gpt-5.1 (intake/cortex), gpt-5.1 (questions)
 - **Search:** Tavily API
 - **UI:** Tailwind + Framer Motion

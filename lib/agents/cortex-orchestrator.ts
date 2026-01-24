@@ -32,6 +32,7 @@ import {
   getCompletedResearchQuestions,
   addCortexDecision,
   setDocStatus,
+  compactCortexDoc,
 } from '@/lib/utils/question-operations';
 
 interface CortexOrchestratorConfig {
@@ -84,10 +85,14 @@ export async function executeCortexResearch(
 
   const MAX_EVAL_ROUNDS = 5;  // Max evaluation cycles
   const INITIAL_INITIATIVES = 3;
+  const START_TIME_MS = Date.now();
+  const MAX_WALL_TIME_MS = Number(process.env.CORTEX_MAX_WALL_TIME_MS || 4 * 60 * 1000); // default 4 minutes
+  const MAX_CREDITS_BUDGET = Number(process.env.CORTEX_MAX_CREDITS_BUDGET || 80); // rough tokens/1k budget
 
   let totalCreditsUsed = 0;
   let totalCycles = 0;
   let evalRound = 0;
+  let forceSynthesize = false;
 
   log('INIT', '========== CORTEX RESEARCH STARTED ==========');
   log('INIT', 'Config:', {
@@ -115,6 +120,17 @@ export async function executeCortexResearch(
     }
   };
 
+  const checkGuardrails = () => {
+    const elapsed = Date.now() - START_TIME_MS;
+    if (elapsed > MAX_WALL_TIME_MS) {
+      forceSynthesize = true;
+      return;
+    }
+    if (totalCreditsUsed >= MAX_CREDITS_BUDGET) {
+      forceSynthesize = true;
+    }
+  };
+
   const emitProgress = async (eventOrType: string | { type: string; [key: string]: any }, data: any = {}) => {
     // Support both calling conventions:
     // emitProgress('type', { data }) - from orchestrator
@@ -136,7 +152,9 @@ export async function executeCortexResearch(
   };
 
   const saveDocToDb = async (doc: CortexDoc) => {
-    const serializedBrain = serializeCortexDoc(doc);
+    // Compact before storage/streaming to keep brain bounded
+    const compacted = compactCortexDoc(doc);
+    const serializedBrain = serializeCortexDoc(compacted);
     await db
       .update(chatSessions)
       .set({ brain: serializedBrain, updatedAt: new Date() })
@@ -167,6 +185,7 @@ export async function executeCortexResearch(
   log('PHASE1', 'INITIALIZE CORTEX DOC');
 
   await checkAborted();
+  checkGuardrails();
 
   let doc: CortexDoc;
   const existingDoc = parseCortexDoc(existingBrain);
@@ -202,6 +221,7 @@ export async function executeCortexResearch(
   log('PHASE2', 'GENERATE INITIATIVES');
 
   await checkAborted();
+  checkGuardrails();
 
   // Only generate if no questions exist
   if (doc.questions.length === 0) {
@@ -238,6 +258,13 @@ export async function executeCortexResearch(
   while (evalRound < MAX_EVAL_ROUNDS) {
     evalRound++;
     await checkAborted();
+    checkGuardrails();
+    if (forceSynthesize) {
+      doc = addCortexDecision(doc, 'synthesize', 'Guardrail triggered (time/budget). Synthesizing with current evidence.');
+      doc = setDocStatus(doc, 'synthesizing');
+      await saveDocToDb(doc);
+      break;
+    }
 
     log('PHASE3', `──────────────────────────────────────────────────────────`);
     log('PHASE3', `EVAL ROUND ${evalRound}/${MAX_EVAL_ROUNDS}`);
@@ -258,6 +285,8 @@ export async function executeCortexResearch(
     for (let idx = 0; idx < pending.length; idx++) {
       const question = pending[idx];
       await checkAborted();
+      checkGuardrails();
+      if (forceSynthesize) break;
 
       log('PHASE3', `┌─ INITIATIVE ${idx + 1}/${pending.length}: ${question.id}`);
       log('PHASE3', `│  Name: ${question.name}`);
@@ -288,6 +317,7 @@ export async function executeCortexResearch(
       doc = initResult.doc;
       totalCreditsUsed += initResult.creditsUsed;
       totalCycles += initResult.queriesExecuted.length > 0 ? 1 : 0;
+      checkGuardrails();
 
       // Track queries
       await trackQueries(initResult.queriesExecuted, evalRound);
@@ -309,6 +339,13 @@ export async function executeCortexResearch(
     // ============================================================
 
     await checkAborted();
+    checkGuardrails();
+    if (forceSynthesize) {
+      doc = addCortexDecision(doc, 'synthesize', 'Guardrail triggered (time/budget). Synthesizing with current evidence.');
+      doc = setDocStatus(doc, 'synthesizing');
+      await saveDocToDb(doc);
+      break;
+    }
 
     log('PHASE3', 'Evaluating questions...');
 
@@ -321,6 +358,7 @@ export async function executeCortexResearch(
     doc = evalResult.doc;
     totalCreditsUsed += evalResult.creditsUsed;
     await saveDocToDb(doc);
+    checkGuardrails();
 
     log('PHASE3', `CORTEX DECISION: ${evalResult.nextAction.action}`, {
       reasoning: evalResult.reasoning,
@@ -350,6 +388,7 @@ export async function executeCortexResearch(
   log('PHASE4', 'SYNTHESIZE FINAL ANSWER');
 
   await checkAborted();
+  // Even if guardrail triggered, we still synthesize whatever we have.
   emitProgress('synthesizing_started');
 
   log('PHASE4', 'Generating final synthesis...');

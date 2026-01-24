@@ -66,6 +66,7 @@ interface CycleReflection {
 
 interface ResearchQuestion {
   id: string;
+  title?: string;
   name: string;
   question: string;
   goal: string;
@@ -178,10 +179,10 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-4 p-4 rounded-xl bg-linear-to-br from-purple-50/50 to-indigo-50/50 dark:from-purple-500/5 dark:to-indigo-500/5 border border-purple-100/50 dark:border-purple-500/10"
+          className="mb-4 p-4 rounded-lg bg-white dark:bg-white/3 border border-slate-200/60 dark:border-white/10"
         >
           <div className="flex items-start gap-3">
-            <Brain className="w-5 h-5 text-purple-600 dark:text-purple-400 shrink-0 mt-0.5" />
+            <Brain className="w-5 h-5 text-slate-600 dark:text-slate-300 shrink-0 mt-0.5" />
             <div className="text-sm text-slate-700 dark:text-slate-300 space-y-1">
               {introMessage.split('\n').map((line, i) => {
                 if (i === 0) {
@@ -211,46 +212,36 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
               const isDone = question.status === 'done';
               const isRunning = question.status === 'running';
               const shortQ = toShortQuestion(question.question);
-              const label = shortQ || (question.question || '').trim() || question.name || 'Research question';
-              const category = (question.name || '').trim();
+              const tabTitle = (question.title || question.name || '').trim();
+              const label = tabTitle || shortQ || (question.question || '').trim() || 'Research question';
+              const category = ''; // keep UI minimal; full question is shown in details below
 
               return (
                 <button
                   key={question.id}
                   onClick={() => setActiveTab(question.id)}
                   className={cn(
-                    "flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition-all",
+                    "flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors border",
                     isActive
-                      ? "bg-slate-800 dark:bg-white text-white dark:text-slate-900 shadow-lg"
-                      : isDone
-                        ? "bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-500/20 hover:bg-green-100 dark:hover:bg-green-500/20"
-                        : isRunning
-                          ? "bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/20 hover:bg-indigo-100 dark:hover:bg-indigo-500/20"
-                          : "bg-slate-50 dark:bg-white/5 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/10"
+                      ? "bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900 dark:border-white"
+                      : "bg-white dark:bg-white/3 text-slate-700 dark:text-slate-200 border-slate-200/60 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/5"
                   )}
                 >
-                  {isDone ? (
-                    <CheckCircle2 className="w-4 h-4" />
-                  ) : isRunning ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Circle className="w-4 h-4" />
-                  )}
+                  <span
+                    className={cn(
+                      "inline-block w-2 h-2 rounded-full",
+                      isDone ? "bg-emerald-500" : isRunning ? "bg-amber-500" : "bg-slate-300 dark:bg-slate-600"
+                    )}
+                    aria-hidden="true"
+                  />
                   <span className="max-w-[260px] truncate" title={label}>{label}</span>
-                  {category && (
-                    <span className={cn(
-                      "text-[10px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wide",
-                      isActive ? "bg-white/20 text-white/80 dark:bg-black/20 dark:text-black/60" : "bg-slate-200 dark:bg-white/10 text-slate-500 dark:text-slate-400"
-                    )}>
-                      {category}
-                    </span>
-                  )}
+                  {/* category pill intentionally removed to reduce visual noise */}
                   {(question.searchResults?.length || 0) > 0 && (
                     <span className={cn(
                       "text-xs px-1.5 py-0.5 rounded-full",
                       isActive
-                        ? "bg-white/20 text-white/80 dark:bg-black/20 dark:text-black/60"
-                        : "bg-slate-200 dark:bg-white/10 text-slate-500 dark:text-slate-400"
+                        ? "bg-white/15 text-white/80 dark:bg-black/15 dark:text-black/60"
+                        : "bg-slate-100 dark:bg-white/8 text-slate-500 dark:text-slate-400"
                     )}>
                       {question.searchResults?.length || 0}
                     </span>
@@ -269,25 +260,25 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.2 }}
-          className="p-4 rounded-2xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10"
+          className="p-4 rounded-lg bg-white dark:bg-white/3 border border-slate-200/60 dark:border-white/10"
         >
           {/* Header */}
           <div className="mb-4 pb-3 border-b border-slate-100 dark:border-white/5">
             <div className="flex items-center gap-2 mb-1">
               {(() => {
                 const shortQ = toShortQuestion(activeResearchQuestion.question);
-                const title = shortQ || (activeResearchQuestion.question || '').trim() || activeResearchQuestion.name;
+                const title =
+                  (activeResearchQuestion.title || '').trim() ||
+                  shortQ ||
+                  (activeResearchQuestion.question || '').trim() ||
+                  activeResearchQuestion.name;
                 return (
               <h3 className="font-semibold text-slate-800 dark:text-slate-100">
                 {title}
               </h3>
                 );
               })()}
-              {activeResearchQuestion.name && (
-                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wide bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-slate-400">
-                  {activeResearchQuestion.name}
-                </span>
-              )}
+              {/* removed extra label pill to reduce noise */}
               {activeResearchQuestion.confidence && (
                 <span className={cn(
                   "text-xs px-2 py-0.5 rounded-full font-medium",
@@ -374,15 +365,15 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
                   </CollapsibleContent>
 
                   {(sr.learned || sr.nextAction) && (
-                    <div className="ml-10 p-2 rounded-lg bg-indigo-50/50 dark:bg-indigo-500/5 border border-indigo-100/50 dark:border-indigo-500/10 space-y-1">
+                    <div className="ml-10 p-2 rounded-lg bg-slate-50 dark:bg-white/3 border border-slate-200/60 dark:border-white/10 space-y-1">
                       {sr.learned && (
-                        <p className="text-sm text-indigo-700 dark:text-indigo-300">
+                        <p className="text-sm text-slate-700 dark:text-slate-200">
                           <span className="font-medium">Learned: </span>
                           {sr.learned}
                         </p>
                       )}
                       {sr.nextAction && (
-                        <p className="text-sm text-indigo-600 dark:text-indigo-400">
+                        <p className="text-sm text-slate-600 dark:text-slate-300">
                           <span className="font-medium">Next: </span>
                           {sr.nextAction}
                         </p>
@@ -397,9 +388,9 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="p-3 rounded-xl bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/20"
+                className="p-3 rounded-lg bg-slate-50 dark:bg-white/3 border border-slate-200/60 dark:border-white/10"
               >
-                <p className="text-sm text-green-700 dark:text-green-400">
+                <p className="text-sm text-slate-700 dark:text-slate-200">
                   <span className="font-medium">Summary: </span>
                   {activeResearchQuestion.summary}
                 </p>
@@ -417,7 +408,7 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
         </div>
       )}
       {doc.status === 'synthesizing' && (
-        <div className="mt-4 flex items-center justify-center gap-2 text-sm text-indigo-500">
+        <div className="mt-4 flex items-center justify-center gap-2 text-sm text-slate-500 dark:text-slate-400">
           <Loader2 className="w-4 h-4 animate-spin" />
           <span>Synthesizing final answer...</span>
         </div>

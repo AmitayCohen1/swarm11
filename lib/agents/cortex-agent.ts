@@ -65,7 +65,7 @@ export async function generateResearchQuestions(
   config: GenerateResearchQuestionsConfig
 ): Promise<GenerateResearchQuestionsResult> {
   const { doc: initialDoc, count = 3, abortSignal, onProgress } = config;
-  const model = openai('gpt-4.1');
+  const model = openai('gpt-5.1');
   let doc = initialDoc;
   let creditsUsed = 0;
   const questionIds: string[] = [];
@@ -107,6 +107,7 @@ export async function generateResearchQuestions(
   After you generate this quesitons, the ResearchQuestion Agent will run them and get the answers. And then we can go through another cycle of research, smarter.
   So no need to figure it out all at once.
   Research questions must be short, spesific, and clear. 
+  Look for questions that would move the needle.
 
 Main objective the user gave is: ${doc.objective}
 
@@ -184,7 +185,7 @@ export async function summarizeResearchQuestion(
   config: SummarizeResearchQuestionConfig
 ): Promise<SummarizeResearchQuestionResult> {
   const { doc: initialDoc, questionId, abortSignal, onProgress } = config;
-  const model = openai('gpt-4.1');
+  const model = openai('gpt-5.1');
   let doc = initialDoc;
 
   const question = doc.questions.find(i => i.id === questionId);
@@ -322,7 +323,7 @@ export async function evaluateResearchQuestions(
   config: EvaluateResearchQuestionsConfig
 ): Promise<EvaluateResearchQuestionsResult> {
   const { doc: initialDoc, abortSignal, onProgress } = config;
-  const model = openai('gpt-4.1');
+  const model = openai('gpt-5.1');
   let doc = initialDoc;
   let creditsUsed = 0;
 
@@ -384,6 +385,8 @@ DECISION CRITERIA:
 - Have we satisfied the success criteria?
 - Are the findings sufficient to answer the objective?
 - Are there gaps that need new questions?
+- Use EPISODES as your primary signal: each episode has a deltaType (progress/no_change/dead_end) and a delta.
+- If multiple questions ended with no_change/dead_end and little delta, prefer SYNTHESIZE with explicit gaps rather than spawning endless questions.
 
 Be decisive. Don't over-research - synthesize when you have enough.`;
 
@@ -463,7 +466,7 @@ export async function synthesizeFinalAnswer(
   config: SynthesizeConfig
 ): Promise<SynthesizeResult> {
   const { doc: initialDoc, abortSignal, onProgress } = config;
-  const model = openai('gpt-4.1');
+  const model = openai('gpt-5.1');
   let doc = initialDoc;
 
   const allFindings = getAllActiveFindings(doc);

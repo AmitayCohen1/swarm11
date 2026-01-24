@@ -9,7 +9,7 @@ User Message
     │
     ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  INTAKE AGENT (gpt-4.1)                                         │
+│  INTAKE AGENT (gpt-5.1)                                         │
 │  - Clarifies intent (inference-hostile: asks, never guesses)    │
 │  - Extracts objective + success criteria                        │
 │  - Decides: respond / ask clarification / start research        │
@@ -21,12 +21,11 @@ User Message
 │  - Generates 3 parallel questions                             │
 │  - Runs questions sequentially (v1)                           │
 │  - Evaluates progress: continue / drill_down / spawn / synth    │
-│  - Adversarial review before final synthesis                    │
 └─────────────────────────────────────────────────────────────────┘
     │
     ▼ (for each question)
 ┌─────────────────────────────────────────────────────────────────┐
-│  INITIATIVE AGENT (gpt-4.1-mini)                                │
+│  INITIATIVE AGENT (gpt-5.1)                                │
 │  - One search query at a time                                   │
 │  - Enforced: search → search_reasoning → search → ...           │
 │  - Full context: overall objective + sibling questions        │
@@ -161,8 +160,6 @@ type EventType =
   | 'reasoning_completed'     // Post-search reasoning done
   | 'reflection_completed'    // Cycle reflection done
   | 'question_completed'    // ResearchQuestion finished
-  | 'review_started'          // Adversarial review beginning
-  | 'review_completed'        // Review verdict
   | 'synthesizing_started'    // Writing final answer
   | 'research_complete'       // All done
   | 'doc_updated'             // CortexDoc changed (triggers save)
@@ -216,7 +213,7 @@ npm run dev
 | Layer | Technology |
 |-------|------------|
 | Framework | Next.js 15, React 19 |
-| AI | AI SDK, GPT-4.1 (intake/cortex), GPT-4.1-mini (questions) |
+| AI | AI SDK, gpt-5.1 (intake/cortex), gpt-5.1 (questions) |
 | Search | Tavily AI |
 | Database | Neon PostgreSQL + Drizzle |
 | Auth | Clerk |

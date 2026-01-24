@@ -302,10 +302,6 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           addEvent('phase_added', 'Phase added', (update as any).title, 'log');
         }
 
-        if (update.type === 'finding_added') {
-          addEvent('finding_added', 'Finding added', undefined, 'log');
-        }
-
         if (update.type === 'phase_completed') {
           addEvent('phase_completed', 'Phase completed', undefined, 'complete');
         }
@@ -350,31 +346,6 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
 
         if (update.type === 'phase_change') {
           addEvent('phase_change', `Phase: ${update.phase}`, undefined, 'phase');
-        }
-
-        if (update.type === 'review_started') {
-          addEvent('review_started', 'Reviewing research', 'Checking if DONE_WHEN is satisfied...', 'reflect');
-        }
-
-        if (update.type === 'review_completed') {
-          const verdict = update.verdict || 'unknown';
-          const icon = verdict === 'pass' ? 'complete' : 'error';
-          addEvent('review_completed', `Review: ${verdict.toUpperCase()}`, update.critique?.substring(0, 60), icon as any);
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: '',
-            timestamp: new Date().toISOString(),
-            metadata: {
-              type: 'review_result',
-              verdict: update.verdict,
-              critique: update.critique,
-              missing: update.missing
-            }
-          }]);
-        }
-
-        if (update.type === 'review_rejected') {
-          addEvent('review_rejected', 'Review FAILED', `Missing: ${(update.missing || []).join(', ').substring(0, 50)}`, 'error');
         }
 
         if (update.type === 'research_complete') {
@@ -462,10 +433,6 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           const cycle = (update as any).cycle || 0;
           const name = (update as any).name || '';
           addEvent('question_cycle', `Cycle ${cycle}`, name.substring(0, 40), 'phase');
-        }
-
-        if (update.type === 'question_finding_added') {
-          addEvent('finding_added', 'Finding added', (update as any).content?.substring(0, 50), 'log');
         }
 
         if (update.type === 'question_reflection') {

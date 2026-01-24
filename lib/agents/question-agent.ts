@@ -1,8 +1,7 @@
 /**
- * ResearchQuestion Agent
+ * ResearchQuestion Agent - Simplified
  *
- * Runs search→reflect loop for a single question/hypothesis.
- * Simple: just search and reflect, nothing else.
+ * Clean search → reflect loop. Messages ARE the knowledge.
  */
 
 import { generateText, tool } from 'ai';
@@ -13,23 +12,17 @@ import type { CortexDoc } from '@/lib/types/research-question';
 import {
   addSearchResultToResearchQuestion,
   addReflectionToResearchQuestion,
+  addEpisodeToResearchQuestion,
+  getNoDeltaStreak,
   incrementResearchQuestionCycle,
   completeResearchQuestion,
-  formatResearchQuestionForAgent,
   getResearchQuestion,
 } from '@/lib/utils/question-operations';
-import { summarizeResearchQuestion } from './cortex-agent';
 
-// Logging helper
 const log = (questionId: string, message: string, data?: any) => {
   const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
   const shortId = questionId.substring(0, 12);
-  const prefix = `[ResearchQuestion ${timestamp}] [${shortId}]`;
-  if (data) {
-    console.log(`${prefix} ${message}`, typeof data === 'string' ? data : JSON.stringify(data, null, 2));
-  } else {
-    console.log(`${prefix} ${message}`);
-  }
+  console.log(`[Q ${timestamp}] [${shortId}] ${message}`, data ? JSON.stringify(data) : '');
 };
 
 interface ResearchQuestionAgentConfig {
@@ -50,29 +43,27 @@ interface ResearchQuestionAgentResult {
 }
 
 /**
- * Execute a single cycle of search→reflect for a question
+ * Run search → reflect loop for one question
  */
-export async function executeResearchQuestionCycle(
+export async function runResearchQuestionToCompletion(
   config: ResearchQuestionAgentConfig
 ): Promise<ResearchQuestionAgentResult> {
   const {
     doc: initialDoc,
     questionId,
     objective,
-    successCriteria,
-    maxIterations = 10,
+    maxIterations = 20,
     abortSignal,
     onProgress,
   } = config;
 
-  const model = openai('gpt-4.1');
+  const model = openai('gpt-5.1');
   let doc = initialDoc;
   let creditsUsed = 0;
   const queriesExecuted: string[] = [];
 
   const question = getResearchQuestion(doc, questionId);
   if (!question) {
-    console.warn(`[ResearchQuestionAgent] ResearchQuestion ${questionId} not found`);
     return { doc, shouldContinue: false, queriesExecuted, creditsUsed };
   }
 
@@ -80,151 +71,167 @@ export async function executeResearchQuestionCycle(
     creditsUsed += Math.ceil((usage?.totalTokens || 0) / 1000);
   };
 
-  // Increment cycle counter
-  doc = incrementResearchQuestionCycle(doc, questionId);
   const currentQuestion = getResearchQuestion(doc, questionId)!;
-  const cycleNumber = currentQuestion.cycles;
 
-  log(questionId, `──── CYCLE ${cycleNumber}/${currentQuestion.maxCycles} START ────`);
-  log(questionId, `Question: ${currentQuestion.question}`);
-  log(questionId, `Goal: ${currentQuestion.goal}`);
+  log(questionId, `Starting: ${currentQuestion.name}`);
 
-  // Check if max cycles reached
-  if (cycleNumber > currentQuestion.maxCycles) {
-    log(questionId, `MAX CYCLES REACHED - calling summarizer`);
-    return await finishQuestion(doc, questionId, abortSignal, onProgress, creditsUsed);
-  }
-
-  // Tool: Reflect - what you learned and what's next
-  const reflectTool = tool({
-    description: 'Reflect after searching. Say what you learned and decide next step.',
-    inputSchema: z.object({
-      learned: z.string().describe('What you learned from the search. Be specific.'),
-      answerProgress: z.enum(['closer', 'no_change', 'dead_end']).describe('Are we closer to answering the question, no change, or hit a dead end?'),
-      nextStep: z.string().describe('What you will search next, OR why you are done.'),
-      status: z.enum(['continue', 'done']).describe('continue = search more, done = question answered or exhausted'),
-    }),
-    execute: async ({ learned, answerProgress, nextStep, status }) => {
-      // Update the most recent search result with the learned info
-      const q = getResearchQuestion(doc, questionId);
-      if (q && q.searchResults && q.searchResults.length > 0) {
-        const updatedResults = [...q.searchResults];
-        const lastIdx = updatedResults.length - 1;
-        updatedResults[lastIdx] = { ...updatedResults[lastIdx], learned, nextAction: nextStep };
-        doc = {
-          ...doc,
-          questions: doc.questions.map(i =>
-            i.id === questionId ? { ...i, searchResults: updatedResults } : i
-          ),
-        };
-      }
-
-      // Save reflection
-      doc = addReflectionToResearchQuestion(doc, questionId, cycleNumber, learned, nextStep, status);
-
-      onProgress?.({ type: 'question_reflection', questionId, learned, answerProgress, nextStep, status });
-      onProgress?.({ type: 'doc_updated', doc });
-
-      return { learned, answerProgress, nextStep, status };
-    }
-  });
-
-  // Build context
+  // Build context from sibling questions
   const siblingInfo = doc.questions.map((q, i) => {
     const isCurrent = q.id === questionId;
-    const statusIcon = q.status === 'done' ? '✓' : q.status === 'running' ? '→' : '○';
-    return `${statusIcon} ${i + 1}. ${q.name}${isCurrent ? ' (YOU)' : ''}`;
+    const icon = q.status === 'done' ? '✓' : q.status === 'running' ? '→' : '○';
+    return `${icon} ${i + 1}. ${q.name}${isCurrent ? ' ← YOU' : ''}`;
   }).join('\n');
 
-  const previousQueries = (currentQuestion.searchResults || []).slice(-10).map(sr => `- ${sr.query}`).join('\n') || '(none yet)';
+  const previousQueries = (currentQuestion.searchResults || [])
+    .slice(-10)
+    .map(sr => `- ${sr.query}`)
+    .join('\n') || '(none yet)';
 
-  const systemPrompt = `You are answering a RESEARCH QUESTION through web search.
+  const systemPrompt = `You are researching ONE specific question via web search.
 
-═══════════════════════════════════════════════════════════════
-OBJECTIVE: ${objective}
-═══════════════════════════════════════════════════════════════
+OVERALL OBJECTIVE: ${objective}
 
-RESEARCH QUESTIONS:
+ALL QUESTIONS:
 ${siblingInfo}
 
-───────────────────────────────────────────────────────────────
 YOUR QUESTION: ${currentQuestion.question}
 GOAL: ${currentQuestion.goal}
-───────────────────────────────────────────────────────────────
-
-${formatResearchQuestionForAgent(currentQuestion)}
 
 ---
 
-WORKFLOW: search → reflect → search → reflect → ... → done
+WORKFLOW (STRICT):
+1) SEARCH using the search tool (ONE query)
+2) REFLECT using the reflect tool (required after every search)
+3) Repeat
 
-1. SEARCH: Ask ONE clear question (not multiple questions combined)
-2. REFLECT: Say what you learned, if we're closer to answering, and what to search next
-
-SEARCH TIPS:
-- ONE question per search. Not "What is X and who uses it?" - that's TWO questions.
-- Ask like you're talking to a person: "Which podcast networks produce educational content?"
-- Not keyword soup: "podcast networks educational content list"
-
-PREVIOUS SEARCHES (don't repeat):
-${previousQueries}
-
-WHEN TO STOP (set status="done"):
-- Question is sufficiently answered
-- No new useful info being found
-- Cycle ${cycleNumber}/${currentQuestion.maxCycles} - approaching limit`;
+RULES:
+- ONE search query at a time
+- You MUST reflect after each search (via the reflect tool)
+- Don't repeat: ${previousQueries}
+- Finish by setting reflect.status="done" (include summary/confidence/recommendation)`;
 
   onProgress?.({
-    type: 'question_cycle_started',
+    type: 'question_started',
     questionId,
-    cycle: cycleNumber,
     name: currentQuestion.name,
     goal: currentQuestion.goal
   });
 
   const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
-
-  const isFirstCycle = cycleNumber === 1;
   messages.push({
     role: 'user',
-    content: isFirstCycle
-      ? `Test this hypothesis. First explain your approach briefly, then search.`
-      : `Continue testing. Search for more evidence, then reflect.`
+    content: `Research this question: ${currentQuestion.question}\n\nStart with the most important search.`
   });
 
-  let doneSignaled = false;
+  // Reflect tool (structured episode-like update)
+  const reflectTool = tool({
+    description: 'Reflect on the most recent search and decide what to do next.',
+    inputSchema: z.object({
+      learned: z.string().describe('Key facts learned from the most recent search.'),
+      stillNeed: z.string().describe('What is still missing to fully answer the question?'),
+      deltaType: z.enum(['progress', 'no_change', 'dead_end']).describe('How much did this step change our understanding?'),
+      delta: z.string().describe('What changed since the last step? (Can be empty only if deltaType=no_change)'),
+      nextStep: z.string().describe('What to search next, or explain why you are done.'),
+      dontRepeat: z.array(z.string()).default([]).describe('0-5 queries/angles not to repeat.'),
+      status: z.enum(['continue', 'done']).describe('continue=keep searching, done=question answered or exhausted'),
+
+      // Required when status="done"
+      summary: z.string().optional().describe('Concise final summary for this question (required when done).'),
+      confidence: z.enum(['low', 'medium', 'high']).optional().describe('Confidence in this question’s answer (required when done).'),
+      recommendation: z.enum(['promising', 'dead_end', 'needs_more']).optional().describe('Usefulness of this research angle (required when done).'),
+    }),
+    execute: async ({ learned, stillNeed, deltaType, delta, nextStep, dontRepeat, status, summary, confidence, recommendation }) => {
+      // Patch learned/nextAction into the most recent search result (for UI + later synthesis)
+      const q = getResearchQuestion(doc, questionId);
+      if (q && q.searchResults && q.searchResults.length > 0) {
+        const updatedResults = [...q.searchResults];
+        const lastIdx = updatedResults.length - 1;
+        updatedResults[lastIdx] = {
+          ...updatedResults[lastIdx],
+          learned: `${learned}${stillNeed ? `\nStill need: ${stillNeed}` : ''}`,
+          nextAction: nextStep
+        };
+        doc = {
+          ...doc,
+          questions: doc.questions.map(i =>
+            i.id === questionId ? { ...i, searchResults: updatedResults } : i
+          )
+        };
+      }
+
+      // Record a structured reflection in the brain (keeps Cortex robust)
+      const cycleNumber = getResearchQuestion(doc, questionId)?.cycles || 0;
+      doc = addReflectionToResearchQuestion(doc, questionId, cycleNumber, learned, nextStep, status);
+
+      // Add Episode memory (robust unit for Cortex decisions)
+      const lastSearch = getResearchQuestion(doc, questionId)?.searchResults?.slice(-1)[0];
+      doc = addEpisodeToResearchQuestion(doc, questionId, {
+        cycle: cycleNumber,
+        query: lastSearch?.query || '',
+        purpose: '',
+        sources: lastSearch?.sources || [],
+        learned,
+        stillNeed,
+        deltaType,
+        delta,
+        dontRepeat,
+        nextStep,
+        status,
+      });
+
+      // Anti-loop stop: if consecutive no-delta episodes, force done
+      const streak = getNoDeltaStreak(doc, questionId);
+      let forcedStop = false;
+      if (status !== 'done' && streak >= 2) {
+        forcedStop = true;
+        status = 'done';
+        recommendation = recommendation || 'dead_end';
+        confidence = confidence || 'low';
+        summary = summary || `Stopped after ${streak} consecutive steps with no new information.`;
+      }
+
+      return {
+        learned,
+        stillNeed,
+        deltaType,
+        delta,
+        nextStep,
+        dontRepeat,
+        status,
+        summary,
+        confidence,
+        recommendation,
+        forcedStop,
+        noDeltaStreak: streak
+      };
+    }
+  });
+
+  let done = false;
+  let summary = '';
+  let confidence: 'low' | 'medium' | 'high' = 'medium';
+  let recommendation: 'promising' | 'dead_end' | 'needs_more' = 'needs_more';
   let lastWasSearch = false;
 
-  // Main loop: search → reflect → search → reflect...
   for (let i = 0; i < maxIterations; i++) {
-    if (abortSignal?.aborted) {
-      log(questionId, `ABORTED at iteration ${i}`);
-      break;
+    if (abortSignal?.aborted) break;
+
+    // If we're about to search, treat this as a new cycle
+    if (!lastWasSearch) {
+      doc = incrementResearchQuestionCycle(doc, questionId);
     }
-
-    log(questionId, `Iteration ${i + 1}/${maxIterations}`);
-
-    // Alternate tools: after search, only reflect is available
-    const reflectOnlyTools = { reflect: reflectTool };
-    const allTools = { search, reflect: reflectTool };
 
     const result = await generateText({
       model,
-      system: lastWasSearch
-        ? `${systemPrompt}\n\n⚠️ You just searched. Now call reflect to say what you learned.`
-        : systemPrompt,
+      system: systemPrompt,
       messages,
-      tools: lastWasSearch ? reflectOnlyTools : allTools,
+      tools: lastWasSearch ? { reflect: reflectTool } : { search },
       abortSignal
     });
 
     trackUsage(result.usage);
 
-    if (!result.toolCalls || result.toolCalls.length === 0) {
-      messages.push({ role: 'user', content: 'Use a tool. Either search or reflect.' });
-      continue;
-    }
-
+    // Process tool calls
     for (const toolCall of result.toolCalls || []) {
       const tc = toolCall as any;
 
@@ -250,129 +257,104 @@ WHEN TO STOP (set status="done"):
           }))
         });
         onProgress?.({ type: 'doc_updated', doc });
-
-        messages.push({ role: 'assistant', content: `Searched: ${queries.map((q: any) => q.query).join(', ')}` });
         lastWasSearch = true;
-        break; // Only process one search per iteration
+
+        // IMPORTANT: the next iteration is reflect-only. We must include the search output in the message context,
+        // otherwise reflect will not "see" the results and will correctly claim it has no evidence.
+        const sr0 = searchResults?.[0];
+        const qText = (sr0?.query || queries?.[0]?.query || '').trim();
+        const answer = (sr0?.answer || '').toString().trim();
+        const status = sr0?.status || 'success';
+        const err = (sr0?.error || '').toString().trim();
+        const topSources = (sr0?.results || [])
+          .slice(0, 5)
+          .map((r: any) => `- ${r.title ? `${r.title} — ` : ''}${r.url}`)
+          .join('\n');
+
+        const answerBlock = answer ? (answer.length > 1200 ? `${answer.slice(0, 1200)}…` : answer) : '(no answer)';
+
+        messages.push({
+          role: 'assistant',
+          content:
+            `SEARCH RESULTS\n` +
+            `${qText ? `Query: ${qText}\n` : ''}` +
+            `Status: ${status}\n` +
+            `${err ? `Error: ${err}\n` : ''}` +
+            `Answer:\n${answerBlock}\n` +
+            `Sources:\n${topSources || '(none)'}`
+        });
       }
 
       if (tc.toolName === 'reflect') {
         const toolResult = result.toolResults?.find((tr: any) => tr.toolCallId === tc.toolCallId);
         const output = (toolResult as any)?.output || (toolResult as any)?.result || {};
+        const learned = output.learned || '';
+        const stillNeed = output.stillNeed || '';
+        const deltaType = output.deltaType || 'no_change';
+        const delta = output.delta || '';
+        const nextStep = output.nextStep || '';
+        const status = output.status || 'continue';
 
-        messages.push({ role: 'assistant', content: `Reflected: ${output.learned}` });
+        onProgress?.({
+          type: 'question_reflection',
+          questionId,
+          learned,
+          stillNeed,
+          deltaType,
+          delta,
+          nextStep,
+          status,
+          dontRepeat: output.dontRepeat,
+          forcedStop: output.forcedStop,
+          noDeltaStreak: output.noDeltaStreak
+        });
+        onProgress?.({ type: 'doc_updated', doc });
+
+        // Keep reflection text in the worker's context for continuity
+        messages.push({
+          role: 'assistant',
+          content: `Learned: ${learned}\nStill need: ${stillNeed}\nDelta: ${delta}\nNext: ${nextStep}\nStatus: ${status}`
+        });
+
         lastWasSearch = false;
 
-        if (output.status === 'done') {
-          doneSignaled = true;
-          break;
+        if (status === 'done') {
+          done = true;
+          summary = output.summary || learned || '';
+          confidence = output.confidence || 'medium';
+          recommendation = output.recommendation || 'needs_more';
         }
-
-        messages.push({ role: 'user', content: `Continue. Next: ${output.nextStep}` });
       }
     }
 
-    if (doneSignaled) break;
+    if (done) break;
+
+    // Prompt to continue
+    if (!result.toolCalls || result.toolCalls.length === 0) {
+      messages.push({ role: 'user', content: lastWasSearch ? 'Use the reflect tool now.' : 'Use the search tool.' });
+    } else {
+      messages.push({ role: 'user', content: lastWasSearch ? 'Now reflect on what you learned.' : 'Continue searching.' });
+    }
   }
 
-  // If done, call summarizer
-  if (doneSignaled) {
-    return await finishQuestion(doc, questionId, abortSignal, onProgress, creditsUsed);
-  }
-
-  log(questionId, `──── CYCLE ${cycleNumber} COMPLETE ────`);
-  return { doc, shouldContinue: !doneSignaled, queriesExecuted, creditsUsed };
-}
-
-/**
- * Finish a question by calling the summarizer
- */
-async function finishQuestion(
-  doc: CortexDoc,
-  questionId: string,
-  abortSignal?: AbortSignal,
-  onProgress?: (update: any) => void,
-  creditsUsed: number = 0
-): Promise<ResearchQuestionAgentResult> {
-  log(questionId, 'Calling summarize agent...');
-  onProgress?.({ type: 'question_summarizing', questionId });
-
-  const summaryResult = await summarizeResearchQuestion({
-    doc,
-    questionId,
-    abortSignal,
-    onProgress
-  });
-
-  doc = completeResearchQuestion(
-    summaryResult.doc,
-    questionId,
-    summaryResult.summary,
-    summaryResult.confidence,
-    summaryResult.recommendation
-  );
-
-  creditsUsed += summaryResult.creditsUsed;
+  // Complete the question
+  doc = completeResearchQuestion(doc, questionId, summary, confidence, recommendation);
 
   onProgress?.({
     type: 'question_completed',
     questionId,
-    summary: summaryResult.summary,
-    confidence: summaryResult.confidence,
-    recommendation: summaryResult.recommendation
+    summary,
+    confidence,
+    recommendation
   });
-
   onProgress?.({ type: 'doc_updated', doc });
 
-  return { doc, shouldContinue: false, queriesExecuted: [], creditsUsed };
-}
-
-/**
- * Run a full question until completion (multiple cycles)
- */
-export async function runResearchQuestionToCompletion(
-  config: ResearchQuestionAgentConfig
-): Promise<ResearchQuestionAgentResult> {
-  let doc = config.doc;
-  let totalCreditsUsed = 0;
-  const allQueries: string[] = [];
-
-  const question = getResearchQuestion(doc, config.questionId);
-  if (!question) {
-    return { doc, shouldContinue: false, queriesExecuted: [], creditsUsed: 0 };
-  }
-
-  const maxCycles = question.maxCycles;
-
-  for (let cycle = 0; cycle < maxCycles; cycle++) {
-    if (config.abortSignal?.aborted) break;
-
-    const result = await executeResearchQuestionCycle({
-      ...config,
-      doc,
-    });
-
-    doc = result.doc;
-    totalCreditsUsed += result.creditsUsed;
-    allQueries.push(...result.queriesExecuted);
-
-    if (!result.shouldContinue) {
-      break;
-    }
-  }
-
-  // If we exhausted cycles without done being called, force completion
-  const finalQuestion = getResearchQuestion(doc, config.questionId);
-  if (finalQuestion && finalQuestion.status !== 'done') {
-    const finishResult = await finishQuestion(doc, config.questionId, config.abortSignal, config.onProgress, 0);
-    doc = finishResult.doc;
-    totalCreditsUsed += finishResult.creditsUsed;
-  }
+  log(questionId, `Complete: ${queriesExecuted.length} searches, ${confidence} confidence`);
 
   return {
     doc,
     shouldContinue: false,
-    queriesExecuted: allQueries,
-    creditsUsed: totalCreditsUsed
+    queriesExecuted,
+    creditsUsed
   };
 }

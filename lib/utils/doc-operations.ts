@@ -147,35 +147,6 @@ export function applyEdit(doc: ResearchDoc, edit: DocEdit): ResearchDoc {
       };
     }
 
-    case 'add_finding': {
-      if (!edit.phaseId) {
-        console.warn('[applyEdit] add_finding requires phaseId');
-        return doc;
-      }
-      const pIdx = findPhaseIndex(doc, edit.phaseId);
-      if (pIdx === -1) {
-        console.warn(`[applyEdit] Phase "${edit.phaseId}" not found`);
-        return doc;
-      }
-      const phase = doc.phases[pIdx];
-      const newFinding: Finding = {
-        id: generateFindingId(),
-        content: edit.content || '',
-        sources: edit.sources || [],
-        status: 'active',
-      };
-      const newPhases = [...doc.phases];
-      newPhases[pIdx] = {
-        ...phase,
-        findings: [...phase.findings, newFinding],
-      };
-      return {
-        ...doc,
-        phases: newPhases,
-        lastUpdated: now,
-      };
-    }
-
     case 'edit_finding': {
       if (!edit.phaseId || !edit.findingId) {
         console.warn('[applyEdit] edit_finding requires phaseId and findingId');
@@ -225,38 +196,6 @@ export function applyEdit(doc: ResearchDoc, edit: DocEdit): ResearchDoc {
       };
     }
 
-    case 'disqualify_finding': {
-      if (!edit.phaseId || !edit.findingId) {
-        console.warn('[applyEdit] disqualify_finding requires phaseId and findingId');
-        return doc;
-      }
-      if (!edit.disqualifyReason) {
-        console.warn('[applyEdit] disqualify_finding requires disqualifyReason');
-        return doc;
-      }
-      const pIdx = findPhaseIndex(doc, edit.phaseId);
-      if (pIdx === -1) return doc;
-
-      const phase = doc.phases[pIdx];
-      const newFindings = phase.findings.map(f => {
-        if (f.id === edit.findingId) {
-          return {
-            ...f,
-            status: 'disqualified' as const,
-            disqualifyReason: edit.disqualifyReason,
-          };
-        }
-        return f;
-      });
-
-      const newPhases = [...doc.phases];
-      newPhases[pIdx] = { ...phase, findings: newFindings };
-      return {
-        ...doc,
-        phases: newPhases,
-        lastUpdated: now,
-      };
-    }
 
     default:
       return doc;
