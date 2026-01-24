@@ -1,6 +1,6 @@
 # Swarm11 - Autonomous Research Agent
 
-An autonomous research agent using the **Cortex Architecture**: a three-tier system where an Intake Agent clarifies user intent, a Cortex Orchestrator manages parallel research questions, and ResearchQuestion Agents execute focused searches with enforced reasoning cycles.
+An autonomous research agent using the **Brain Architecture**: a three-tier system where an Intake Agent clarifies user intent, a Main Loop manages parallel research questions, and Researcher Agents execute focused searches with enforced reasoning cycles.
 
 ## Architecture Overview
 
@@ -9,7 +9,7 @@ User Message
     │
     ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  INTAKE AGENT (gpt-5.1)                                         │
+│  INTAKE AGENT (gpt-5.2)                                         │
 │  - Clarifies intent (inference-hostile: asks, never guesses)    │
 │  - Extracts objective + success criteria                        │
 │  - Decides: respond / ask clarification / start research        │
@@ -17,7 +17,7 @@ User Message
     │
     ▼ (start_research)
 ┌─────────────────────────────────────────────────────────────────┐
-│  CORTEX ORCHESTRATOR                                            │
+│  MAIN LOOP                                            │
 │  - Generates 3 parallel questions                             │
 │  - Runs questions sequentially (v1)                           │
 │  - Evaluates progress: continue / drill_down / spawn / synth    │
@@ -25,7 +25,7 @@ User Message
     │
     ▼ (for each question)
 ┌─────────────────────────────────────────────────────────────────┐
-│  INITIATIVE AGENT (gpt-5.1)                                │
+│  RESEARCHER AGENT (gpt-5.2)                                │
 │  - One search query at a time                                   │
 │  - Enforced: search → search_reasoning → search → ...           │
 │  - Full context: overall objective + sibling questions        │
@@ -47,7 +47,7 @@ Each research question has:
 | `goal` | What we're looking to achieve |
 | `status` | `pending` / `running` / `done` |
 | `findings` | Facts discovered (with sources) |
-| `searchResults` | Full search history with reasoning |
+| `searches` | Full search history with reasoning |
 | `reflections` | Cycle-level learnings |
 
 ## Key Design Principles
@@ -92,15 +92,15 @@ Every action saves immediately:
 lib/
 ├── agents/
 │   ├── intake-agent.ts           # Clarifies intent, creates research brief
-│   ├── cortex-agent.ts           # Generates questions, evaluates, synthesizes
-│   ├── cortex-orchestrator.ts    # Manages full research flow
-│   └── question-agent.ts       # Executes one question (search/reason loop)
+│   ├── brain-agent.ts           # Generates questions, evaluates, synthesizes
+│   ├── main-loop.ts    # Manages full research flow
+│   └── researcher-agent.ts       # Executes one question (search/reason loop)
 ├── types/
-│   └── question-doc.ts         # CortexDoc, ResearchQuestion, Finding schemas
+│   └── question-doc.ts         # BrainDoc, ResearchQuestion, Finding schemas
 ├── tools/
 │   └── tavily-search.ts          # Web search (max 1 query at a time)
 └── utils/
-    └── question-operations.ts  # CortexDoc manipulation helpers
+    └── question-operations.ts  # BrainDoc manipulation helpers
 
 hooks/
 └── useChatAgent.ts               # React hook for SSE + state management
@@ -115,9 +115,9 @@ app/api/chat/
 └── [id]/stop/route.ts            # Stop research
 ```
 
-## CortexDoc Structure
+## BrainDoc Structure
 
-The brain is stored as a `CortexDoc` JSON:
+The brain is stored as a `BrainDoc` JSON:
 
 ```typescript
 {
@@ -126,7 +126,7 @@ The brain is stored as a `CortexDoc` JSON:
   successCriteria: string[],      // How we know we're done
   status: 'running' | 'synthesizing' | 'complete',
   questions: ResearchQuestion[],       // Parallel research angles
-  cortexLog: CortexDecision[],    // Orchestrator decisions
+  brainLog: BrainDecision[],    // Orchestrator decisions
   finalAnswer?: string            // Final synthesis
 }
 ```
@@ -142,7 +142,7 @@ Each `ResearchQuestion`:
   cycles: number,
   maxCycles: number,
   findings: Finding[],            // Facts with sources
-  searchResults: SearchResult[],  // Full search history
+  searches: Search[],  // Full search history
   reflections: CycleReflection[], // Cycle learnings
   confidence: 'low' | 'medium' | 'high' | null,
   recommendation: 'promising' | 'dead_end' | 'needs_more' | null,
@@ -154,7 +154,7 @@ Each `ResearchQuestion`:
 
 ```typescript
 type EventType =
-  | 'cortex_initialized'      // CortexDoc created
+  | 'brain_initialized'      // BrainDoc created
   | 'question_started'      // Beginning an question
   | 'search_completed'        // Search results received
   | 'reasoning_completed'     // Post-search reasoning done
@@ -162,7 +162,7 @@ type EventType =
   | 'question_completed'    // ResearchQuestion finished
   | 'synthesizing_started'    // Writing final answer
   | 'research_complete'       // All done
-  | 'doc_updated'             // CortexDoc changed (triggers save)
+  | 'doc_updated'             // BrainDoc changed (triggers save)
   | 'brain_update'            // Brain saved to DB
   | 'message'                 // Chat message
   | 'error';                  // Error occurred
@@ -213,7 +213,7 @@ npm run dev
 | Layer | Technology |
 |-------|------------|
 | Framework | Next.js 15, React 19 |
-| AI | AI SDK, gpt-5.1 (intake/cortex), gpt-5.1 (questions) |
+| AI | AI SDK, gpt-5.2 (intake/brain), gpt-5.2 (researcher) |
 | Search | Tavily AI |
 | Database | Neon PostgreSQL + Drizzle |
 | Auth | Clerk |

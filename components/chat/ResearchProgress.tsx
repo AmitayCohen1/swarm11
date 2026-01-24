@@ -49,7 +49,7 @@ interface Finding {
   disqualifyReason?: string;
 }
 
-interface SearchResult {
+interface Search {
   query: string;
   answer: string;
   learned?: string;
@@ -74,14 +74,14 @@ interface ResearchQuestion {
   cycles: number;
   maxCycles: number;
   findings: Finding[];
-  searchResults?: SearchResult[];
+  searches?: Search[];
   reflections?: CycleReflection[];
   confidence: 'low' | 'medium' | 'high' | null;
   recommendation: 'promising' | 'dead_end' | 'needs_more' | null;
   summary?: string;
 }
 
-interface CortexDecision {
+interface BrainDecision {
   id: string;
   timestamp: string;
   action: 'spawn' | 'drill_down' | 'kill' | 'synthesize';
@@ -89,21 +89,21 @@ interface CortexDecision {
   reasoning: string;
 }
 
-interface CortexDoc {
+interface BrainDoc {
   version: 1;
   objective: string;
   successCriteria: string[];
   wave?: number;
   waveStrategy?: string;
   questions: ResearchQuestion[];
-  cortexLog: CortexDecision[];
+  brainLog: BrainDecision[];
   status: 'running' | 'synthesizing' | 'complete';
   finalAnswer?: string;
 }
 
-// Type guard to check if doc is CortexDoc
-function isCortexDoc(doc: any): doc is CortexDoc {
-  return doc && 'questions' in doc && 'cortexLog' in doc;
+// Type guard to check if doc is BrainDoc
+function isBrainDoc(doc: any): doc is BrainDoc {
+  return doc && 'questions' in doc && 'brainLog' in doc;
 }
 
 interface ResearchProgressProps {
@@ -113,26 +113,26 @@ interface ResearchProgressProps {
 
 /**
  * Inline Research Progress Component
- * Shows tabbed questions with consolidated cortex reasoning
+ * Shows tabbed questions with consolidated brain reasoning
  */
 export default function ResearchProgress({ doc: rawDoc, className }: ResearchProgressProps) {
-  // Only render for CortexDoc (v1) format
-  if (!isCortexDoc(rawDoc)) {
-    console.log('[ResearchProgress] Not a CortexDoc:', rawDoc);
+  // Only render for BrainDoc (v1) format
+  if (!isBrainDoc(rawDoc)) {
+    console.log('[ResearchProgress] Not a BrainDoc:', rawDoc);
     return null;
   }
 
   const doc = rawDoc;
 
   // Debug: log when component renders with doc
-  const totalSearches = doc.questions.reduce((sum, i) => sum + (i.searchResults?.length || 0), 0);
+  const totalSearches = doc.questions.reduce((sum, i) => sum + (i.searches?.length || 0), 0);
   console.log('[ResearchProgress] Rendering with:', {
     questions: doc.questions.length,
     totalSearches,
     status: doc.status
   });
 
-  // Tab UX: toggle between questions/initiatives.
+  // Tab UX: toggle between questions/questions.
   const [activeTab, setActiveTab] = useState<string | null>(null);
 
   // Update active tab when questions change
@@ -182,7 +182,7 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
         )}
       </div>
 
-      {/* Consolidated Cortex Intro - One message introducing all questions */}
+      {/* Consolidated Brain Intro - One message introducing all questions */}
       {introMessage && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -244,14 +244,14 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
                   />
                   <span className="max-w-[260px] truncate" title={label}>{label}</span>
                   {/* category pill intentionally removed to reduce visual noise */}
-                  {(question.searchResults?.length || 0) > 0 && (
+                  {(question.searches?.length || 0) > 0 && (
                     <span className={cn(
                       "text-xs px-1.5 py-0.5 rounded-full",
                       isActive
                         ? "bg-white/15 text-white/80 dark:bg-black/15 dark:text-black/60"
                         : "bg-slate-100 dark:bg-white/8 text-slate-500 dark:text-slate-400"
                     )}>
-                      {question.searchResults?.length || 0}
+                      {question.searches?.length || 0}
                     </span>
                   )}
                 </button>
@@ -310,20 +310,20 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
             </p>
             <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
               <span>{activeResearchQuestion.cycles}/{activeResearchQuestion.maxCycles} cycles</span>
-              <span>{activeResearchQuestion.searchResults?.length || 0} searches</span>
+              <span>{activeResearchQuestion.searches?.length || 0} searches</span>
               <span>{activeResearchQuestion.findings.filter(f => f.status !== 'disqualified').length} findings</span>
             </div>
           </div>
 
           {/* Timeline */}
           <div className="space-y-4">
-            {(activeResearchQuestion.searchResults?.length || 0) === 0 && activeResearchQuestion.status === 'running' && (
+            {(activeResearchQuestion.searches?.length || 0) === 0 && activeResearchQuestion.status === 'running' && (
               <p className="text-sm text-slate-400 dark:text-slate-500 italic text-center py-4">
                 Researching...
               </p>
             )}
 
-            {activeResearchQuestion.searchResults?.map((sr, i) => (
+            {activeResearchQuestion.searches?.map((sr, i) => (
               <Collapsible key={i} defaultOpen={false}>
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}

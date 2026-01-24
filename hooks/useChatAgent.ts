@@ -10,7 +10,7 @@ interface Message {
   metadata?: any;
 }
 
-// CortexDoc types - ResearchQuestion-based research
+// BrainDoc types - ResearchQuestion-based research
 interface Finding {
   id: string;
   content: string;
@@ -19,7 +19,7 @@ interface Finding {
   disqualifyReason?: string;
 }
 
-interface SearchResult {
+interface Search {
   query: string;
   answer: string;
   learned?: string;
@@ -43,14 +43,14 @@ interface ResearchQuestion {
   cycles: number;
   maxCycles: number;
   findings: Finding[];
-  searchResults?: SearchResult[];
+  searches?: Search[];
   reflections?: CycleReflection[];
   confidence: 'low' | 'medium' | 'high' | null;
   recommendation: 'promising' | 'dead_end' | 'needs_more' | null;
   summary?: string;
 }
 
-interface CortexDecision {
+interface BrainDecision {
   id: string;
   timestamp: string;
   action: 'spawn' | 'drill_down' | 'kill' | 'synthesize';
@@ -58,12 +58,12 @@ interface CortexDecision {
   reasoning: string;
 }
 
-interface CortexDoc {
+interface BrainDoc {
   version: 1;
   objective: string;
   successCriteria: string[];
   questions: ResearchQuestion[];
-  cortexLog: CortexDecision[];
+  brainLog: BrainDecision[];
   status: 'running' | 'synthesizing' | 'complete';
   finalAnswer?: string;
 }
@@ -99,7 +99,7 @@ interface ProgressUpdate {
   purpose?: string;
   results?: any[];
   failed?: any[];
-  doc?: CortexDoc;
+  doc?: BrainDoc;
   version?: number;
   shouldContinue?: boolean;
   task?: string;
@@ -136,7 +136,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
   }>({});
   const [brain, setBrain] = useState<string>('');
   const [stage, setStage] = useState<'searching' | 'reflecting' | 'synthesizing' | null>(null);
-  const [researchDoc, setResearchDoc] = useState<CortexDoc | null>(null);
+  const [researchDoc, setResearchDoc] = useState<BrainDoc | null>(null);
   const [eventLog, setEventLog] = useState<EventLogEntry[]>([]);
 
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -189,9 +189,9 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
       if (session.brain) {
         try {
           const parsed = JSON.parse(session.brain);
-          // CortexDoc (version 1)
+          // BrainDoc (version 1)
           if (parsed.version === 1) {
-            setResearchDoc(parsed as CortexDoc);
+            setResearchDoc(parsed as BrainDoc);
             setResearchProgress({
               objective: parsed.objective
             });
@@ -294,7 +294,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
             });
           }
           const initCount = update.doc?.questions?.length || 0;
-          const searchCount = update.doc?.questions?.reduce((sum, i) => sum + (i.searchResults?.length || 0), 0) || 0;
+          const searchCount = update.doc?.questions?.reduce((sum, i) => sum + (i.searches?.length || 0), 0) || 0;
           addEvent('doc_updated', 'Document updated', `${initCount} questions, ${searchCount} searches`, 'info');
         }
 
@@ -396,7 +396,7 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           }
         }
 
-        // ========== NEW CORTEX EVENTS ==========
+        // ========== BRAIN EVENTS ==========
 
         // ResearchQuestion search events
         if (update.type === 'question_search_started') {
@@ -447,37 +447,37 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           addEvent('question_done', `ResearchQuestion complete (${confidence})`, recommendation, 'complete');
         }
 
-        // Cortex decision events
-        if (update.type === 'cortex_initialized') {
-          addEvent('cortex_init', 'Cortex initialized', (update as any).objective?.substring(0, 50), 'info');
+        // Brain decision events
+        if (update.type === 'brain_initialized') {
+          addEvent('brain_init', 'Brain initialized', (update as any).objective?.substring(0, 50), 'info');
         }
 
-        if (update.type === 'cortex_generating_questions') {
-          addEvent('cortex_gen', 'Generating questions', `Creating ${(update as any).count || 3} research angles`, 'plan');
+        if (update.type === 'brain_generating_questions') {
+          addEvent('brain_gen', 'Generating questions', `Creating ${(update as any).count || 3} research angles`, 'plan');
         }
 
-        if (update.type === 'cortex_questions_generated') {
+        if (update.type === 'brain_questions_generated') {
           const count = (update as any).count || 0;
-          addEvent('cortex_ready', `${count} questions ready`, 'Starting research...', 'plan');
+          addEvent('brain_ready', `${count} questions ready`, 'Starting research...', 'plan');
         }
 
-        if (update.type === 'cortex_wave_strategy') {
-          const wave = (update as any).wave || 1;
+        if (update.type === 'brain_strategy') {
+          const approach = (update as any).approach || '';
           const strategy = (update as any).strategy || '';
-          addEvent('cortex_strategy', `Wave ${wave} strategy`, strategy.substring(0, 80), 'plan');
+          addEvent('brain_strategy', 'Research strategy', approach.substring(0, 100), 'plan');
         }
 
-        if (update.type === 'cortex_evaluating') {
-          addEvent('cortex_eval', 'Evaluating progress', 'Deciding next steps...', 'reflect');
+        if (update.type === 'brain_evaluating') {
+          addEvent('brain_eval', 'Evaluating progress', 'Deciding next steps...', 'reflect');
         }
 
-        if (update.type === 'cortex_decision') {
+        if (update.type === 'brain_decision') {
           const decision = (update as any).decision || '';
           const reasoning = (update as any).reasoning || '';
-          addEvent('cortex_decision', `Decision: ${decision}`, reasoning.substring(0, 60), 'plan');
+          addEvent('brain_decision', `Decision: ${decision}`, reasoning.substring(0, 60), 'plan');
         }
 
-        if (update.type === 'cortex_synthesizing') {
+        if (update.type === 'brain_synthesizing') {
           setStage('synthesizing');
           addEvent('synthesizing', 'Synthesizing answer', 'Combining all findings...', 'complete');
         }
@@ -584,10 +584,10 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           if (update.brain) {
             try {
               const parsed = JSON.parse(update.brain);
-              // CortexDoc (version 1)
+              // BrainDoc (version 1)
               if (parsed.version === 1) {
                 console.log('[brain_update] Setting researchDoc from brain:', parsed);
-                setResearchDoc(parsed as CortexDoc);
+                setResearchDoc(parsed as BrainDoc);
                 // Insert a single "anchor" message so ResearchProgress appears inline in the chat flow.
                 // This prevents other messages (e.g., reviewer) from visually stacking "above" the research UI.
                 setMessages(prev => {

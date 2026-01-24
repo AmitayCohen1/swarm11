@@ -1,6 +1,6 @@
 /**
- * ResearchQuestion Document Types - Cortex Architecture
- * Parallel question-based research system
+ * Research System Types
+ * Parallel question-based research system with Brain + Researcher agents
  */
 
 import { z } from 'zod';
@@ -30,7 +30,7 @@ export type ResearchQuestionRecommendation = z.infer<typeof ResearchQuestionReco
 /**
  * Search result - query + answer + learned + nextAction
  */
-export const SearchResultSchema = z.object({
+export const SearchSchema = z.object({
   query: z.string(),
   answer: z.string(),
   learned: z.string().optional(),                // What we learned from this search
@@ -40,7 +40,7 @@ export const SearchResultSchema = z.object({
     title: z.string().optional(),
   })).default([]),
 });
-export type SearchResult = z.infer<typeof SearchResultSchema>;
+export type Search = z.infer<typeof SearchSchema>;
 
 /**
  * Cycle reflection - what was learned and what's next
@@ -55,7 +55,7 @@ export type CycleReflection = z.infer<typeof CycleReflectionSchema>;
 
 /**
  * Episode memory - one search→reflect step distilled into structured state.
- * This is the primary unit Cortex should reason over (not raw chat messages).
+ * This is the primary unit Brain should reason over (not raw chat messages).
  */
 export const EpisodeDeltaTypeSchema = z.enum(['progress', 'no_change', 'dead_end']);
 export type EpisodeDeltaType = z.infer<typeof EpisodeDeltaTypeSchema>;
@@ -90,7 +90,7 @@ export const ResearchQuestionSchema = z.object({
   cycles: z.number().default(0),                   // How many research→reflect loops
   maxCycles: z.number().default(10),               // Cap (default 10)
   findings: z.array(FindingSchema).default([]),    // Accumulated facts
-  searchResults: z.array(SearchResultSchema).default([]), // Full search results with answers
+  searches: z.array(SearchSchema).default([]),      // Search queries and their results
   reflections: z.array(CycleReflectionSchema).default([]), // What was learned each cycle
   episodes: z.array(EpisodeSchema).default([]),    // Episode memory (structured deltas)
   confidence: ResearchQuestionConfidenceSchema.default(null),
@@ -101,46 +101,46 @@ export const ResearchQuestionSchema = z.object({
 export type ResearchQuestion = z.infer<typeof ResearchQuestionSchema>;
 
 /**
- * Cortex decision action types
+ * Brain decision action types
  */
-export const CortexActionSchema = z.enum(['spawn', 'synthesize']);
-export type CortexAction = z.infer<typeof CortexActionSchema>;
+export const BrainActionSchema = z.enum(['spawn', 'synthesize']);
+export type BrainAction = z.infer<typeof BrainActionSchema>;
 
 /**
- * Cortex decision log entry
+ * Brain decision log entry
  */
-export const CortexDecisionSchema = z.object({
+export const BrainDecisionSchema = z.object({
   id: z.string(),
   timestamp: z.string(),
-  action: CortexActionSchema,
+  action: BrainActionSchema,
   questionId: z.string().optional(),
   reasoning: z.string(),
 });
 
-export type CortexDecision = z.infer<typeof CortexDecisionSchema>;
+export type BrainDecision = z.infer<typeof BrainDecisionSchema>;
 
 /**
- * Cortex document status
+ * Brain document status
  */
-export const CortexStatusSchema = z.enum(['running', 'synthesizing', 'complete']);
-export type CortexStatus = z.infer<typeof CortexStatusSchema>;
+export const BrainStatusSchema = z.enum(['running', 'synthesizing', 'complete']);
+export type BrainStatus = z.infer<typeof BrainStatusSchema>;
 
 /**
- * Top-level research state - CortexDoc
+ * Top-level research state - BrainDoc
  */
-export const CortexDocSchema = z.object({
+export const BrainDocSchema = z.object({
   version: z.literal(1),
   objective: z.string(),
   successCriteria: z.array(z.string()),
   wave: z.number().default(1),                     // Current wave number (conceptual; can be many waves)
   waveStrategy: z.string().optional(),             // Strategy summary for the current/initial wave
   questions: z.array(ResearchQuestionSchema).default([]),
-  cortexLog: z.array(CortexDecisionSchema).default([]),  // History of cortex decisions
-  status: CortexStatusSchema.default('running'),
+  brainLog: z.array(BrainDecisionSchema).default([]),  // History of brain decisions
+  status: BrainStatusSchema.default('running'),
   finalAnswer: z.string().optional(),
 });
 
-export type CortexDoc = z.infer<typeof CortexDocSchema>;
+export type BrainDoc = z.infer<typeof BrainDocSchema>;
 
 // ============================================================
 // ID Generators
@@ -154,9 +154,9 @@ export function generateResearchQuestionId(): string {
 }
 
 /**
- * Generate cortex decision ID
+ * Generate brain decision ID
  */
-export function generateCortexDecisionId(): string {
+export function generateBrainDecisionId(): string {
   return `cdec_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 }
 
@@ -197,7 +197,7 @@ export function createResearchQuestion(
     cycles: 0,
     maxCycles,
     findings: [],
-    searchResults: [],
+    searches: [],
     reflections: [],
     episodes: [],
     confidence: null,
@@ -206,15 +206,15 @@ export function createResearchQuestion(
 }
 
 /**
- * Create a cortex decision entry
+ * Create a brain decision entry
  */
-export function createCortexDecision(
-  action: CortexAction,
+export function createBrainDecision(
+  action: BrainAction,
   reasoning: string,
   questionId?: string
-): CortexDecision {
+): BrainDecision {
   return {
-    id: generateCortexDecisionId(),
+    id: generateBrainDecisionId(),
     timestamp: new Date().toISOString(),
     action,
     questionId,
@@ -223,19 +223,19 @@ export function createCortexDecision(
 }
 
 /**
- * Create a new CortexDoc
+ * Create a new BrainDoc
  */
-export function createCortexDoc(
+export function createBrainDoc(
   objective: string,
   successCriteria: string[]
-): CortexDoc {
+): BrainDoc {
   return {
     version: 1,
     objective,
     successCriteria,
     wave: 1,
     questions: [],
-    cortexLog: [],
+    brainLog: [],
     status: 'running',
   };
 }

@@ -1,8 +1,10 @@
 /**
- * Cortex Orchestrator
+ * Main Loop
  *
- * Manages the complete execution flow of the Cortex architecture:
- * Intake → Generate ResearchQuestions → Run ResearchQuestions → Evaluate → Synthesize
+ * The control flow that runs the research system.
+ * Not an agent - just code that calls agents in order.
+ *
+ * Flow: Intake → Generate Questions → Run Researchers → Evaluate → Synthesize
  *
  * Handles:
  * - DB persistence (brain field in chatSessions)
@@ -18,24 +20,24 @@ import {
   generateResearchQuestions,
   evaluateResearchQuestions,
   synthesizeFinalAnswer,
-} from './cortex-agent';
-import { runResearchQuestionToCompletion } from './question-agent';
-import type { CortexDoc } from '@/lib/types/research-question';
+} from './brain-agent';
+import { runResearchQuestionToCompletion } from './researcher-agent';
+import type { BrainDoc } from '@/lib/types/research-question';
 import {
-  initializeCortexDoc,
-  serializeCortexDoc,
-  parseCortexDoc,
+  initializeBrainDoc,
+  serializeBrainDoc,
+  parseBrainDoc,
   addResearchQuestion,
   startResearchQuestion,
   getPendingResearchQuestions,
   getRunningResearchQuestions,
   getCompletedResearchQuestions,
-  addCortexDecision,
+  addBrainDecision,
   setDocStatus,
-  compactCortexDoc,
+  compactBrainDoc,
 } from '@/lib/utils/question-operations';
 
-interface CortexOrchestratorConfig {
+interface MainLoopConfig {
   chatSessionId: string;
   researchSessionId: string;
   userId: string;
@@ -45,7 +47,7 @@ interface CortexOrchestratorConfig {
   abortSignal?: AbortSignal;
 }
 
-interface CortexOrchestratorResult {
+interface MainLoopResult {
   completed: boolean;
   totalResearchQuestions: number;
   totalCycles: number;
@@ -59,7 +61,7 @@ interface CortexOrchestratorResult {
 // Logging helper
 const log = (phase: string, message: string, data?: any) => {
   const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
-  const prefix = `[Cortex ${timestamp}]`;
+  const prefix = `[MainLoop ${timestamp}]`;
   if (data) {
     console.log(`${prefix} [${phase}] ${message}`, JSON.stringify(data, null, 2));
   } else {
@@ -68,11 +70,11 @@ const log = (phase: string, message: string, data?: any) => {
 };
 
 /**
- * Execute the full Cortex research flow
+ * Execute the full Brain research flow
  */
-export async function executeCortexResearch(
-  config: CortexOrchestratorConfig
-): Promise<CortexOrchestratorResult> {
+export async function runMainLoop(
+  config: MainLoopConfig
+): Promise<MainLoopResult> {
   const {
     chatSessionId,
     researchSessionId,
@@ -84,18 +86,18 @@ export async function executeCortexResearch(
   } = config;
 
   // Max multi-wave cycles (waves of questions + evaluation). Still bounded by guardrails (time/budget/user stop).
-  const MAX_EVAL_ROUNDS = Number(process.env.CORTEX_MAX_EVAL_ROUNDS || 20);
-  const INITIAL_INITIATIVES = 3;
+  const MAX_EVAL_ROUNDS = Number(process.env.BRAIN_MAX_EVAL_ROUNDS || 20);
+  const INITIAL_QUESTIONS = 3;
   const START_TIME_MS = Date.now();
-  const MAX_WALL_TIME_MS = Number(process.env.CORTEX_MAX_WALL_TIME_MS || 4 * 60 * 1000); // default 4 minutes
-  const MAX_CREDITS_BUDGET = Number(process.env.CORTEX_MAX_CREDITS_BUDGET || 80); // rough tokens/1k budget
+  const MAX_WALL_TIME_MS = Number(process.env.BRAIN_MAX_WALL_TIME_MS || 10 * 60 * 1000); // default 10 minutes
+  const MAX_CREDITS_BUDGET = Number(process.env.BRAIN_MAX_CREDITS_BUDGET || 200); // rough tokens/1k budget
 
   let totalCreditsUsed = 0;
   let totalCycles = 0;
   let evalRound = 0;
   let forceSynthesize = false;
 
-  log('INIT', '========== CORTEX RESEARCH STARTED ==========');
+  log('INIT', '========== RESEARCH STARTED ==========');
   log('INIT', 'Config:', {
     chatSessionId,
     researchSessionId,
@@ -152,10 +154,10 @@ export async function executeCortexResearch(
     }
   };
 
-  const saveDocToDb = async (doc: CortexDoc) => {
+  const saveDocToDb = async (doc: BrainDoc) => {
     // Compact before storage/streaming to keep brain bounded
-    const compacted = compactCortexDoc(doc);
-    const serializedBrain = serializeCortexDoc(compacted);
+    const compacted = compactBrainDoc(doc);
+    const serializedBrain = serializeBrainDoc(compacted);
     await db
       .update(chatSessions)
       .set({ brain: serializedBrain, updatedAt: new Date() })
@@ -179,27 +181,27 @@ export async function executeCortexResearch(
   };
 
   // ============================================================
-  // PHASE 1: INITIALIZE CORTEX DOC
+  // PHASE 1: INITIALIZE BRAIN DOC
   // ============================================================
 
   log('PHASE1', '══════════════════════════════════════════════════════════');
-  log('PHASE1', 'INITIALIZE CORTEX DOC');
+  log('PHASE1', 'INITIALIZE BRAIN DOC');
 
   await checkAborted();
   checkGuardrails();
 
-  let doc: CortexDoc;
-  const existingDoc = parseCortexDoc(existingBrain);
+  let doc: BrainDoc;
+  const existingDoc = parseBrainDoc(existingBrain);
 
   if (existingDoc && existingDoc.version === 1) {
-    log('PHASE1', 'Resuming from existing CortexDoc', {
+    log('PHASE1', 'Resuming from existing BrainDoc', {
       questions: existingDoc.questions.length,
       status: existingDoc.status
     });
     doc = existingDoc;
   } else {
-    log('PHASE1', 'Creating new CortexDoc');
-    doc = initializeCortexDoc(
+    log('PHASE1', 'Creating new BrainDoc');
+    doc = initializeBrainDoc(
       researchBrief.objective,
       researchBrief.successCriteria || []
     );
@@ -208,29 +210,29 @@ export async function executeCortexResearch(
   await saveDocToDb(doc);
   log('PHASE1', 'Doc saved to DB');
 
-  emitProgress('cortex_initialized', {
+  emitProgress('brain_initialized', {
     objective: doc.objective,
     successCriteria: doc.successCriteria,
     version: 1
   });
 
   // ============================================================
-  // PHASE 2: GENERATE INITIAL INITIATIVES
+  // PHASE 2: GENERATE INITIAL QUESTIONS
   // ============================================================
 
   log('PHASE2', '══════════════════════════════════════════════════════════');
-  log('PHASE2', 'GENERATE INITIATIVES');
+  log('PHASE2', 'GENERATE QUESTIONS');
 
   await checkAborted();
   checkGuardrails();
 
   // Only generate if no questions exist
   if (doc.questions.length === 0) {
-    log('PHASE2', `Generating ${INITIAL_INITIATIVES} questions...`);
+    log('PHASE2', `Generating ${INITIAL_QUESTIONS} questions...`);
 
     const genResult = await generateResearchQuestions({
       doc,
-      count: INITIAL_INITIATIVES,
+      count: INITIAL_QUESTIONS,
       abortSignal,
       onProgress: emitProgress
     });
@@ -249,11 +251,11 @@ export async function executeCortexResearch(
   emitProgress('doc_updated', { doc });
 
   // ============================================================
-  // PHASE 3: RUN INITIATIVES
+  // PHASE 3: RUN QUESTIONS
   // ============================================================
 
   log('PHASE3', '══════════════════════════════════════════════════════════');
-  log('PHASE3', 'EXECUTE INITIATIVES');
+  log('PHASE3', 'EXECUTE QUESTIONS');
 
   // Main evaluation loop
   while (evalRound < MAX_EVAL_ROUNDS) {
@@ -261,7 +263,7 @@ export async function executeCortexResearch(
     await checkAborted();
     checkGuardrails();
     if (forceSynthesize) {
-      doc = addCortexDecision(doc, 'synthesize', 'Guardrail triggered (time/budget). Synthesizing with current evidence.');
+      doc = addBrainDecision(doc, 'synthesize', 'Guardrail triggered (time/budget). Synthesizing with current evidence.');
       doc = setDocStatus(doc, 'synthesizing');
       await saveDocToDb(doc);
       break;
@@ -289,7 +291,7 @@ export async function executeCortexResearch(
       checkGuardrails();
       if (forceSynthesize) break;
 
-      log('PHASE3', `┌─ INITIATIVE ${idx + 1}/${pending.length}: ${question.id}`);
+      log('PHASE3', `┌─ QUESTION ${idx + 1}/${pending.length}: ${question.id}`);
       log('PHASE3', `│  Name: ${question.name}`);
       log('PHASE3', `│  Goal: ${question.goal}`);
 
@@ -327,7 +329,7 @@ export async function executeCortexResearch(
       emitProgress('doc_updated', { doc });
 
       const completedInit = doc.questions.find(i => i.id === question.id);
-      log('PHASE3', `└─ INITIATIVE COMPLETE: ${question.id}`, {
+      log('PHASE3', `└─ QUESTION COMPLETE: ${question.id}`, {
         findings: completedInit?.findings.length || 0,
         searches: initResult.queriesExecuted.length,
         confidence: completedInit?.confidence,
@@ -342,7 +344,7 @@ export async function executeCortexResearch(
     await checkAborted();
     checkGuardrails();
     if (forceSynthesize) {
-      doc = addCortexDecision(doc, 'synthesize', 'Guardrail triggered (time/budget). Synthesizing with current evidence.');
+      doc = addBrainDecision(doc, 'synthesize', 'Guardrail triggered (time/budget). Synthesizing with current evidence.');
       doc = setDocStatus(doc, 'synthesizing');
       await saveDocToDb(doc);
       break;
@@ -361,7 +363,7 @@ export async function executeCortexResearch(
     await saveDocToDb(doc);
     checkGuardrails();
 
-    log('PHASE3', `CORTEX DECISION: ${evalResult.nextAction.action}`, {
+    log('PHASE3', `BRAIN DECISION: ${evalResult.nextAction.action}`, {
       reasoning: evalResult.reasoning,
       nextAction: evalResult.nextAction
     });
@@ -421,7 +423,7 @@ export async function executeCortexResearch(
   );
 
   log('DONE', '══════════════════════════════════════════════════════════');
-  log('DONE', '========== CORTEX RESEARCH COMPLETE ==========');
+  log('DONE', '========== RESEARCH COMPLETE ==========');
   log('DONE', 'Final stats:', {
     totalResearchQuestions: doc.questions.length,
     completedResearchQuestions: completedInits.length,

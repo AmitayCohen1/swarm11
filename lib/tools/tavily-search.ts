@@ -7,13 +7,13 @@ const client = tavily({ apiKey: process.env.TAVILY_API_KEY! });
 const TAVILY_API_KEY = process.env.TAVILY_API_KEY!;
 
 export const search = tool({
-  description: `Search the web. Each query must be ONE SINGLE QUESTION.
+  description: `Search the web. Please keep each query atomic (one thing at a time).
 
-CRITICAL: Ask ONE question per query. NOT multiple questions combined.
+Ask ONE clear question per query (no multi-part "and/or" questions). If you need two pieces of info, do two searches.
 ✅ "Who leads DevRel at Datadog?"
 ✅ "What startups make podcast fact-checking tools?"
-❌ "Who leads DevRel at Datadog and what is their background?" (TWO questions - split them!)
-❌ "What podcast tools exist and who uses them?" (TWO questions - split them!)
+❌ "Who leads DevRel at Datadog and what is their background?" (split)
+❌ "What podcast tools exist and who uses them?" (split)
 
 Write like you're asking a knowledgeable person:
 ✅ "Is Sarah Chen still at Spotify?"

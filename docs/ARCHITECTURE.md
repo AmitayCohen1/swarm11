@@ -1,13 +1,13 @@
-# Swarm11 Cortex Architecture
+# Swarm11 Brain Architecture
 
 ## Overview
 
 A three-tier autonomous research system:
 
 ```
-User → Intake Agent → Cortex Orchestrator → ResearchQuestion Agents → Web Search
+User → Intake Agent → Main Loop → Researcher Agents → Web Search
                               ↓
-                    CortexDoc (Brain/Memory)
+                    BrainDoc (Brain/Memory)
 ```
 
 ---
@@ -38,14 +38,14 @@ User → Intake Agent → Cortex Orchestrator → ResearchQuestion Agents → We
 
 ---
 
-### 2. Cortex Orchestrator (`lib/agents/cortex-orchestrator.ts`)
+### 2. Main Loop (`lib/agents/main-loop.ts`)
 
 **Purpose:** Manage the full research lifecycle.
 
 **Phases:**
 
 ```
-PHASE 1: Initialize CortexDoc
+PHASE 1: Initialize BrainDoc
     ↓
 PHASE 2: Generate 3 ResearchQuestions (if none exist)
     ↓
@@ -53,7 +53,7 @@ PHASE 3: Execute ResearchQuestions (sequential in v1)
     │
     ├─→ Run question to completion
     │       ↓
-    │   ResearchQuestion Agent loop
+    │   Researcher Agent loop
     │       ↓
     └─→ Evaluate: continue / drill_down / spawn_new / synthesize
     ↓
@@ -73,7 +73,7 @@ Every `doc_updated` event triggers immediate DB persistence.
 
 ---
 
-### 3. ResearchQuestion Agent (`lib/agents/question-agent.ts`)
+### 3. Researcher Agent (`lib/agents/researcher-agent.ts`)
 
 **Purpose:** Execute one research question with a disciplined loop and structured memory.
 
@@ -101,7 +101,7 @@ After each `search`, the agent must call `reflect` before it can search again.
 
 ---
 
-### 4. Cortex Agent (`lib/agents/cortex-agent.ts`)
+### 4. Brain Agent (`lib/agents/brain-agent.ts`)
 
 **Purpose:** Higher-level reasoning functions.
 
@@ -116,18 +116,18 @@ After each `search`, the agent must call `reflect` before it can search again.
 
 ## Data Structures
 
-### CortexDoc (Brain)
+### BrainDoc (Brain)
 
 Stored as JSON in `chat_sessions.brain`:
 
 ```typescript
-interface CortexDoc {
+interface BrainDoc {
   version: 1;
   objective: string;
   successCriteria: string[];
   status: 'running' | 'synthesizing' | 'complete';
   questions: ResearchQuestion[];
-  cortexLog: CortexDecision[];
+  brainLog: BrainDecision[];
   finalAnswer?: string;
 }
 ```
@@ -144,7 +144,7 @@ interface ResearchQuestion {
   cycles: number;
   maxCycles: number;             // Default: 10
   findings: Finding[];
-  searchResults: SearchResult[];
+  searches: Search[];
   reflections: CycleReflection[];
   confidence: 'low' | 'medium' | 'high' | null;
   recommendation: 'promising' | 'dead_end' | 'needs_more' | null;
@@ -152,10 +152,10 @@ interface ResearchQuestion {
 }
 ```
 
-### SearchResult
+### Search
 
 ```typescript
-interface SearchResult {
+interface Search {
   query: string;                 // Human-readable question
   answer: string;                // Tavily's answer
   sources: { url: string; title?: string }[];
@@ -165,7 +165,7 @@ interface SearchResult {
 
 ### Episode (Structured Delta Memory)
 
-Each `reflect` also appends an `Episode` entry, which is the primary unit Cortex should reason over:
+Each `reflect` also appends an `Episode` entry, which is the primary unit Brain should reason over:
 
 ```typescript
 interface Episode {
@@ -212,9 +212,9 @@ interface CycleReflection {
 ### Document Operations
 | Function | Purpose |
 |----------|---------|
-| `initializeCortexDoc(objective, criteria)` | Create new CortexDoc |
-| `serializeCortexDoc(doc)` | JSON.stringify for storage |
-| `parseCortexDoc(json)` | Parse and validate |
+| `initializeBrainDoc(objective, criteria)` | Create new BrainDoc |
+| `serializeBrainDoc(doc)` | JSON.stringify for storage |
+| `parseBrainDoc(json)` | Parse and validate |
 
 ### ResearchQuestion Operations
 | Function | Purpose |
@@ -235,14 +235,14 @@ interface CycleReflection {
 ### Search/Reflection Operations
 | Function | Purpose |
 |----------|---------|
-| `addSearchResultToResearchQuestion(doc, initId, query, answer, sources, reasoning)` | Record search |
+| `addSearchToResearchQuestion(doc, initId, query, answer, sources, reasoning)` | Record search |
 | `addReflectionToResearchQuestion(doc, initId, cycle, learned, nextStep, status)` | Record reflection |
 | `hasQueryBeenRunInResearchQuestion(doc, initId, query)` | Dedup check |
 
 ### Formatting
 | Function | Purpose |
 |----------|---------|
-| `formatCortexDocForAgent(doc)` | Full doc summary for agents |
+| `formatBrainDocForAgent(doc)` | Full doc summary for agents |
 | `formatResearchQuestionForAgent(question)` | Single question detail |
 | `getResearchQuestionsSummary(doc)` | Quick status overview |
 
@@ -255,7 +255,7 @@ interface CycleReflection {
 |-------|------|---------|
 | `id` | uuid | Session ID |
 | `messages` | jsonb | Conversation history |
-| `brain` | text | CortexDoc JSON |
+| `brain` | text | BrainDoc JSON |
 | `status` | text | active / researching / completed |
 | `creditsUsed` | int | Token usage |
 
@@ -294,11 +294,11 @@ interface CycleReflection {
    ├─→ Ask clarification → return question
    └─→ Start research → continue
    ↓
-4. Cortex Orchestrator
-   ├─→ Initialize CortexDoc
+4. Main Loop
+   ├─→ Initialize BrainDoc
    ├─→ Generate questions
    ├─→ For each question:
-   │       └─→ ResearchQuestion Agent loop (search → reason → ...)
+   │       └─→ Researcher Agent loop (search → reason → ...)
    │       └─→ Save to DB after each step
    │       └─→ Emit SSE events
    ├─→ Evaluate after all complete
@@ -314,7 +314,7 @@ interface CycleReflection {
 ### Research Lifecycle
 | Event | Data |
 |-------|------|
-| `cortex_initialized` | `{ objective, successCriteria, version }` |
+| `brain_initialized` | `{ objective, successCriteria, version }` |
 | `question_started` | `{ questionId, name, goal }` |
 | `search_completed` | `{ questionId, query, answer, sources }` |
 | `reasoning_completed` | `{ questionId, reasoning }` |
@@ -326,7 +326,7 @@ interface CycleReflection {
 ### State Updates
 | Event | Data |
 |-------|------|
-| `doc_updated` | `{ doc }` (full CortexDoc) |
+| `doc_updated` | `{ doc }` (full BrainDoc) |
 | `brain_update` | `{ brain }` (serialized JSON) |
 
 ---
@@ -337,15 +337,15 @@ interface CycleReflection {
 lib/
 ├── agents/
 │   ├── intake-agent.ts           # Intent clarification
-│   ├── cortex-agent.ts           # Generate/evaluate/synthesize
-│   ├── cortex-orchestrator.ts    # Full flow management
-│   └── question-agent.ts       # Single question execution
+│   ├── brain-agent.ts           # Generate/evaluate/synthesize
+│   ├── main-loop.ts    # Full flow management
+│   └── researcher-agent.ts       # Single question execution
 ├── types/
 │   └── question-doc.ts         # Zod schemas + types
 ├── tools/
 │   └── tavily-search.ts          # Web search (1 query max)
 └── utils/
-    └── question-operations.ts  # CortexDoc helpers
+    └── question-operations.ts  # BrainDoc helpers
 
 hooks/
 └── useChatAgent.ts               # SSE + React state
@@ -421,6 +421,6 @@ User sees real-time progress. Crash recovery is automatic.
 - **Framework:** Next.js 15 (App Router)
 - **Database:** Neon PostgreSQL + Drizzle ORM
 - **Auth:** Clerk
-- **AI:** OpenAI gpt-5.1 (intake/cortex), gpt-5.1 (questions)
+- **AI:** OpenAI gpt-5.2 (intake/brain), gpt-5.2 (questions)
 - **Search:** Tavily API
 - **UI:** Tailwind + Framer Motion

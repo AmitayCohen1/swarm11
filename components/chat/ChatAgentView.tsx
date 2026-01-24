@@ -557,8 +557,8 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // When CortexDoc tabs are visible, they already show searches/questions; avoid duplicating them in the chat timeline.
-  const hasCortexTabs = Boolean(
+  // When BrainDoc tabs are visible, they already show searches/questions; avoid duplicating them in the chat timeline.
+  const hasBrainTabs = Boolean(
     researchDoc &&
     typeof researchDoc === 'object' &&
     'questions' in (researchDoc as any) &&
@@ -703,7 +703,7 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
 
                 // Metadata-driven messages (process steps)
                 if (msg.metadata?.type === 'search_batch') {
-                  if (hasCortexTabs) return null;
+                  if (hasBrainTabs) return null;
                   return <SearchBatch key={idx} queries={msg.metadata.queries || []} />;
                 }
                 if (msg.metadata?.type === 'extract_batch') {
@@ -718,7 +718,7 @@ export default function ChatAgentView({ sessionId: existingSessionId }: ChatAgen
                   );
                 }
                 if (msg.metadata?.type === 'research_query') {
-                  if (hasCortexTabs) return null;
+                  if (hasBrainTabs) return null;
                   return <ResearchQuery key={idx} msg={msg} />;
                 }
                                 if (msg.metadata?.type === 'reasoning') {

@@ -3,9 +3,9 @@ import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 
 /**
- * Research Brief - simplified for Cortex architecture
+ * Research Brief - simplified for Brain architecture
  * Intake extracts WHAT (objective + criteria)
- * Cortex decides HOW (generates initiatives)
+ * Brain decides HOW (generates research questions)
  */
 export interface ResearchBrief {
   objective: string;
@@ -24,7 +24,7 @@ export interface OrchestratorDecision {
 /**
  * Intake Agent
  * Clarifies intent and extracts research objective + success criteria.
- * Does NOT plan HOW to research - that's Cortex's job.
+ * Does NOT plan HOW to research - that's Brain's job.
  */
 export async function analyzeUserMessage(
   userMessage: string,
@@ -57,28 +57,31 @@ export async function analyzeUserMessage(
 
   const systemPrompt = `You are the Research Intake Agent before the research starts.
 
-Your job is to get prepeared for a long research. Ask any question that could help us understand the user needs better, or anything that could reveal more about his needs.
+Your job is to clarify user intent and extract a ResearchBrief.
+You MUST be inference-hostile: do not guess details the user didn't say.
 
-Make sure we understand these, if you don't ask.
-1. What he expect to get back from the research? How does success look like?
-2. Why he wants to do this research? What the reason? What does he plan to do with the research outputs?
-3. Any question that you think is relevant to the research?
-4. What should we optimize for?
-5. Make sure you have full understanding of the backstory of the intended research.
+You may ONLY return start_research when ALL THREE are explicitly known from the conversation:
+1) WHAT exactly to research (objective)
+2) WHY the user needs it (what decision/action it supports)
+3) WHAT success looks like (1-4 concrete success criteria)
 
+If anything is missing or ambiguous, ask EXACTLY ONE clarifying question (per turn).
+Prefer the highest-leverage missing piece (usually WHY or SUCCESS).
 
 ---
 
 DECISION TYPES:
-1. text_input – direct answers, analysis, or a single clarifying question
+1. text_input – direct answer OR one clarifying question
 2. multi_choice_select – resolve ambiguity with 2–4 concrete options
-3. start_research – only when all three questions are clear
+3. start_research – only when WHAT + WHY + SUCCESS are explicit
 
 ---
 
 QUESTION RULES:
-- Max 20 words for every question.
-- Use multi_choice_select for close-ended questions and text-input for open-ended questions.
+- Max 20 words per question.
+- Ask only ONE question per response.
+- Use multi_choice_select for close-ended questions and text_input for open-ended questions.
+- If user says "find customers", you MUST ask for success criteria and intended use of results before starting.
 `;
 
   // Build messages array from conversation history
@@ -88,26 +91,45 @@ QUESTION RULES:
   const recentHistory = conversationHistory;
   for (const m of recentHistory) {
     if (m.role === 'user') {
-      const content = m.metadata?.type === 'option_selected'
-        ? `${m.content} (I selected this from: ${m.metadata.offeredOptions?.map((o: any) => o.label).join(', ')})`
-        : m.content;
+      const content = (() => {
+        if (m.metadata?.type !== 'option_selected') return m.content;
+
+        const offeredLabels: string[] = Array.isArray(m.metadata.offeredOptionLabels)
+          ? m.metadata.offeredOptionLabels
+          : (m.metadata.offeredOptions?.map((o: any) => o?.label).filter(Boolean) ?? []);
+
+        const selected = (m.metadata.selectedOption || m.content || '').toString();
+
+        const unselectedLabels: string[] = Array.isArray(m.metadata.unselectedOptionLabels)
+          ? m.metadata.unselectedOptionLabels
+          : offeredLabels.filter(l => l !== selected);
+
+        const question = m.metadata.originalQuestion ? ` Q: ${m.metadata.originalQuestion}` : '';
+
+        const offered = offeredLabels.length ? ` Offered: ${offeredLabels.join(', ')}.` : '';
+        const unselected = unselectedLabels.length ? ` Not chosen: ${unselectedLabels.join(', ')}.` : '';
+
+        // Keep it compact but explicit: chosen vs not chosen carry signal.
+        return `${selected}.${offered}${unselected}${question}`.trim();
+      })();
       messages.push({ role: 'user', content });
     } else if (m.role === 'assistant' && m.content) {
       messages.push({ role: 'assistant', content: m.content });
     }
   }
 
+  // Avoid duplicating the current userMessage if the caller already appended it to conversationHistory.
+  const last = recentHistory?.[recentHistory.length - 1];
+  const alreadyInHistory = last?.role === 'user' && last?.content === userMessage;
+  if (!alreadyInHistory) {
   messages.push({
     role: 'user',
-    content: `${userMessage}
-
----
-If you have a clear objective, start the research.
-If you need ONE more piece of info, ask ONE focused question.`
+      content: userMessage
   });
+  }
 
   const result = await generateText({
-    model: openai('gpt-5.1'),
+    model: openai('gpt-5.2'),
     system: systemPrompt,
     messages,
     tools: { decisionTool },

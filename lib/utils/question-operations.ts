@@ -1,18 +1,18 @@
 /**
- * ResearchQuestion Operations - Utility functions for CortexDoc manipulation
+ * ResearchQuestion Operations - Utility functions for BrainDoc manipulation
  */
 
 import {
-  CortexDoc,
-  CortexDocSchema,
+  BrainDoc,
+  BrainDocSchema,
   ResearchQuestion,
-  CortexDecision,
-  CortexAction,
+  BrainDecision,
+  BrainAction,
   Episode,
   generateEpisodeId,
   createResearchQuestion,
-  createCortexDecision,
-  createCortexDoc,
+  createBrainDecision,
+  createBrainDoc,
   generateFindingId,
 } from '../types/research-question';
 import type { Finding, Source } from '../types/research-doc';
@@ -22,35 +22,35 @@ import type { Finding, Source } from '../types/research-doc';
 // ============================================================
 
 /**
- * Initialize a new CortexDoc from research brief
+ * Initialize a new BrainDoc from research brief
  */
-export function initializeCortexDoc(
+export function initializeBrainDoc(
   objective: string,
   successCriteria: string[]
-): CortexDoc {
-  return createCortexDoc(objective, successCriteria);
+): BrainDoc {
+  return createBrainDoc(objective, successCriteria);
 }
 
 /**
- * Serialize CortexDoc to JSON string
+ * Serialize BrainDoc to JSON string
  */
-export function serializeCortexDoc(doc: CortexDoc): string {
+export function serializeBrainDoc(doc: BrainDoc): string {
   return JSON.stringify(doc, null, 2);
 }
 
 /**
- * Parse JSON string to CortexDoc
+ * Parse JSON string to BrainDoc
  */
-export function parseCortexDoc(json: string): CortexDoc | null {
+export function parseBrainDoc(json: string): BrainDoc | null {
   if (!json?.trim()) return null;
 
   try {
     const parsed = JSON.parse(json.trim());
-    const result = CortexDocSchema.safeParse(parsed);
+    const result = BrainDocSchema.safeParse(parsed);
     if (result.success) {
       return result.data;
     }
-    console.warn('[parseCortexDoc] Validation failed:', result.error.issues);
+    console.warn('[parseBrainDoc] Validation failed:', result.error.issues);
   } catch {
     // Invalid JSON
   }
@@ -66,12 +66,12 @@ export function parseCortexDoc(json: string): CortexDoc | null {
  * Add a new question to the document
  */
 export function addResearchQuestion(
-  doc: CortexDoc,
+  doc: BrainDoc,
   name: string,
   question: string,
   goal: string,
   maxCycles: number = 10
-): CortexDoc {
+): BrainDoc {
   const newQuestion = createResearchQuestion(name, question, goal, maxCycles);
   return {
     ...doc,
@@ -82,28 +82,28 @@ export function addResearchQuestion(
 /**
  * Get an question by ID
  */
-export function getResearchQuestion(doc: CortexDoc, questionId: string): ResearchQuestion | undefined {
+export function getResearchQuestion(doc: BrainDoc, questionId: string): ResearchQuestion | undefined {
   return doc.questions.find(i => i.id === questionId);
 }
 
 /**
  * Get all pending questions
  */
-export function getPendingResearchQuestions(doc: CortexDoc): ResearchQuestion[] {
+export function getPendingResearchQuestions(doc: BrainDoc): ResearchQuestion[] {
   return doc.questions.filter(i => i.status === 'pending');
 }
 
 /**
  * Get all running questions
  */
-export function getRunningResearchQuestions(doc: CortexDoc): ResearchQuestion[] {
+export function getRunningResearchQuestions(doc: BrainDoc): ResearchQuestion[] {
   return doc.questions.filter(i => i.status === 'running');
 }
 
 /**
  * Get all completed questions
  */
-export function getCompletedResearchQuestions(doc: CortexDoc): ResearchQuestion[] {
+export function getCompletedResearchQuestions(doc: BrainDoc): ResearchQuestion[] {
   return doc.questions.filter(i => i.status === 'done');
 }
 
@@ -111,10 +111,10 @@ export function getCompletedResearchQuestions(doc: CortexDoc): ResearchQuestion[
  * Update an question's status
  */
 export function updateResearchQuestionStatus(
-  doc: CortexDoc,
+  doc: BrainDoc,
   questionId: string,
   status: ResearchQuestion['status']
-): CortexDoc {
+): BrainDoc {
   return {
     ...doc,
     questions: doc.questions.map(i =>
@@ -126,7 +126,7 @@ export function updateResearchQuestionStatus(
 /**
  * Start an question (set status to running)
  */
-export function startResearchQuestion(doc: CortexDoc, questionId: string): CortexDoc {
+export function startResearchQuestion(doc: BrainDoc, questionId: string): BrainDoc {
   return updateResearchQuestionStatus(doc, questionId, 'running');
 }
 
@@ -134,12 +134,12 @@ export function startResearchQuestion(doc: CortexDoc, questionId: string): Corte
  * Complete an question with results
  */
 export function completeResearchQuestion(
-  doc: CortexDoc,
+  doc: BrainDoc,
   questionId: string,
   summary: string,
   confidence: ResearchQuestion['confidence'],
   recommendation: ResearchQuestion['recommendation']
-): CortexDoc {
+): BrainDoc {
   return {
     ...doc,
     questions: doc.questions.map(i =>
@@ -153,7 +153,7 @@ export function completeResearchQuestion(
 /**
  * Increment cycle count for an question
  */
-export function incrementResearchQuestionCycle(doc: CortexDoc, questionId: string): CortexDoc {
+export function incrementResearchQuestionCycle(doc: BrainDoc, questionId: string): BrainDoc {
   return {
     ...doc,
     questions: doc.questions.map(i =>
@@ -170,11 +170,11 @@ export function incrementResearchQuestionCycle(doc: CortexDoc, questionId: strin
  * Add a finding to an question
  */
 export function addFindingToResearchQuestion(
-  doc: CortexDoc,
+  doc: BrainDoc,
   questionId: string,
   content: string,
   sources: Source[] = []
-): CortexDoc {
+): BrainDoc {
   const finding: Finding = {
     id: generateFindingId(),
     content,
@@ -196,11 +196,11 @@ export function addFindingToResearchQuestion(
  * Edit a finding within an question
  */
 export function editFindingInResearchQuestion(
-  doc: CortexDoc,
+  doc: BrainDoc,
   questionId: string,
   findingId: string,
   content: string
-): CortexDoc {
+): BrainDoc {
   return {
     ...doc,
     questions: doc.questions.map(i =>
@@ -220,11 +220,11 @@ export function editFindingInResearchQuestion(
  * Disqualify a finding within an question
  */
 export function disqualifyFindingInResearchQuestion(
-  doc: CortexDoc,
+  doc: BrainDoc,
   questionId: string,
   findingId: string,
   reason: string
-): CortexDoc {
+): BrainDoc {
   return {
     ...doc,
     questions: doc.questions.map(i =>
@@ -245,21 +245,21 @@ export function disqualifyFindingInResearchQuestion(
 /**
  * Add full search result to question
  */
-export function addSearchResultToResearchQuestion(
-  doc: CortexDoc,
+export function addSearchToResearchQuestion(
+  doc: BrainDoc,
   questionId: string,
   query: string,
   answer: string,
   sources: { url: string; title?: string }[] = [],
   reasoning?: string
-): CortexDoc {
+): BrainDoc {
   return {
     ...doc,
     questions: doc.questions.map(i =>
       i.id === questionId
         ? {
             ...i,
-            searchResults: [...(i.searchResults || []), { query, answer, sources, reasoning }],
+            searches: [...(i.searches || []), { query, answer, sources, reasoning }],
           }
         : i
     ),
@@ -270,27 +270,27 @@ export function addSearchResultToResearchQuestion(
  * Check if a query has been run in an question
  */
 export function hasQueryBeenRunInResearchQuestion(
-  doc: CortexDoc,
+  doc: BrainDoc,
   questionId: string,
   query: string
 ): boolean {
   const question = getResearchQuestion(doc, questionId);
   if (!question) return false;
   const normalized = query.toLowerCase().trim();
-  return (question.searchResults || []).some(sr => sr.query.toLowerCase().trim() === normalized);
+  return (question.searches || []).some(sr => sr.query.toLowerCase().trim() === normalized);
 }
 
 /**
  * Add a cycle reflection to an question
  */
 export function addReflectionToResearchQuestion(
-  doc: CortexDoc,
+  doc: BrainDoc,
   questionId: string,
   cycle: number,
   learned: string,
   nextStep: string,
   status: 'continue' | 'done'
-): CortexDoc {
+): BrainDoc {
   return {
     ...doc,
     questions: doc.questions.map(i =>
@@ -316,10 +316,10 @@ export function normalizeQuery(q: string): string {
  * Add a new episode to a question.
  */
 export function addEpisodeToResearchQuestion(
-  doc: CortexDoc,
+  doc: BrainDoc,
   questionId: string,
   episode: Omit<Episode, 'id' | 'timestamp'> & { id?: string; timestamp?: string }
-): CortexDoc {
+): BrainDoc {
   const ep: Episode = {
     id: episode.id || generateEpisodeId(),
     timestamp: episode.timestamp || new Date().toISOString(),
@@ -346,7 +346,7 @@ export function addEpisodeToResearchQuestion(
  * Return the number of consecutive episodes at the end of the list that had no useful delta.
  * (deltaType === 'no_change' OR empty delta)
  */
-export function getNoDeltaStreak(doc: CortexDoc, questionId: string): number {
+export function getNoDeltaStreak(doc: BrainDoc, questionId: string): number {
   const q = getResearchQuestion(doc, questionId);
   if (!q) return 0;
   const eps = q.episodes || [];
@@ -379,13 +379,13 @@ export function mergeDontRepeat(base: string[], extra: string[]): string[] {
 
 export interface CompactionOptions {
   maxEpisodesPerQuestion: number;
-  maxSearchResultsPerQuestion: number;
+  maxSearchsPerQuestion: number;
   maxReflectionsPerQuestion: number;
 }
 
 const DEFAULT_COMPACTION: CompactionOptions = {
   maxEpisodesPerQuestion: 30,
-  maxSearchResultsPerQuestion: 25,
+  maxSearchsPerQuestion: 25,
   maxReflectionsPerQuestion: 30,
 };
 
@@ -399,7 +399,7 @@ function compactArray<T>(items: T[], keepLast: number): { kept: T[]; removedCoun
  * Compact a single question to keep memory bounded.
  *
  * Strategy:
- * - Keep the latest N episodes/searchResults/reflections for "live debugging" + UI
+ * - Keep the latest N episodes/searches/reflections for "live debugging" + UI
  * - If we dropped any episodes, prepend a synthetic episode summarizing that compaction happened
  */
 export function compactResearchQuestion(
@@ -409,7 +409,7 @@ export function compactResearchQuestion(
   const opts: CompactionOptions = { ...DEFAULT_COMPACTION, ...options };
 
   const { kept: keptEpisodes, removedCount: removedEpisodes } = compactArray(q.episodes || [], opts.maxEpisodesPerQuestion);
-  const { kept: keptSearches, removedCount: removedSearches } = compactArray(q.searchResults || [], opts.maxSearchResultsPerQuestion);
+  const { kept: keptSearches, removedCount: removedSearches } = compactArray(q.searches || [], opts.maxSearchsPerQuestion);
   const { kept: keptReflections, removedCount: removedReflections } = compactArray(q.reflections || [], opts.maxReflectionsPerQuestion);
 
   let episodesOut = keptEpisodes;
@@ -433,19 +433,19 @@ export function compactResearchQuestion(
   return {
     ...q,
     episodes: episodesOut,
-    searchResults: keptSearches,
+    searches: keptSearches,
     reflections: keptReflections,
   };
 }
 
 /**
- * Compact the entire CortexDoc for storage/streaming.
+ * Compact the entire BrainDoc for storage/streaming.
  * Safe to call frequently (pure, deterministic).
  */
-export function compactCortexDoc(
-  doc: CortexDoc,
+export function compactBrainDoc(
+  doc: BrainDoc,
   options: Partial<CompactionOptions> = {}
-): CortexDoc {
+): BrainDoc {
   const opts: Partial<CompactionOptions> = options;
   return {
     ...doc,
@@ -454,30 +454,30 @@ export function compactCortexDoc(
 }
 
 // ============================================================
-// Cortex Decision Log
+// Brain Decision Log
 // ============================================================
 
 /**
- * Add a cortex decision to the log
+ * Add a brain decision to the log
  */
-export function addCortexDecision(
-  doc: CortexDoc,
-  action: CortexAction,
+export function addBrainDecision(
+  doc: BrainDoc,
+  action: BrainAction,
   reasoning: string,
   questionId?: string
-): CortexDoc {
-  const decision = createCortexDecision(action, reasoning, questionId);
+): BrainDoc {
+  const decision = createBrainDecision(action, reasoning, questionId);
   return {
     ...doc,
-    cortexLog: [...doc.cortexLog, decision],
+    brainLog: [...doc.brainLog, decision],
   };
 }
 
 /**
- * Get the last cortex decision
+ * Get the last brain decision
  */
-export function getLastCortexDecision(doc: CortexDoc): CortexDecision | null {
-  return doc.cortexLog.length > 0 ? doc.cortexLog[doc.cortexLog.length - 1] : null;
+export function getLastBrainDecision(doc: BrainDoc): BrainDecision | null {
+  return doc.brainLog.length > 0 ? doc.brainLog[doc.brainLog.length - 1] : null;
 }
 
 // ============================================================
@@ -487,14 +487,14 @@ export function getLastCortexDecision(doc: CortexDoc): CortexDecision | null {
 /**
  * Set document status
  */
-export function setDocStatus(doc: CortexDoc, status: CortexDoc['status']): CortexDoc {
+export function setDocStatus(doc: BrainDoc, status: BrainDoc['status']): BrainDoc {
   return { ...doc, status };
 }
 
 /**
  * Set final answer
  */
-export function setFinalAnswer(doc: CortexDoc, finalAnswer: string): CortexDoc {
+export function setFinalAnswer(doc: BrainDoc, finalAnswer: string): BrainDoc {
   return { ...doc, finalAnswer, status: 'complete' };
 }
 
@@ -503,12 +503,12 @@ export function setFinalAnswer(doc: CortexDoc, finalAnswer: string): CortexDoc {
 // ============================================================
 
 /**
- * Format CortexDoc for agent context
+ * Format BrainDoc for agent context
  */
-export function formatCortexDocForAgent(doc: CortexDoc): string {
+export function formatBrainDocForAgent(doc: BrainDoc): string {
   const parts: string[] = [];
 
-  parts.push('# Cortex Research Document\n');
+  parts.push('# Brain Research Document\n');
   parts.push(`**Objective:** ${doc.objective}`);
   parts.push(`**Status:** ${doc.status}`);
 
@@ -550,8 +550,8 @@ export function formatCortexDocForAgent(doc: CortexDoc): string {
         parts.push('(researching...)');
       }
 
-      if ((init.searchResults || []).length > 0) {
-        parts.push(`\n**Searches:** ${init.searchResults.length}`);
+      if ((init.searches || []).length > 0) {
+        parts.push(`\n**Searches:** ${init.searches.length}`);
       }
     }
   } else {
@@ -559,9 +559,9 @@ export function formatCortexDocForAgent(doc: CortexDoc): string {
     parts.push('(none yet)');
   }
 
-  if (doc.cortexLog.length > 0) {
+  if (doc.brainLog.length > 0) {
     parts.push('\n## Decision Log (Recent)');
-    const recentDecisions = doc.cortexLog.slice(-5);
+    const recentDecisions = doc.brainLog.slice(-5);
     for (const decision of recentDecisions) {
       parts.push(`- [${decision.action}] ${decision.reasoning.substring(0, 100)}${decision.reasoning.length > 100 ? '...' : ''}`);
     }
@@ -606,7 +606,7 @@ export function formatResearchQuestionForAgent(q: ResearchQuestion): string {
     parts.push('(none yet)');
   }
 
-  const searches = q.searchResults || [];
+  const searches = q.searches || [];
   if (searches.length > 0) {
     parts.push('\n## Search Results');
     searches.forEach((sr, i) => {
@@ -637,7 +637,7 @@ export function formatResearchQuestionForAgent(q: ResearchQuestion): string {
 /**
  * Get summary of all questions
  */
-export function getResearchQuestionsSummary(doc: CortexDoc): string {
+export function getResearchQuestionsSummary(doc: BrainDoc): string {
   const parts: string[] = [];
 
   const pending = getPendingResearchQuestions(doc);
@@ -658,7 +658,7 @@ export function getResearchQuestionsSummary(doc: CortexDoc): string {
 /**
  * Collect all findings across all questions
  */
-export function getAllFindings(doc: CortexDoc): { questionId: string; finding: Finding }[] {
+export function getAllFindings(doc: BrainDoc): { questionId: string; finding: Finding }[] {
   const results: { questionId: string; finding: Finding }[] = [];
   for (const init of doc.questions) {
     for (const finding of init.findings) {
@@ -671,6 +671,6 @@ export function getAllFindings(doc: CortexDoc): { questionId: string; finding: F
 /**
  * Collect all active findings across all questions
  */
-export function getAllActiveFindings(doc: CortexDoc): { questionId: string; finding: Finding }[] {
+export function getAllActiveFindings(doc: BrainDoc): { questionId: string; finding: Finding }[] {
   return getAllFindings(doc).filter(item => item.finding.status === 'active');
 }

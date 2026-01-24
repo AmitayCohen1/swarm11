@@ -4,10 +4,10 @@ import { db } from '@/lib/db';
 import { chatSessions, users, researchSessions } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { analyzeUserMessage } from '@/lib/agents/intake-agent';
-import { executeCortexResearch } from '@/lib/agents/cortex-orchestrator';
+import { runMainLoop } from '@/lib/agents/main-loop';
 import {
-  initializeCortexDoc,
-  serializeCortexDoc
+  initializeBrainDoc,
+  serializeBrainDoc
 } from '@/lib/utils/question-operations';
 
 // export const maxDuration = 300; // 5 minutes
@@ -80,6 +80,12 @@ export async function POST(
 
     if (isResponseToOptions) {
       // Store with context about what was offered and selected
+      const offeredOptions = (lastMessage.metadata.options || []) as Array<{ label: string }>;
+      const offeredLabels = offeredOptions.map(o => o.label).filter(Boolean);
+      const selectedLabel = userMessage;
+      const matched = offeredLabels.includes(selectedLabel);
+      const unselectedLabels = offeredLabels.filter(l => l !== selectedLabel);
+
       conversationHistory.push({
         role: 'user',
         content: userMessage,
@@ -87,7 +93,10 @@ export async function POST(
         metadata: {
           type: 'option_selected',
           selectedOption: userMessage,
-          offeredOptions: lastMessage.metadata.options,
+          offeredOptions,
+          offeredOptionLabels: offeredLabels,
+          unselectedOptionLabels: unselectedLabels,
+          selectionMatchedOffered: matched,
           originalQuestion: lastMessage.content
         }
       });
@@ -189,12 +198,12 @@ export async function POST(
             // POC: Credit checks disabled - free to use
             // TODO: Enable credit checks before production launch
 
-            // Initialize CortexDoc with objective and success criteria
-            const newDoc = initializeCortexDoc(
+            // Initialize BrainDoc with objective and success criteria
+            const newDoc = initializeBrainDoc(
               researchBrief.objective,
               researchBrief.successCriteria || []
             );
-            const serializedBrain = serializeCortexDoc(newDoc);
+            const serializedBrain = serializeBrainDoc(newDoc);
 
             await db
               .update(chatSessions)
@@ -256,7 +265,7 @@ export async function POST(
 
             let researchResult: any = null;
             try {
-              researchResult = await executeCortexResearch({
+              researchResult = await runMainLoop({
                 chatSessionId,
                 researchSessionId,
                 userId: user.id,
@@ -303,7 +312,7 @@ export async function POST(
                 status: 'completed',
                 confidenceLevel: output?.confidenceLevel,
                 finalAnswer: output?.finalAnswer,
-                totalSteps: researchResult?.totalInitiatives || 0,
+                totalSteps: researchResult?.totalResearchQuestions || 0,
                 totalCost: researchResult?.creditsUsed || 0,
                 completedAt: new Date()
               })
