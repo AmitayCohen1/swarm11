@@ -113,6 +113,13 @@ RULES:
 - MINIMUM 4 searches before marking done (unless truly exhausted)
 - When reflect.status="done", use the complete tool to summarize findings
 
+REFLECTION STYLE:
+Write your nextStep like you're thinking out loud:
+- "Interesting, I found several studios. Let me dig into Gimlet's contact page..."
+- "Hmm, that search was too broad. Let me try something more specific..."
+- "Good progress! Now I need to find their business development contacts..."
+DO NOT write formal task descriptions like "Run a targeted search for X".
+
 DEPTH EXPECTATIONS:
 - Don't stop after finding one good result - look for alternatives, verify, cross-reference
 - If you found companies/people, search for more details on the top candidates
@@ -139,7 +146,7 @@ DEPTH EXPECTATIONS:
     description: 'Reflect on the most recent search and decide what to do next.',
     inputSchema: z.object({
       deltaType: z.enum(['progress', 'no_change', 'dead_end']).describe('How much did this step change our understanding?'),
-      nextStep: z.string().describe('ONE sentence: what to do next, or why you are done.'),
+      nextStep: z.string().describe('Natural language reflection: "Interesting, I found X... Now let me look for Y" or "Hmm, that didn\'t help much. Let me try Z instead." Keep it conversational, like thinking out loud.'),
       status: z.enum(['continue', 'done']).describe('continue=keep searching, done=question answered or exhausted'),
     }),
     execute: async ({ deltaType, nextStep, status: requestedStatus }) => {

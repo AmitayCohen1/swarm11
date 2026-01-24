@@ -82,6 +82,7 @@ export type Episode = z.infer<typeof EpisodeSchema>;
  */
 export const ResearchQuestionSchema = z.object({
   id: z.string(),                                  // q_xxx
+  researchRound: z.number().default(1),            // Which research round this question belongs to
   title: z.string().optional(),                    // Short tab title (3–5 words). Defaults to `name`.
   name: z.string(),                                // Short label/category (2-5 words). Historically used for tabs.
   question: z.string(),                            // The research question (e.g., "Which podcast networks produce fact-heavy content?")
@@ -132,8 +133,8 @@ export const BrainDocSchema = z.object({
   version: z.literal(1),
   objective: z.string(),
   successCriteria: z.array(z.string()),
-  wave: z.number().default(1),                     // Current wave number (conceptual; can be many waves)
-  waveStrategy: z.string().optional(),             // Strategy summary for the current/initial wave
+  researchRound: z.number().default(1),            // Current research round
+  researchStrategy: z.string().optional(),         // Strategy summary for the research
   questions: z.array(ResearchQuestionSchema).default([]),
   brainLog: z.array(BrainDecisionSchema).default([]),  // History of brain decisions
   status: BrainStatusSchema.default('running'),
@@ -185,10 +186,12 @@ export function createResearchQuestion(
   name: string,
   question: string,
   goal: string,
-  maxCycles: number = 10
+  maxCycles: number = 10,
+  researchRound: number = 1
 ): ResearchQuestion {
   return {
     id: generateResearchQuestionId(),
+    researchRound,
     title: name,
     name,
     question,
@@ -233,7 +236,7 @@ export function createBrainDoc(
     version: 1,
     objective,
     successCriteria,
-    wave: 1,
+    researchRound: 1,
     questions: [],
     brainLog: [],
     status: 'running',

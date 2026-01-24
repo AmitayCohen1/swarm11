@@ -82,11 +82,25 @@ function AskUserOptions({
             )}
           </div>
         </div>
-        <div className="pl-11">
-          <div className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-500/20 shadow-sm">
-            <Check className="w-4 h-4" />
-            {selected}
-          </div>
+        <div className="pl-11 flex flex-wrap gap-2">
+          {/* Show all options - selected highlighted, others greyed out */}
+          {options.map((opt, i) => {
+            const isSelected = opt.label === selected;
+            return (
+              <div
+                key={i}
+                className={cn(
+                  "inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl border",
+                  isSelected
+                    ? "bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-500/20 font-semibold"
+                    : "bg-slate-50 dark:bg-white/3 text-slate-400 dark:text-slate-600 border-slate-200 dark:border-white/5 line-through opacity-60"
+                )}
+              >
+                {isSelected && <Check className="w-4 h-4" />}
+                {opt.label}
+              </div>
+            );
+          })}
         </div>
       </div>
     );

@@ -35,6 +35,7 @@ import {
   addBrainDecision,
   setDocStatus,
   compactBrainDoc,
+  incrementResearchRound,
 } from '@/lib/utils/question-operations';
 
 interface MainLoopConfig {
@@ -85,7 +86,7 @@ export async function runMainLoop(
     abortSignal
   } = config;
 
-  // Max multi-wave cycles (waves of questions + evaluation). Still bounded by guardrails (time/budget/user stop).
+  // Max research rounds (rounds of questions + evaluation). Still bounded by guardrails (time/budget/user stop).
   const MAX_EVAL_ROUNDS = Number(process.env.BRAIN_MAX_EVAL_ROUNDS || 20);
   const INITIAL_QUESTIONS = 3;
   const START_TIME_MS = Date.now();
@@ -377,6 +378,8 @@ export async function runMainLoop(
     if (evalResult.nextAction.action === 'spawn_new') {
       const { name, question, goal } = evalResult.nextAction;
       log('PHASE3', 'Decision: SPAWN_NEW', { name, question, goal });
+      // Increment research round before adding new question
+      doc = incrementResearchRound(doc);
       doc = addResearchQuestion(doc, name, question, goal, 5);
       await saveDocToDb(doc);
       continue;

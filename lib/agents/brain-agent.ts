@@ -79,20 +79,15 @@ export async function generateResearchQuestions(
   const setStrategyTool = tool({
     description: 'Set the research strategy before creating questions',
     inputSchema: z.object({
-      approach: z.string().describe('Your high-level approach: what angles will you explore and why? (2-4 sentences)'),
-      reasoning: z.string().describe('Why start with these angles? What makes them high-leverage? (1-2 sentences)'),
-      adaptability: z.string().describe('How will findings from wave 1 inform next steps? (1 sentence)'),
+      thinking: z.string().describe('Your thinking process in natural language. Write like you\'re explaining to a colleague: "First I\'ll look at X because... Then I\'ll explore Y to understand... After that I\'ll figure out how to continue based on what I find." (3-5 sentences, conversational)'),
     }),
-    execute: async ({ approach, reasoning, adaptability }) => {
-      strategy = `${approach}\n\nWhy: ${reasoning}\n\nNext: ${adaptability}`;
-      doc = { ...doc, waveStrategy: strategy };
+    execute: async ({ thinking }) => {
+      strategy = thinking;
+      doc = { ...doc, researchStrategy: strategy };
 
       onProgress?.({
         type: 'brain_strategy',
-        strategy,
-        approach,
-        reasoning,
-        adaptability
+        strategy: thinking,
       });
 
       return { success: true };
@@ -129,16 +124,18 @@ export async function generateResearchQuestions(
 
   const strategyPrompt = `You are the Brain, the strategic research orchestrator.
 
-Before generating research questions, you must first SET YOUR STRATEGY using the set_strategy tool.
+Before generating research questions, explain your thinking in NATURAL LANGUAGE using set_strategy.
 
-Explain:
-1. APPROACH: What angles will you explore? Why these specific angles?
-2. REASONING: Why are these high-leverage starting points? What's the logic?
-3. ADAPTABILITY: How will wave 1 findings inform your next steps?
+Write like you're talking to a colleague:
+- "First I'll look at X because that's where we'll likely find..."
+- "Then I'll dig into Y to understand..."
+- "Based on what I find, I'll figure out whether to go deeper on Z or pivot to..."
+
+DO NOT use numbered lists or formal headers. Just explain your thinking naturally.
 
 Main objective: ${doc.objective}
 
-Call set_strategy first.`;
+Call set_strategy with your thinking.`;
 
   const questionsPrompt = `You are the Brain, the strategic research orchestrator.
 
@@ -150,7 +147,7 @@ Now generate ${count} PARALLEL and INDEPENDENT research questions that execute t
 RULES:
 - Questions run in parallel - they cannot depend on each other's outputs
 - Each question should be specific and answerable via web search
-- After wave 1 finishes, you'll review and may spawn more waves
+- After round 1 finishes, you'll review and may spawn more questions
 
 Main objective: ${doc.objective}
 
@@ -306,11 +303,11 @@ DECISION CRITERIA:
 - Use EPISODES as your primary signal: each episode has a deltaType (progress/no_change/dead_end) and a delta.
 
 CRITICAL BEHAVIOR:
-- Treat the existing questions as an independent parallel wave. After each wave, do a batch review.
+- Treat the existing questions as an independent parallel round. After each round, do a batch review.
 - For EACH success criterion, explicitly decide: covered vs not covered.
   - If NOT covered: you MUST choose SPAWN_NEW and create ONE new question targeted at that missing criterion.
   - If covered: cite which question(s) provide the evidence (use episodes/search results as signal).
-- This is an iterative multi-wave process and can take MANY WAVES (10–20+) if needed.
+- This is an iterative multi-round process and can take MANY ROUNDS (10–20+) if needed.
 - Only choose SYNTHESIZE if ALL success criteria are covered OR the remaining gaps are explicitly declared as out-of-scope / not findable.
 
 `;

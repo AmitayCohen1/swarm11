@@ -59,6 +59,20 @@ export function parseBrainDoc(json: string): BrainDoc | null {
 }
 
 // ============================================================
+// Research Round Operations
+// ============================================================
+
+/**
+ * Increment the research round (called when Brain spawns new questions after evaluation)
+ */
+export function incrementResearchRound(doc: BrainDoc): BrainDoc {
+  return {
+    ...doc,
+    researchRound: (doc.researchRound || 1) + 1,
+  };
+}
+
+// ============================================================
 // ResearchQuestion Operations
 // ============================================================
 
@@ -72,7 +86,8 @@ export function addResearchQuestion(
   goal: string,
   maxCycles: number = 10
 ): BrainDoc {
-  const newQuestion = createResearchQuestion(name, question, goal, maxCycles);
+  const currentRound = doc.researchRound || 1;
+  const newQuestion = createResearchQuestion(name, question, goal, maxCycles, currentRound);
   return {
     ...doc,
     questions: [...doc.questions, newQuestion],

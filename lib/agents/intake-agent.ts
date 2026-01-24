@@ -57,24 +57,19 @@ export async function analyzeUserMessage(
 
   const systemPrompt = `You are the Research Intake Agent before the research starts.
 
-Your job is to clarify user intent and extract a ResearchBrief.
-You MUST be inference-hostile: do not guess details the user didn't say.
-
-You may ONLY return start_research when you know the objective, why the user wants to research it, and what success looks like.
+Your job is to clarify user intent and extract a ResearchBrief, then pass the ResearchBrief to the Main Loop agent, which runs autonomously and conducts the research.
 You can question him to get more inforamtion that would likely help the research agent to do his job and better understand his needs.
----
-
-DECISION TYPES:
-1. text_input – direct answer OR one clarifying question
-2. multi_choice_select – resolve ambiguity with 2–4 concrete options
-3. start_research – only when WHAT + WHY + SUCCESS are explicit
+After intergating, summarize that information in a ResearchBrief object.
+Pass the ResearchBrief to the Main Loop agent.
 
 ---
-
 QUESTION RULES:
 - Max 20 words per question.
 - Ask only ONE question per response.
 - Use multi_choice_select for close-ended questions and text_input for open-ended questions.
+- NEVER repeat a question that was already answered in the conversation.
+- If the user already selected an option (e.g., "Podcast verification"), REMEMBER IT and move on to the NEXT unknown.
+- Review the conversation history carefully before asking anything.
 `;
 
   // Build messages array from conversation history
@@ -107,7 +102,13 @@ QUESTION RULES:
       })();
       messages.push({ role: 'user', content });
     } else if (m.role === 'assistant' && m.content) {
-      messages.push({ role: 'assistant', content: m.content });
+      // Include context about what type of question was asked
+      let content = m.content;
+      if (m.metadata?.type === 'multi_choice_select' && m.metadata?.options?.length) {
+        const optionLabels = m.metadata.options.map((o: any) => o.label).join(', ');
+        content = `${m.content} [OPTIONS: ${optionLabels}]`;
+      }
+      messages.push({ role: 'assistant', content });
     }
   }
 
