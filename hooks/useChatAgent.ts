@@ -461,6 +461,12 @@ export function useChatAgent(options: UseChatAgentOptions = {}) {
           addEvent('cortex_ready', `${count} questions ready`, 'Starting research...', 'plan');
         }
 
+        if (update.type === 'cortex_wave_strategy') {
+          const wave = (update as any).wave || 1;
+          const strategy = (update as any).strategy || '';
+          addEvent('cortex_strategy', `Wave ${wave} strategy`, strategy.substring(0, 80), 'plan');
+        }
+
         if (update.type === 'cortex_evaluating') {
           addEvent('cortex_eval', 'Evaluating progress', 'Deciding next steps...', 'reflect');
         }

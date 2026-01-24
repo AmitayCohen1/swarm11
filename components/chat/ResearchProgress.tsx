@@ -93,6 +93,8 @@ interface CortexDoc {
   version: 1;
   objective: string;
   successCriteria: string[];
+  wave?: number;
+  waveStrategy?: string;
   questions: ResearchQuestion[];
   cortexLog: CortexDecision[];
   status: 'running' | 'synthesizing' | 'complete';
@@ -172,6 +174,12 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
         <p className="text-lg font-semibold text-slate-800 dark:text-slate-100">
           {doc.objective}
         </p>
+        {doc.waveStrategy && (
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300 whitespace-pre-wrap">
+            <span className="font-medium text-slate-700 dark:text-slate-200">Wave strategy:</span>{' '}
+            {doc.waveStrategy}
+          </p>
+        )}
       </div>
 
       {/* Consolidated Cortex Intro - One message introducing all questions */}

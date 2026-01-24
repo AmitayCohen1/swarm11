@@ -149,6 +149,50 @@ Generate questions using spawn_question.`;
 
   log('generateResearchQuestions', `Generated ${questionIds.length} questions after ${attempts} attempts`);
 
+  // Create a concise "wave strategy" summary for this batch
+  const waveStrategyTool = tool({
+    description: 'Write the strategy for this wave of independent research questions',
+    inputSchema: z.object({
+      strategy: z.string().describe('3–6 bullets. For each hypothesis: what it tests, what evidence would count, and what would trigger spawning the next wave. Keep it concise.')
+    }),
+    execute: async ({ strategy }) => ({ strategy })
+  });
+
+  try {
+    const qs = doc.questions.filter(i => questionIds.includes(i.id));
+    const wavePrompt = `You are Cortex. You just created a WAVE of independent research questions.
+
+OBJECTIVE: ${doc.objective}
+SUCCESS CRITERIA:
+${doc.successCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}
+
+WAVE QUESTIONS (${qs.length}):
+${qs.map((q, idx) => `${idx + 1}. ${q.title || q.name}: ${q.question} → ${q.goal}`).join('\n')}
+
+Write the wave strategy as 3–6 bullet points.`;
+
+    const waveResult = await generateText({
+      model,
+      system: 'You are a research orchestrator. Be brief, concrete, and operational.',
+      prompt: wavePrompt,
+      tools: { wave_strategy: waveStrategyTool },
+      toolChoice: { type: 'tool', toolName: 'wave_strategy' },
+      abortSignal
+    });
+
+    creditsUsed += Math.ceil((waveResult.usage?.totalTokens || 0) / 1000);
+    const tc = waveResult.toolCalls?.[0] as any;
+    const out = tc?.input || tc?.args || { strategy: '' };
+    const strategy = (out.strategy || '').trim();
+
+    if (strategy) {
+      doc = { ...doc, wave: 1, waveStrategy: strategy };
+      onProgress?.({ type: 'cortex_wave_strategy', wave: 1, strategy });
+    }
+  } catch (e) {
+    // Strategy is optional; don't fail generation if this step errors.
+  }
+
   onProgress?.({
     type: 'cortex_questions_generated',
     count: questionIds.length,

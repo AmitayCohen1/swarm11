@@ -132,6 +132,8 @@ export const CortexDocSchema = z.object({
   version: z.literal(1),
   objective: z.string(),
   successCriteria: z.array(z.string()),
+  wave: z.number().default(1),                     // Current wave number (conceptual; can be many waves)
+  waveStrategy: z.string().optional(),             // Strategy summary for the current/initial wave
   questions: z.array(ResearchQuestionSchema).default([]),
   cortexLog: z.array(CortexDecisionSchema).default([]),  // History of cortex decisions
   status: CortexStatusSchema.default('running'),
@@ -231,6 +233,7 @@ export function createCortexDoc(
     version: 1,
     objective,
     successCriteria,
+    wave: 1,
     questions: [],
     cortexLog: [],
     status: 'running',
