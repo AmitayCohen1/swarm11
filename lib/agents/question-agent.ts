@@ -13,7 +13,6 @@ import {
   addSearchResultToResearchQuestion,
   addReflectionToResearchQuestion,
   addEpisodeToResearchQuestion,
-  getNoDeltaStreak,
   incrementResearchQuestionCycle,
   completeResearchQuestion,
   getResearchQuestion,
@@ -170,17 +169,6 @@ RULES:
         status,
       });
 
-      // Anti-loop stop: if consecutive no-delta episodes, force done
-      const streak = getNoDeltaStreak(doc, questionId);
-      let forcedStop = false;
-      if (status !== 'done' && streak >= 2) {
-        forcedStop = true;
-        status = 'done';
-        recommendation = recommendation || 'dead_end';
-        confidence = confidence || 'low';
-        summary = summary || `Stopped after ${streak} consecutive steps with no new information.`;
-      }
-
       return {
         deltaType,
         nextStep,
@@ -188,8 +176,6 @@ RULES:
         summary,
         confidence,
         recommendation,
-        forcedStop,
-        noDeltaStreak: streak
       };
     }
   });
@@ -285,8 +271,6 @@ RULES:
           deltaType,
           nextStep,
           status,
-          forcedStop: output.forcedStop,
-          noDeltaStreak: output.noDeltaStreak
         });
         onProgress?.({ type: 'doc_updated', doc });
 
