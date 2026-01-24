@@ -103,7 +103,7 @@ export const ResearchQuestionSchema = z.object({
   goal: z.string(),                                // What success looks like
   status: ResearchQuestionStatusSchema.default('pending'),
   cycles: z.number().default(0),                   // How many search→reflect loops
-  maxCycles: z.number().default(10),               // Cap (default 10)
+  maxCycles: z.number().default(30),               // Cap (default 30)
   memory: z.array(MemoryEntrySchema).default([]),  // Simple message list
   confidence: ResearchQuestionConfidenceSchema.default(null),
   recommendation: ResearchQuestionRecommendationSchema.default(null),
@@ -175,7 +175,7 @@ export function createResearchQuestion(
   name: string,
   question: string,
   goal: string,
-  maxCycles: number = 10,
+  maxCycles: number = 30,
   researchRound: number = 1,
   description?: string
 ): ResearchQuestion {

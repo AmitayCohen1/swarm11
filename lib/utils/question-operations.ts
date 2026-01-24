@@ -71,7 +71,7 @@ export function addResearchQuestion(
   name: string,
   question: string,
   goal: string,
-  maxCycles: number = 10,
+  maxCycles: number = 30,
   description?: string
 ): BrainDoc {
   const currentRound = doc.researchRound || 1;

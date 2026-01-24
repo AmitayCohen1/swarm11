@@ -87,11 +87,11 @@ export async function runMainLoop(
   } = config;
 
   // Max research rounds (rounds of questions + evaluation). Still bounded by guardrails (time/budget/user stop).
-  const MAX_EVAL_ROUNDS = Number(process.env.BRAIN_MAX_EVAL_ROUNDS || 20);
+  const MAX_EVAL_ROUNDS = Number(process.env.BRAIN_MAX_EVAL_ROUNDS || 50);
   const INITIAL_QUESTIONS = 3;
   const START_TIME_MS = Date.now();
-  const MAX_WALL_TIME_MS = Number(process.env.BRAIN_MAX_WALL_TIME_MS || 10 * 60 * 1000); // default 10 minutes
-  const MAX_CREDITS_BUDGET = Number(process.env.BRAIN_MAX_CREDITS_BUDGET || 200); // rough tokens/1k budget
+  const MAX_WALL_TIME_MS = Number(process.env.BRAIN_MAX_WALL_TIME_MS || 15 * 60 * 1000); // default 15 minutes
+  const MAX_CREDITS_BUDGET = Number(process.env.BRAIN_MAX_CREDITS_BUDGET || 1000); // rough tokens/1k budget
 
   let totalCreditsUsed = 0;
   let totalCycles = 0;
@@ -380,7 +380,7 @@ export async function runMainLoop(
       log('PHASE3', 'Decision: SPAWN_NEW', { name, question, description, goal });
       // Increment research round before adding new question
       doc = incrementResearchRound(doc);
-      doc = addResearchQuestion(doc, name, question, goal, 5, description);
+      doc = addResearchQuestion(doc, name, question, goal, 30, description);
       await saveDocToDb(doc);
       continue;
     }

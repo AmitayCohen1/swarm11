@@ -57,7 +57,7 @@ export async function runResearchQuestionToCompletion(
     doc: initialDoc,
     questionId,
     objective,
-    maxIterations = 20,
+    maxIterations = 30,
     abortSignal,
     onProgress,
   } = config;
@@ -86,6 +86,19 @@ export async function runResearchQuestionToCompletion(
     const icon = q.status === 'done' ? '✓' : q.status === 'running' ? '→' : '○';
     return `${icon} ${i + 1}. ${q.name}${isCurrent ? ' ← YOU' : ''}`;
   }).join('\n');
+
+  // Build context from completed questions (so researcher can build on prior findings)
+  const completedDocs = doc.questions
+    .filter(q => q.status === 'done' && q.document && q.id !== questionId)
+    .map(q => {
+      const findings = q.document!.keyFindings.slice(0, 5).map(f => `  • ${f}`).join('\n');
+      return `### ${q.name}\n**Answer:** ${q.document!.answer.slice(0, 500)}${q.document!.answer.length > 500 ? '...' : ''}\n**Key Findings:**\n${findings}`;
+    })
+    .join('\n\n');
+
+  const priorKnowledge = completedDocs
+    ? `\n\n---\n\nPRIOR RESEARCH (build on this, don't duplicate):\n${completedDocs}`
+    : '';
 
   // Get previous queries to avoid repeating
   const previousQueries = getSearchQueries(doc, questionId);

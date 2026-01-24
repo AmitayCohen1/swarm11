@@ -98,7 +98,7 @@ export async function generateResearchQuestions(
 
       // Create questions
       for (const q of questions) {
-        doc = addResearchQuestion(doc, q.name, q.question, q.goal, 10, q.description);
+        doc = addResearchQuestion(doc, q.name, q.question, q.goal, 30, q.description);
         const newQ = doc.questions[doc.questions.length - 1];
         questionIds.push(newQ.id);
 
