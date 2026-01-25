@@ -62,15 +62,12 @@ const KickoffSchema = z.object({
 });
 
 const EvaluateSchema = z.object({
-  decision: z.enum(['spawn_new', 'synthesize']).describe('spawn_new=need to research something new, synthesize=we have enough'),
+  decision: z.enum(['spawn_new', 'synthesize']).describe('spawn_new=need more research, synthesize=we have enough'),
   keyFindings: z.string().describe('2-3 sentence summary of what we learned. Be specific: names, numbers, facts.'),
   gaps: z.string().describe('What information is still missing?'),
   reasoning: z.string().describe('Your decision rationale combining findings and gaps.'),
-  // For spawn_new (use empty string if synthesize)
-  name: z.string().describe('Tab label (2-4 words). Empty string if synthesize.'),
-  question: z.string().describe('Short, precise question (max 15 words). Empty string if synthesize.'),
-  description: z.string().describe('Explain how this helps the objective (2-3 sentences). Empty string if synthesize.'),
-  goal: z.string().describe('What specific output we need (1 sentence). Empty string if synthesize.'),
+  // For spawn_new - array of 1-3 questions (empty array if synthesize)
+  questions: z.array(QuestionSchema).max(3).describe('1-3 new research questions to spawn in parallel. Empty array if synthesize.'),
 });
 
 const SynthesizeSchema = z.object({
@@ -200,7 +197,7 @@ interface EvaluateResearchQuestionsConfig {
 }
 
 type BrainNextAction =
-  | { action: 'spawn_new'; name: string; question: string; description: string; goal: string }
+  | { action: 'spawn_new'; questions: Array<{ name: string; question: string; description: string; goal: string }> }
   | { action: 'synthesize' };
 
 interface EvaluateResearchQuestionsResult {
@@ -261,14 +258,15 @@ YOUR RESPONSE MUST INCLUDE:
    Example: "We have good coverage of networks but lack actionable contact info. Let's dig into specific contact details..."
 
 OPTIONS:
-- SPAWN_NEW: Create a new focused research question (short and precise, max 15 words)
+- SPAWN_NEW: Create 1-3 new research questions to run IN PARALLEL
 - SYNTHESIZE: We have enough, finish the research
 
 CRITICAL BEHAVIOR:
 - This is iterative - can take MANY ROUNDS (10–20+) if needed.
 - For EACH success criterion: is it covered or not?
 - Only SYNTHESIZE if ALL criteria are covered OR gaps are declared unfindable.
-- New questions must be SHORT and SPECIFIC (max 15 words).
+- When spawning, provide 1-3 questions that explore DIFFERENT gaps (they run in parallel, don't share context)
+- New questions must be SHORT and SPECIFIC (max 15 words each).
 
 `;
 
@@ -297,10 +295,7 @@ CRITICAL BEHAVIOR:
     case 'spawn_new':
       nextAction = {
         action: 'spawn_new',
-        name: params.name || '',
-        question: params.question || '',
-        description: params.description || '',
-        goal: params.goal || ''
+        questions: params.questions || []
       };
       doc = addBrainDecision(doc, 'spawn', richReasoning);
       break;

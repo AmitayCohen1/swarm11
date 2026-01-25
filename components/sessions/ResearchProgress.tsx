@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import BlurText from '@/components/BlurText';
 import ShinyText from '@/components/ShinyText';
+import ReactMarkdown from 'react-markdown';
 
 // Types matching the new simplified memory model
 interface MemoryEntry {
@@ -366,58 +367,22 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
                         </div>
 
                         {activeQuestion.document?.answer ? (
-                          <div className="space-y-4">
-                            {/* Answer */}
-                            <p className="text-sm text-slate-200 leading-relaxed">
+                          <div className="prose prose-invert prose-sm max-w-none">
+                            <ReactMarkdown
+                              components={{
+                                h1: ({ node, ...props }) => <h1 {...props} className="text-lg font-bold text-white mt-4 mb-2" />,
+                                h2: ({ node, ...props }) => <h2 {...props} className="text-base font-bold text-white mt-3 mb-2" />,
+                                h3: ({ node, ...props }) => <h3 {...props} className="text-sm font-bold text-white mt-2 mb-1" />,
+                                p: ({ node, ...props }) => <p {...props} className="text-sm text-slate-200 leading-relaxed mb-3" />,
+                                ul: ({ node, ...props }) => <ul {...props} className="list-disc list-inside space-y-1 mb-3 text-slate-300" />,
+                                ol: ({ node, ...props }) => <ol {...props} className="list-decimal list-inside space-y-1 mb-3 text-slate-300" />,
+                                li: ({ node, ...props }) => <li {...props} className="text-sm" />,
+                                strong: ({ node, ...props }) => <strong {...props} className="font-bold text-white" />,
+                                a: ({ node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300" />,
+                              }}
+                            >
                               {activeQuestion.document.answer}
-                            </p>
-
-                            {/* Key Findings */}
-                            {activeQuestion.document.keyFindings?.length > 0 && (
-                              <div className="pt-3 border-t border-emerald-500/10">
-                                <p className="text-[10px] font-bold text-emerald-400/70 uppercase tracking-wider mb-2">Key Findings</p>
-                                <ul className="space-y-1.5">
-                                  {activeQuestion.document.keyFindings.map((finding, i) => (
-                                    <li key={i} className="text-sm text-slate-300 flex items-start gap-2">
-                                      <span className="text-emerald-500 mt-1">•</span>
-                                      {finding}
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-
-                            {/* Sources */}
-                            {activeQuestion.document.sources?.length > 0 && (
-                              <div className="pt-3 border-t border-emerald-500/10">
-                                <p className="text-[10px] font-bold text-emerald-400/70 uppercase tracking-wider mb-2">Sources</p>
-                                <div className="space-y-2">
-                                  {activeQuestion.document.sources.slice(0, 5).map((source, i) => (
-                                    <div key={i} className="text-xs">
-                                      <a
-                                        href={source.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-blue-400 hover:text-blue-300 transition-colors"
-                                      >
-                                        {source.title || source.url}
-                                      </a>
-                                      {source.contribution && (
-                                        <span className="text-slate-500 ml-2">— {source.contribution}</span>
-                                      )}
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Limitations */}
-                            {activeQuestion.document.limitations && (
-                              <div className="pt-3 border-t border-emerald-500/10">
-                                <p className="text-[10px] font-bold text-amber-400/70 uppercase tracking-wider mb-1">Limitations</p>
-                                <p className="text-xs text-slate-400 italic">{activeQuestion.document.limitations}</p>
-                              </div>
-                            )}
+                            </ReactMarkdown>
                           </div>
                         ) : activeQuestion.summary ? (
                           <p className="text-sm text-slate-200 leading-relaxed">

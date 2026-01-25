@@ -265,7 +265,7 @@ Reflect on what you learned. Think out loud like:
 - "Hmm, that didn't help much. Let me try Z instead"
 - "Good progress! I now know A, B, C. Still need to find D"
 
-If you've done at least ${MIN_SEARCHES_BEFORE_DONE} searches AND have enough info to answer the question, set status to "done".`;
+Set status="done" only when you've fully achieved the goal with specific facts and examples. Keep searching if gaps remain.`;
 
     log(questionId, `Cycle ${i + 1}: Reflecting...`);
 
@@ -349,9 +349,49 @@ Include key findings, sources, and any limitations.`;
     }
   }
 
+  // If loop exited without completion (max iterations, abort, etc.), generate summary from what we have
+  if (!questionDocument && searchHistory.length > 0) {
+    log(questionId, `Loop exited without completion - generating fallback summary`);
+
+    const fallbackPrompt = `Summarize what you found researching this question. Even if incomplete, provide the best answer possible.
+
+YOUR QUESTION: ${currentQuestion.question}
+YOUR GOAL: ${currentQuestion.goal}
+
+SEARCH HISTORY:
+${searchHistory.map((h, idx) =>
+  `${idx + 1}. Query: "${h.query}"\n   Result: ${h.answer.substring(0, 300)}${h.answer.length > 300 ? '...' : ''}`
+).join('\n\n')}
+
+Write a summary in markdown. Note any gaps or limitations.`;
+
+    try {
+      const fallbackResult = await generateText({
+        model,
+        prompt: fallbackPrompt,
+        abortSignal
+      });
+
+      trackUsage(fallbackResult.usage);
+
+      questionDocument = {
+        answer: fallbackResult.text,
+        keyFindings: [],
+        sources: [],
+        limitations: 'Research ended before full completion',
+      };
+      confidence = 'low';
+    } catch (e) {
+      log(questionId, `Fallback summary failed: ${e}`);
+    }
+  }
+
   // Complete the question with document
   const answerText = questionDocument?.answer || '';
   const summary = answerText ? (answerText.substring(0, 200) + (answerText.length > 200 ? '...' : '')) : '';
+
+  log(questionId, `Saving document: hasDoc=${!!questionDocument}, answerLen=${answerText.length}, summaryLen=${summary.length}`);
+
   doc = completeResearchQuestion(doc, questionId, summary, confidence, recommendation, questionDocument);
 
   onProgress?.({
