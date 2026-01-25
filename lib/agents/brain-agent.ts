@@ -227,8 +227,9 @@ export async function evaluateResearchQuestions(
     totalMemory
   });
 
-  const prompt = `You are the Brain of the research. 
-  
+  // PROMPT GOAL: Evaluate completed research and decide: spawn more questions OR synthesize final answer
+  const prompt = `You are the Brain of the research.
+
 Main research objective: 
 ${doc.objective}
 
@@ -378,6 +379,7 @@ ${sources}
 ${qdoc.limitations ? `\n**Limitations:** ${qdoc.limitations}` : ''}`;
   };
 
+  // PROMPT GOAL: Combine all research findings into one comprehensive final answer
   const prompt = `You are synthesizing the final research answer from ${questionDocs.length} research documents.
 
 OBJECTIVE: ${doc.objective}

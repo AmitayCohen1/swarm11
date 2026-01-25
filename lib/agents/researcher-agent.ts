@@ -122,6 +122,7 @@ export async function runResearchQuestionToCompletion(
     ).join('\n\n');
 
     // ============ STEP 1: SEARCH ============
+    // PROMPT GOAL: Execute one focused web search to gather information for the goal
     const searchPrompt = `You are researching: ${currentQuestion.question}
 GOAL: ${currentQuestion.goal}
 ${historyContext ? `\nPREVIOUS SEARCHES:\n${historyContext}\n` : ''}
@@ -216,6 +217,7 @@ Keep queries focused - one topic per search. You can do multiple searches.`;
     log(questionId, `Search answer length: ${searchAnswer.length}, first 200 chars: ${searchAnswer.substring(0, 200)}`);
 
     // ============ STEP 2: REFLECT ============
+    // PROMPT GOAL: Evaluate search result and decide: continue searching OR done
     const reflectPrompt = `You just searched for: "${searchQuery}"
 
 Result:
@@ -273,6 +275,7 @@ Set status="done" only when you've fully achieved the goal with specific facts a
     log(questionId, `Reflect: ${delta} - "${thought.substring(0, 50)}..." → ${status}`);
 
     // ============ STEP 3: COMPLETE (if done) ============
+    // PROMPT GOAL: Summarize all findings into a comprehensive markdown document
     if (status === 'done') {
       const completePrompt = `You've finished researching this question. Now summarize your findings.
 
@@ -325,6 +328,7 @@ Include key findings, sources, and any limitations.`;
   if (!questionDocument && searchHistory.length > 0) {
     log(questionId, `Loop exited without completion - generating fallback summary`);
 
+    // PROMPT GOAL: Generate best-effort summary when research ended early
     const fallbackPrompt = `Summarize what you found researching this question. Even if incomplete, provide the best answer possible.
 
 YOUR QUESTION: ${currentQuestion.question}
