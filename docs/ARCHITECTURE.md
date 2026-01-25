@@ -427,14 +427,11 @@ components/sessions/
 ```
 - currentQuestion.question
 - currentQuestion.goal
-- objective (main research objective)
-- siblingInfo (all questions with status indicators)
-- priorKnowledge (completed question documents from OTHER questions)
 - searchHistory (this question's previous searches + results)
 - previousQueries (list of queries to avoid repeating)
 ```
 
-**Important:** Each researcher sees sibling questions and completed docs to avoid duplication.
+**Important:** Each researcher is ISOLATED - no sibling context, no prior knowledge. Fully focused on its own question.
 
 ---
 
@@ -480,11 +477,11 @@ components/sessions/
 | Brain (kickoff) | No | No |
 | Brain (evaluate) | Yes (all) | Yes (all docs) |
 | Brain (synthesize) | Yes (all completed) | Yes (all docs) |
-| Researcher (search) | Yes (status only) | Yes (completed docs) |
+| Researcher (search) | No | No |
 | Researcher (reflect) | No | No |
 | Researcher (complete) | No | No |
 
-**Key principle:** Researchers see enough to avoid duplication but stay focused on their specific question.
+**Key principle:** Researchers are FULLY ISOLATED. Only the Brain sees the big picture.
 
 ---
 

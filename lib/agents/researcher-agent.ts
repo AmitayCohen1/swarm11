@@ -89,26 +89,6 @@ export async function runResearchQuestionToCompletion(
   const currentQuestion = getResearchQuestion(doc, questionId)!;
   log(questionId, `Starting: ${currentQuestion.name}`);
 
-  // Build context from sibling questions
-  const siblingInfo = doc.questions.map((q, i) => {
-    const isCurrent = q.id === questionId;
-    const icon = q.status === 'done' ? '✓' : q.status === 'running' ? '→' : '○';
-    return `${icon} ${i + 1}. ${q.name}${isCurrent ? ' ← YOU' : ''}`;
-  }).join('\n');
-
-  // Build context from completed questions
-  const completedDocs = doc.questions
-    .filter(q => q.status === 'done' && q.document && q.id !== questionId)
-    .map(q => {
-      const findings = q.document!.keyFindings.slice(0, 5).map(f => `  • ${f}`).join('\n');
-      return `### ${q.name}\n**Answer:** ${q.document!.answer.slice(0, 500)}${q.document!.answer.length > 500 ? '...' : ''}\n**Key Findings:**\n${findings}`;
-    })
-    .join('\n\n');
-
-  const priorKnowledge = completedDocs
-    ? `\n\n---\n\nPRIOR RESEARCH (build on this, don't duplicate):\n${completedDocs}`
-    : '';
-
   const MIN_SEARCHES_BEFORE_DONE = 4;
 
   onProgress?.({
@@ -144,15 +124,7 @@ export async function runResearchQuestionToCompletion(
     // ============ STEP 1: SEARCH ============
     const searchPrompt = `You are researching: ${currentQuestion.question}
 GOAL: ${currentQuestion.goal}
-
-OVERALL OBJECTIVE: ${objective}
-
-ALL QUESTIONS:
-${siblingInfo}
-${priorKnowledge}
-
 ${historyContext ? `\nPREVIOUS SEARCHES:\n${historyContext}\n` : ''}
-
 Don't repeat these queries:
 ${previousQueriesText}
 
@@ -254,16 +226,18 @@ ${searchSources.map(s => `- ${s.title || s.url}`).join('\n') || '(none)'}
 
 ---
 
+YOUR QUESTION: ${currentQuestion.question}
 YOUR GOAL: ${currentQuestion.goal}
+MAIN OBJECTIVE: ${objective}
 
-REFLECT SYSTEMATICALLY:
-1. What specific pieces of the goal do I now have? (names, numbers, facts)
-2. What's still missing to complete the deliverable?
-3. What's the most DIRECT next search to fill that gap?
+Searches so far: ${queriesExecuted.length}
 
-Stay focused on the GOAL. Don't explore tangents. Each search should get you closer to the specific deliverable.
+Reflect on what you learned. Think out loud like:
+- "Interesting, I found X... Now let me look for Y"
+- "Hmm, that didn't help much. Let me try Z instead"
+- "Good progress! I now know A, B, C. Still need to find D"
 
-Set status="done" when you can produce the deliverable. Set status="continue" if gaps remain.`;
+Set status="done" only when you've fully achieved the goal with specific facts and examples. Keep searching if gaps remain.`;
 
     log(questionId, `Cycle ${i + 1}: Reflecting...`);
 

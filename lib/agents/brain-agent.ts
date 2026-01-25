@@ -51,9 +51,9 @@ interface BrainAgentConfig {
 
 const QuestionSchema = z.object({
   name: z.string().describe('Tab label (2-4 words). E.g., "Podcast Networks"'),
-  question: z.string().describe('Short, precise question (max 15 words)'),
-  description: z.string().describe('How this helps the user (1-2 sentences)'),
-  goal: z.string().describe('CONCRETE deliverable with quantity. E.g., "List of 10 networks with contact pages" or "Top 5 pain points with examples". Must be countable/verifiable.'),
+  question: z.string().describe('Short, precise question (max 15 words). E.g., "Which podcast networks have the biggest advertising budgets?"'),
+  description: z.string().describe('Explain how this question helps the main objective (2-3 sentences). Start with "This will help us understand..."'),
+  goal: z.string().describe('What specific output we need (1 sentence). E.g., "List of 10+ networks with their estimated ad revenue."'),
 });
 
 const KickoffSchema = z.object({
@@ -103,37 +103,28 @@ export async function generateResearchQuestions(
   let doc = initialDoc;
   const questionIds: string[] = [];
 
-  log('generateResearchQuestions', `Generating strategy + ${count} questions for: ${doc.objective}`);
+  log('generateResearchQuestions', `Generating strategy + a few questions for: ${doc.objective}`);
 
+  // PROMPT GOAL: Generate initial batch of research questions to explore the biggest unknowns
   const prompt = `You are the brain of an autonomous research agent.
 
 OBJECTIVE: ${doc.objective}
 
-Generate ${count} research questions with SPECIFIC, CONCRETE targets.
+Your job is NOT to plan the entire research end-to-end. Instead, start witha few exploratory questions to answer the biggest unknowns and get a sense of the landscape.
 
-RULES FOR GOOD QUESTIONS:
-- Each question has ONE clear deliverable (a list, a ranking, specific names, etc.)
-- Targets must be actionable for the user's actual situation (not academic/theoretical)
-- Be specific about WHAT you want and HOW MANY
-- Each researcher works independently - make questions self-contained
-
-GOOD EXAMPLES:
-- "List 10 podcast networks that accept sponsored ads with their ad sales contact pages"
-- "Find 5 companies that recently hired for 'audio QA' or 'content moderation' roles"
-- "What are the top 3 compliance pain points for financial services call centers?"
-
-BAD EXAMPLES (too broad):
-- "Which industries face risk from audio misinformation?" (no deliverable)
-- "What does the podcast advertising landscape look like?" (too vague)
-- "How do companies handle audio fact-checking?" (academic, not actionable)
+Think of it like: "Before I can even plan this properly, I need to understand X, Y, and Z."
 
 Provide:
 
-1. STRATEGY - What specific outputs will answer the user's need? (2-3 sentences)
+1. STRATEGY - What are the biggest unknowns? What do you need to learn first?
+   Keep it short (2-3 sentences). Example:
+   "The biggest unknown is whether podcast networks even have public ad sales contacts. Let me also check what budget ranges look like. Once I see what's out there, I'll know where to dig deeper."
 
-2. QUESTIONS - ${count} questions with specific targets:
-   - State the exact deliverable (e.g., "list of 10", "top 5", "3 examples with contact info")
-   - Keep grounded in user's context - what would actually help them?`;
+2. QUESTIONS - ${count} exploratory questions:
+   - Each question runs IN PARALLEL by a separate researcher (they don't share context)
+   - Make each question SELF-CONTAINED - don't assume knowledge from other questions
+   - Answer the unknowns
+   - Keep them SHORT (max 15 words)`;
 
   onProgress?.({ type: 'brain_generating_questions', count });
 
@@ -236,44 +227,36 @@ export async function evaluateResearchQuestions(
     totalMemory
   });
 
-  const prompt = `You are the Brain, the strategic research orchestrator.
+  const prompt = `You are the Brain of the research. 
+  
+Main research objective: 
+${doc.objective}
 
-OBJECTIVE: ${doc.objective}
-
-SUCCESS CRITERIA:
+Success criteria:
 ${doc.successCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}
 
-CURRENT STATE:
+Current state:
 ${formatBrainDocForAgent(doc)}
 
-SUMMARY:
+Summary:
 ${getResearchQuestionsSummary(doc)}
 
 ---
 
-EVALUATE and DECIDE what to do next.
+Evaluate and decide what to do next: 
+- Do we have enough information to answer the main research objective?
+- If not, what do we want to learn next? Which research questions could get us closer to understanding the main research objective?
 
-YOUR RESPONSE MUST INCLUDE:
-1. KEY FINDINGS - Summarize what we learned (2-3 sentences). Be specific: names, numbers, facts.
-   Example: "We identified 15 podcast networks including Gimlet, Wondery, and iHeart. Found that Gimlet was acquired by Spotify for $230M..."
-
-2. GAPS - What's still missing to satisfy success criteria?
-   Example: "We still need direct contact emails for ad sales teams and typical budget ranges."
-
-3. REASONING - Your decision based on findings and gaps.
-   Example: "We have good coverage of networks but lack actionable contact info. Let's dig into specific contact details..."
-
-OPTIONS:
-- SPAWN_NEW: Create 1-3 new research questions to run IN PARALLEL
-- SYNTHESIZE: We have enough, finish the research
+  Your response must include:
+  - KEY FINDINGS - Summarize what we learned (2-3 sentences). Be specific: names, numbers, facts.
+  - GAPS - What's still missing to satisfy success criteria?
+  - REASONING - Your decision based on findings and gaps.
 
 CRITICAL BEHAVIOR:
-- This is iterative - can take MANY ROUNDS (10–20+) if needed.
-- For EACH success criterion: is it covered or not?
-- Only SYNTHESIZE if ALL criteria are covered OR gaps are declared unfindable.
-- When spawning, provide 1-3 questions that explore DIFFERENT gaps (they run in parallel, don't share context)
-- New questions must be SHORT and SPECIFIC (max 15 words each).
-
+- This is iterative - can take many rounds if needed.
+- Only synthesize if ALL success criteria are covered OR gaps are declared unfindable.
+- When spawning, provide questions that explore different gaps (they run in parallel, don't share context)
+- New questions must be short and specific (max 15 words each).
 `;
 
   onProgress?.({ type: 'brain_evaluating' });
