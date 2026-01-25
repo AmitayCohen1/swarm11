@@ -1,15 +1,11 @@
 /**
- * Main Loop
+ * Main Loop - Research Orchestration
  *
- * The control flow that runs the research system.
- * Not an agent - just code that calls agents in order.
- *
- * Flow: Intake → Generate Questions → Run Researchers → Evaluate → Synthesize
- *
- * Handles:
- * - DB persistence (brain field in chatSessions)
- * - Progress event streaming
- * - Abort/resume handling
+ * Flow:
+ * 1. Initialize doc
+ * 2. Generate first batch of questions
+ * 3. Loop: run questions → brain evaluates → continue or synthesize
+ * 4. Synthesize final answer
  */
 
 import { db } from '@/lib/db';
@@ -30,13 +26,16 @@ import {
   addResearchQuestion,
   startResearchQuestion,
   getPendingResearchQuestions,
-  getRunningResearchQuestions,
   getCompletedResearchQuestions,
   addBrainDecision,
   setDocStatus,
   compactBrainDoc,
   incrementResearchRound,
 } from '@/lib/utils/question-operations';
+
+// ============================================================
+// Types
+// ============================================================
 
 interface MainLoopConfig {
   chatSessionId: string;
@@ -51,7 +50,6 @@ interface MainLoopConfig {
 interface MainLoopResult {
   completed: boolean;
   totalResearchQuestions: number;
-  totalCycles: number;
   creditsUsed: number;
   output: {
     confidenceLevel: 'low' | 'medium' | 'high';
@@ -59,115 +57,53 @@ interface MainLoopResult {
   };
 }
 
-// Logging helper
-const log = (phase: string, message: string, data?: any) => {
-  const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
-  const prefix = `[MainLoop ${timestamp}]`;
-  if (data) {
-    console.log(`${prefix} [${phase}] ${message}`, JSON.stringify(data, null, 2));
-  } else {
-    console.log(`${prefix} [${phase}] ${message}`);
-  }
+// ============================================================
+// Config
+// ============================================================
+
+const CONFIG = {
+  maxRounds: Number(process.env.BRAIN_MAX_EVAL_ROUNDS || 50),
+  maxTimeMs: Number(process.env.BRAIN_MAX_WALL_TIME_MS || 15 * 60 * 1000),
+  maxCredits: Number(process.env.BRAIN_MAX_CREDITS_BUDGET || 1000),
+  initialQuestions: 3,
 };
 
-/**
- * Execute the full Brain research flow
- */
-export async function runMainLoop(
-  config: MainLoopConfig
-): Promise<MainLoopResult> {
-  const {
-    chatSessionId,
-    researchSessionId,
-    userId,
-    researchBrief,
-    existingBrain = '',
-    onProgress,
-    abortSignal
-  } = config;
+// ============================================================
+// Main Loop
+// ============================================================
 
-  // Max research rounds (rounds of questions + evaluation). Still bounded by guardrails (time/budget/user stop).
-  const MAX_EVAL_ROUNDS = Number(process.env.BRAIN_MAX_EVAL_ROUNDS || 50);
-  const INITIAL_QUESTIONS = 3;
-  const START_TIME_MS = Date.now();
-  const MAX_WALL_TIME_MS = Number(process.env.BRAIN_MAX_WALL_TIME_MS || 15 * 60 * 1000); // default 15 minutes
-  const MAX_CREDITS_BUDGET = Number(process.env.BRAIN_MAX_CREDITS_BUDGET || 1000); // rough tokens/1k budget
+export async function runMainLoop(config: MainLoopConfig): Promise<MainLoopResult> {
+  const { chatSessionId, researchSessionId, researchBrief, existingBrain, onProgress, abortSignal } = config;
 
-  let totalCreditsUsed = 0;
-  let totalCycles = 0;
-  let evalRound = 0;
-  let forceSynthesize = false;
+  const startTime = Date.now();
+  let creditsUsed = 0;
+  let round = 0;
 
-  log('INIT', '========== RESEARCH STARTED ==========');
-  log('INIT', 'Config:', {
-    chatSessionId,
-    researchSessionId,
-    objective: researchBrief.objective,
-    successCriteria: researchBrief.successCriteria,
-    hasExistingBrain: !!existingBrain
-  });
+  // --- Helpers ---
 
-  // ============================================================
-  // HELPERS
-  // ============================================================
-
-  const checkAborted = async () => {
-    if (abortSignal?.aborted) {
-      throw new Error('Research aborted');
-    }
-    const [session] = await db
-      .select({ status: chatSessions.status })
-      .from(chatSessions)
-      .where(eq(chatSessions.id, chatSessionId));
-    if (session?.status !== 'researching') {
-      throw new Error('Research stopped by user');
-    }
-  };
-
-  const checkGuardrails = () => {
-    const elapsed = Date.now() - START_TIME_MS;
-    if (elapsed > MAX_WALL_TIME_MS) {
-      forceSynthesize = true;
-      return;
-    }
-    if (totalCreditsUsed >= MAX_CREDITS_BUDGET) {
-      forceSynthesize = true;
-    }
-  };
-
-  const emitProgress = async (eventOrType: string | { type: string; [key: string]: any }, data: any = {}) => {
-    // Support both calling conventions:
-    // emitProgress('type', { data }) - from orchestrator
-    // emitProgress({ type: 'type', ...data }) - from question agent
-    let event: { type: string; [key: string]: any };
-
-    if (typeof eventOrType === 'string') {
-      event = { type: eventOrType, ...data };
-    } else {
-      event = eventOrType;
-    }
-
-    onProgress?.(event);
-
-    // Save to DB on every doc_updated event for real-time persistence
-    if (event.type === 'doc_updated' && event.doc) {
-      await saveDocToDb(event.doc);
-    }
-  };
-
-  const saveDocToDb = async (doc: BrainDoc) => {
-    // Compact before storage/streaming to keep brain bounded
+  const save = async (doc: BrainDoc) => {
     const compacted = compactBrainDoc(doc);
-    const serializedBrain = serializeBrainDoc(compacted);
-    await db
-      .update(chatSessions)
-      .set({ brain: serializedBrain, updatedAt: new Date() })
-      .where(eq(chatSessions.id, chatSessionId));
-    emitProgress('brain_update', { brain: serializedBrain });
-    return serializedBrain;
+    const serialized = serializeBrainDoc(compacted);
+    await db.update(chatSessions).set({ brain: serialized, updatedAt: new Date() }).where(eq(chatSessions.id, chatSessionId));
+    onProgress?.({ type: 'brain_update', brain: serialized });
   };
 
-  const trackQueries = async (queries: string[], cycleNumber: number) => {
+  const emit = (type: string, data: any = {}) => {
+    onProgress?.({ type, ...data });
+  };
+
+  const checkAbort = async () => {
+    if (abortSignal?.aborted) throw new Error('Research aborted');
+    const [session] = await db.select({ status: chatSessions.status }).from(chatSessions).where(eq(chatSessions.id, chatSessionId));
+    if (session?.status !== 'researching') throw new Error('Research stopped');
+  };
+
+  const shouldStop = () => {
+    const elapsed = Date.now() - startTime;
+    return elapsed > CONFIG.maxTimeMs || creditsUsed >= CONFIG.maxCredits || round >= CONFIG.maxRounds;
+  };
+
+  const trackQueries = async (queries: string[]) => {
     for (const query of queries) {
       await db.insert(searchQueries).values({
         researchSessionId,
@@ -176,280 +112,124 @@ export async function runMainLoop(
         purpose: '',
         answer: '',
         sources: [],
-        cycleNumber
+        cycleNumber: round
       }).onConflictDoNothing();
     }
   };
 
-  // ============================================================
-  // PHASE 1: INITIALIZE BRAIN DOC
-  // ============================================================
-
-  log('PHASE1', '══════════════════════════════════════════════════════════');
-  log('PHASE1', 'INITIALIZE BRAIN DOC');
-
-  await checkAborted();
-  checkGuardrails();
+  // --- 1. Initialize ---
 
   let doc: BrainDoc;
-  const existingDoc = parseBrainDoc(existingBrain);
+  const existing = parseBrainDoc(existingBrain || '');
 
-  if (existingDoc && existingDoc.version === 1) {
-    log('PHASE1', 'Resuming from existing BrainDoc', {
-      questions: existingDoc.questions.length,
-      status: existingDoc.status
-    });
-    doc = existingDoc;
+  if (existing?.version === 1) {
+    doc = existing;
   } else {
-    log('PHASE1', 'Creating new BrainDoc');
-    doc = initializeBrainDoc(
-      researchBrief.objective,
-      researchBrief.successCriteria || []
-    );
+    doc = initializeBrainDoc(researchBrief.objective, researchBrief.successCriteria || []);
   }
 
-  await saveDocToDb(doc);
-  log('PHASE1', 'Doc saved to DB');
+  await save(doc);
+  emit('brain_initialized', { objective: doc.objective, successCriteria: doc.successCriteria });
 
-  emitProgress('brain_initialized', {
-    objective: doc.objective,
-    successCriteria: doc.successCriteria,
-    version: 1
-  });
+  // --- 2. Generate first questions ---
 
-  // ============================================================
-  // PHASE 2: GENERATE INITIAL QUESTIONS
-  // ============================================================
-
-  log('PHASE2', '══════════════════════════════════════════════════════════');
-  log('PHASE2', 'GENERATE QUESTIONS');
-
-  await checkAborted();
-  checkGuardrails();
-
-  // Only generate if no questions exist
   if (doc.questions.length === 0) {
-    log('PHASE2', `Generating ${INITIAL_QUESTIONS} questions...`);
-
-    const genResult = await generateResearchQuestions({
+    const result = await generateResearchQuestions({
       doc,
-      count: INITIAL_QUESTIONS,
+      count: CONFIG.initialQuestions,
       abortSignal,
-      onProgress: emitProgress
+      onProgress
     });
-
-    doc = genResult.doc;
-    totalCreditsUsed += genResult.creditsUsed;
-    await saveDocToDb(doc);
-
-    log('PHASE2', `Generated ${genResult.questionIds.length} questions:`,
-      doc.questions.map(i => ({ id: i.id, name: i.name }))
-    );
-  } else {
-    log('PHASE2', `Using ${doc.questions.length} existing questions`);
+    doc = result.doc;
+    creditsUsed += result.creditsUsed;
+    await save(doc);
   }
 
-  emitProgress('doc_updated', { doc });
+  emit('doc_updated', { doc });
 
-  // ============================================================
-  // PHASE 3: RUN QUESTIONS
-  // ============================================================
+  // --- 3. Research loop ---
 
-  log('PHASE3', '══════════════════════════════════════════════════════════');
-  log('PHASE3', 'EXECUTE QUESTIONS');
+  while (!shouldStop()) {
+    round++;
+    await checkAbort();
 
-  // Main evaluation loop
-  while (evalRound < MAX_EVAL_ROUNDS) {
-    evalRound++;
-    await checkAborted();
-    checkGuardrails();
-    if (forceSynthesize) {
-      doc = addBrainDecision(doc, 'synthesize', 'Guardrail triggered (time/budget). Synthesizing with current evidence.');
-      doc = setDocStatus(doc, 'synthesizing');
-      await saveDocToDb(doc);
-      break;
-    }
-
-    log('PHASE3', `──────────────────────────────────────────────────────────`);
-    log('PHASE3', `EVAL ROUND ${evalRound}/${MAX_EVAL_ROUNDS}`);
-
-    // Get questions to run
+    // Run all pending questions
     const pending = getPendingResearchQuestions(doc);
-    const running = getRunningResearchQuestions(doc);
-    const completed = getCompletedResearchQuestions(doc);
 
-    log('PHASE3', 'ResearchQuestion status:', {
-      pending: pending.length,
-      running: running.length,
-      completed: completed.length,
-      pendingIds: pending.map(i => i.id)
-    });
+    for (const question of pending) {
+      await checkAbort();
+      if (shouldStop()) break;
 
-    // Run pending questions (v1: sequential)
-    for (let idx = 0; idx < pending.length; idx++) {
-      const question = pending[idx];
-      await checkAborted();
-      checkGuardrails();
-      if (forceSynthesize) break;
-
-      log('PHASE3', `┌─ QUESTION ${idx + 1}/${pending.length}: ${question.id}`);
-      log('PHASE3', `│  Name: ${question.name}`);
-      log('PHASE3', `│  Goal: ${question.goal}`);
-
-      // Mark as running
       doc = startResearchQuestion(doc, question.id);
-      await saveDocToDb(doc);
+      await save(doc);
+      emit('question_started', { questionId: question.id, name: question.name, goal: question.goal });
 
-      emitProgress('question_started', {
-        questionId: question.id,
-        name: question.name,
-        goal: question.goal
-      });
-
-      log('PHASE3', `│  Running question to completion...`);
-
-      // Run to completion
-      const initResult = await runResearchQuestionToCompletion({
+      const result = await runResearchQuestionToCompletion({
         doc,
         questionId: question.id,
         objective: doc.objective,
         successCriteria: doc.successCriteria,
         abortSignal,
-        onProgress: emitProgress
+        onProgress
       });
 
-      doc = initResult.doc;
-      totalCreditsUsed += initResult.creditsUsed;
-      totalCycles += initResult.queriesExecuted.length > 0 ? 1 : 0;
-      checkGuardrails();
-
-      // Track queries
-      await trackQueries(initResult.queriesExecuted, evalRound);
-
-      await saveDocToDb(doc);
-      emitProgress('doc_updated', { doc });
-
-      const completedInit = doc.questions.find(i => i.id === question.id);
-      log('PHASE3', `└─ QUESTION COMPLETE: ${question.id}`, {
-        memoryEntries: completedInit?.memory.length || 0,
-        searches: initResult.queriesExecuted.length,
-        confidence: completedInit?.confidence,
-        recommendation: completedInit?.recommendation
-      });
+      doc = result.doc;
+      creditsUsed += result.creditsUsed;
+      await trackQueries(result.queriesExecuted);
+      await save(doc);
+      emit('doc_updated', { doc });
     }
 
-    // ============================================================
-    // EVALUATE AND DECIDE
-    // ============================================================
-
-    await checkAborted();
-    checkGuardrails();
-    if (forceSynthesize) {
-      doc = addBrainDecision(doc, 'synthesize', 'Guardrail triggered (time/budget). Synthesizing with current evidence.');
+    // Brain evaluates
+    if (shouldStop()) {
+      doc = addBrainDecision(doc, 'synthesize', 'Guardrail triggered. Synthesizing with current evidence.');
       doc = setDocStatus(doc, 'synthesizing');
-      await saveDocToDb(doc);
+      await save(doc);
       break;
     }
 
-    log('PHASE3', 'Evaluating questions...');
-
-    const evalResult = await evaluateResearchQuestions({
-      doc,
-      abortSignal,
-      onProgress: emitProgress
-    });
-
+    const evalResult = await evaluateResearchQuestions({ doc, abortSignal, onProgress });
     doc = evalResult.doc;
-    totalCreditsUsed += evalResult.creditsUsed;
-    await saveDocToDb(doc);
-    checkGuardrails();
+    creditsUsed += evalResult.creditsUsed;
+    await save(doc);
 
-    log('PHASE3', `BRAIN DECISION: ${evalResult.nextAction.action}`, {
-      reasoning: evalResult.reasoning,
-      nextAction: evalResult.nextAction
-    });
-
-    // Handle the decision
+    // Decide: synthesize or continue
     if (evalResult.nextAction.action === 'synthesize') {
-      log('PHASE3', 'Decision: SYNTHESIZE - moving to Phase 4');
       break;
     }
 
+    // Spawn new questions
     if (evalResult.nextAction.action === 'spawn_new') {
-      const { questions } = evalResult.nextAction;
-      log('PHASE3', 'Decision: SPAWN_NEW', { count: questions.length, questions });
-      // Increment research round before adding new questions
       doc = incrementResearchRound(doc);
-      for (const q of questions) {
+      for (const q of evalResult.nextAction.questions) {
         doc = addResearchQuestion(doc, q.name, q.question, q.goal, 30, q.description);
       }
-      await saveDocToDb(doc);
-      continue;
+      await save(doc);
     }
   }
 
-  // ============================================================
-  // PHASE 4: SYNTHESIZE
-  // ============================================================
+  // --- 4. Synthesize ---
 
-  log('PHASE4', '══════════════════════════════════════════════════════════');
-  log('PHASE4', 'SYNTHESIZE FINAL ANSWER');
+  emit('synthesizing_started');
 
-  await checkAborted();
-  // Even if guardrail triggered, we still synthesize whatever we have.
-  emitProgress('synthesizing_started');
-
-  log('PHASE4', 'Generating final synthesis...');
-
-  const synthResult = await synthesizeFinalAnswer({
-    doc,
-    abortSignal,
-    onProgress: emitProgress
-  });
-
+  const synthResult = await synthesizeFinalAnswer({ doc, abortSignal, onProgress });
   doc = synthResult.doc;
-  totalCreditsUsed += synthResult.creditsUsed;
+  creditsUsed += synthResult.creditsUsed;
+  await save(doc);
 
-  await saveDocToDb(doc);
+  // --- Done ---
 
-  log('PHASE4', 'Synthesis complete', {
-    confidence: synthResult.confidence,
-    answerLength: synthResult.finalAnswer.length
-  });
-
-  // ============================================================
-  // COMPLETE
-  // ============================================================
-
-  const completedInits = getCompletedResearchQuestions(doc);
-  const totalMemory = doc.questions.reduce(
-    (sum, q) => sum + q.memory.length,
-    0
-  );
-
-  log('DONE', '══════════════════════════════════════════════════════════');
-  log('DONE', '========== RESEARCH COMPLETE ==========');
-  log('DONE', 'Final stats:', {
+  const completed = getCompletedResearchQuestions(doc);
+  emit('research_complete', {
     totalResearchQuestions: doc.questions.length,
-    completedResearchQuestions: completedInits.length,
-    totalMemory,
-    totalCycles,
-    totalCreditsUsed,
-    confidence: synthResult.confidence
-  });
-
-  emitProgress('research_complete', {
-    totalResearchQuestions: doc.questions.length,
-    completedResearchQuestions: completedInits.length,
-    totalMemory,
+    completedResearchQuestions: completed.length,
     confidence: synthResult.confidence
   });
 
   return {
     completed: true,
     totalResearchQuestions: doc.questions.length,
-    totalCycles,
-    creditsUsed: totalCreditsUsed,
+    creditsUsed,
     output: {
       confidenceLevel: synthResult.confidence,
       finalAnswer: synthResult.finalAnswer

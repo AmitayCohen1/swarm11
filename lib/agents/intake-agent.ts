@@ -52,6 +52,7 @@ const startResearch = tool({
 });
 
 
+  // PROMPT GOAL: Clarify user intent and gather enough info to start research
   const INTAKE_INSTRUCTIONS = `You are the research intake agent.
   You are the first step user will take when he wants to research something. After talking to you, the research agent will start researching.
   Your job is to ensure the research agent have enough information to perform the research and provide relevant results.

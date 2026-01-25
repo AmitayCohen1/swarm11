@@ -39,25 +39,21 @@ const log = (fn: string, message: string, data?: any) => {
   }
 };
 
-interface BrainAgentConfig {
-  doc: BrainDoc;
-  abortSignal?: AbortSignal;
-  onProgress?: (update: any) => void;
-}
+
 
 // ============================================================
 // Schemas
 // ============================================================
 
 const QuestionSchema = z.object({
-  name: z.string().describe('Tab label (2-4 words). E.g., "Podcast Networks"'),
-  question: z.string().describe('Short, precise question (max 15 words). E.g., "Which podcast networks have the biggest advertising budgets?"'),
-  description: z.string().describe('Explain how this question helps the main objective (2-3 sentences). Start with "This will help us understand..."'),
-  goal: z.string().describe('What specific output we need (1 sentence). E.g., "List of 10+ networks with their estimated ad revenue."'),
+  name: z.string().describe('Tab label (2-4 words).'),
+  question: z.string().describe('Short, precise question (max 15 words).'),
+  description: z.string().describe('Explain how this question helps the main objective (2-3 sentences). '),
+  goal: z.string().describe('Whats the goal of that question? Must be a single goal, and very spesific and clear.'),
 });
 
 const KickoffSchema = z.object({
-  strategy: z.string().describe('Your initial thinking about the biggest unknowns. What do we need to figure out first? (2-3 sentences, conversational)'),
+  strategy: z.string().describe('Your initial thinking about the biggest unknowns. Where do we start the research? What should we understand first?'),
   questions: z.array(QuestionSchema).min(1).max(5).describe('Parallel research questions'),
 });
 
@@ -110,20 +106,15 @@ export async function generateResearchQuestions(
 
 OBJECTIVE: ${doc.objective}
 
-Your job is NOT to plan the entire research end-to-end. Instead, start witha few exploratory questions to answer the biggest unknowns and get a sense of the landscape.
+Your job is to start witha few exploratory questions to answer the biggest unknowns and get a sense of the landscape.
 
-Think of it like: "Before I can even plan this properly, I need to understand X, Y, and Z."
 
 Provide:
 
 1. STRATEGY - What are the biggest unknowns? What do you need to learn first?
-   Keep it short (2-3 sentences). Example:
-   "The biggest unknown is whether podcast networks even have public ad sales contacts. Let me also check what budget ranges look like. Once I see what's out there, I'll know where to dig deeper."
-
-2. QUESTIONS - ${count} exploratory questions:
-   - Each question runs IN PARALLEL by a separate researcher (they don't share context)
-   - Make each question SELF-CONTAINED - don't assume knowledge from other questions
-   - Answer the unknowns
+2. QUESTIONS - a few short exploratory questions:
+   - Each question runs IN PARALLEL by a separate researcher (they don't share context).
+   - Answer the biggest unknowns, start broad and slowly narrow down.
    - Keep them SHORT (max 15 words)`;
 
   onProgress?.({ type: 'brain_generating_questions', count });
