@@ -1,7 +1,7 @@
 import { generateText, tool } from 'ai';
 import { anthropic } from '@ai-sdk/anthropic';
 import { z } from 'zod';
-import { search } from '../tools/perplexity-search';
+import { searchWeb } from '../research/search';
 
 export interface ResearchBrief {
   objective: string;
@@ -49,6 +49,18 @@ const startResearch = tool({
     objective: z.string().describe('Clear research objective'),
     successCriteria: z.array(z.string()).min(1).max(4).describe('1-4 success criteria')
   })
+});
+
+// Search tool wrapper for intake
+const search = tool({
+  description: 'Search the web to look up unfamiliar companies, products, or terms',
+  inputSchema: z.object({
+    query: z.string().describe('The search query')
+  }),
+  execute: async ({ query }) => {
+    const result = await searchWeb(query);
+    return { query, answer: result.answer, sources: result.sources };
+  }
 });
 
 
@@ -141,32 +153,16 @@ export async function analyzeUserMessage(
   const searchCall = result1.toolCalls?.find((tc: any) => tc.toolName === 'search');
 
   if (searchCall) {
-    // Debug: log the full structures
-    console.log('[Intake] ======= SEARCH DEBUG =======');
-    console.log('[Intake] searchCall keys:', Object.keys(searchCall));
-    console.log('[Intake] searchCall.input:', JSON.stringify(searchCall.input, null, 2));
-    console.log('[Intake] result1.toolResults:', JSON.stringify(result1.toolResults, null, 2)?.substring(0, 2000));
-
-    // Extract query from input (Anthropic AI SDK uses .input for tool call arguments)
-    const searchArgs = (searchCall.input || searchCall.args || {}) as any;
-    const query = searchArgs?.queries?.[0]?.query || '';
-    console.log('[Intake] Extracted query:', query);
+    const searchArgs = (searchCall as any).input || {};
+    const query = searchArgs?.query || '';
+    console.log('[Intake] Search query:', query);
     onProgress?.({ type: 'intake_searching', query });
 
-    // Get search result - toolResults contains the executed tool results
+    // Get search result from toolResults
     const searchResult = result1.toolResults?.find((tr: any) => tr.toolName === 'search') as any;
-    console.log('[Intake] searchResult keys:', searchResult ? Object.keys(searchResult) : 'null');
-
-    // The result structure: { toolCallId, toolName, output: { count, results: [{ query, answer, ... }], timestamp } }
-    // Note: Anthropic SDK uses .output, not .result
-    const toolOutput = searchResult?.output || searchResult?.result;
-    console.log('[Intake] toolOutput keys:', toolOutput ? Object.keys(toolOutput) : 'null');
-    console.log('[Intake] toolOutput.results[0]:', JSON.stringify(toolOutput?.results?.[0], null, 2)?.substring(0, 500));
-
-    // Extract answer from the nested structure
-    const answer = toolOutput?.results?.[0]?.answer || 'No results found';
-    console.log('[Intake] Final answer length:', answer.length);
-    console.log('[Intake] ======= END DEBUG =======');
+    const toolOutput = searchResult?.output || searchResult?.result || {};
+    const answer = toolOutput?.answer || 'No results found';
+    console.log('[Intake] Search answer length:', answer.length);
 
     onProgress?.({ type: 'intake_search_complete', query, answer });
 

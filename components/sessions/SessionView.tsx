@@ -509,6 +509,7 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
   const [inputMessage, setInputMessage] = useState('');
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [showLogs, setShowLogs] = useState(false);
+  const [logTab, setLogTab] = useState<'events' | 'memory'>('events');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
@@ -962,17 +963,33 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
       {/* Logs Panel */}
       <div className={cn(
         "h-full bg-[#0a0a0a] border-l border-white/5 flex flex-col transition-all duration-300 overflow-hidden",
-        showLogs ? "w-80" : "w-0"
+        showLogs ? "w-96" : "w-0"
       )}>
         {showLogs && (
           <>
             <div className="h-14 flex items-center justify-between px-4 border-b border-white/5 shrink-0">
               <div className="flex items-center gap-2">
-                <Activity className="w-4 h-4 text-blue-400" />
-                <span className="text-sm font-bold text-white">Event Log</span>
-                <span className="text-[10px] font-bold text-slate-500 bg-white/5 px-1.5 py-0.5 rounded">
-                  {eventLog.length}
-                </span>
+                <button
+                  onClick={() => setLogTab('events')}
+                  className={cn(
+                    "flex items-center gap-1.5 px-2 py-1 rounded text-xs font-bold transition-colors",
+                    logTab === 'events' ? "bg-white/10 text-white" : "text-slate-500 hover:text-slate-300"
+                  )}
+                >
+                  <Activity className="w-3 h-3" />
+                  Events
+                  <span className="text-[9px] bg-white/5 px-1 rounded">{eventLog.length}</span>
+                </button>
+                <button
+                  onClick={() => setLogTab('memory')}
+                  className={cn(
+                    "flex items-center gap-1.5 px-2 py-1 rounded text-xs font-bold transition-colors",
+                    logTab === 'memory' ? "bg-white/10 text-white" : "text-slate-500 hover:text-slate-300"
+                  )}
+                >
+                  <Brain className="w-3 h-3" />
+                  Memory
+                </button>
               </div>
               <Button
                 variant="ghost"
@@ -985,38 +1002,47 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
             </div>
 
             <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-1">
-              {eventLog.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-32 text-slate-600">
-                  <Activity className="w-6 h-6 mb-2 opacity-50" />
-                  <p className="text-xs font-medium">No events yet</p>
-                </div>
-              ) : (
-                eventLog.map((entry) => (
-                  <div
-                    key={entry.id}
-                    className="group flex items-start gap-2 p-2 rounded-lg hover:bg-white/2 transition-colors"
-                  >
-                    <div className={cn(
-                      "w-5 h-5 rounded flex items-center justify-center shrink-0 mt-0.5",
-                      getLogColor(entry.icon)
-                    )}>
-                      {getLogIcon(entry.icon)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-slate-300 truncate">
-                        {entry.label}
-                      </p>
-                      {entry.detail && (
-                        <p className="text-[10px] text-slate-500 truncate mt-0.5">
-                          {entry.detail}
-                        </p>
-                      )}
-                      <p className="text-[9px] text-slate-600 mt-1 font-mono">
-                        {new Date(entry.timestamp).toLocaleTimeString()}
-                      </p>
-                    </div>
+              {logTab === 'events' ? (
+                eventLog.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-32 text-slate-600">
+                    <Activity className="w-6 h-6 mb-2 opacity-50" />
+                    <p className="text-xs font-medium">No events yet</p>
                   </div>
-                ))
+                ) : (
+                  eventLog.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="group flex items-start gap-2 p-2 rounded-lg hover:bg-white/2 transition-colors"
+                    >
+                      <div className={cn(
+                        "w-5 h-5 rounded flex items-center justify-center shrink-0 mt-0.5",
+                        getLogColor(entry.icon)
+                      )}>
+                        {getLogIcon(entry.icon)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-slate-300 truncate">
+                          {entry.label}
+                        </p>
+                        {entry.detail && (
+                          <p className="text-[10px] text-slate-500 truncate mt-0.5">
+                            {entry.detail}
+                          </p>
+                        )}
+                        <p className="text-[9px] text-slate-600 mt-1 font-mono">
+                          {new Date(entry.timestamp).toLocaleTimeString()}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )
+              ) : (
+                <div className="space-y-3">
+                  <div className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">Brain State</div>
+                  <pre className="text-[10px] text-slate-400 font-mono whitespace-pre-wrap break-all bg-black/30 p-3 rounded-lg border border-white/5 max-h-[calc(100vh-200px)] overflow-auto">
+                    {researchDoc ? JSON.stringify(researchDoc, null, 2) : 'No brain state'}
+                  </pre>
+                </div>
               )}
               <div ref={logsEndRef} />
             </div>

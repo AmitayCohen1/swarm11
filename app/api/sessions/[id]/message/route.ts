@@ -4,11 +4,7 @@ import { db } from '@/lib/db';
 import { chatSessions, users, researchSessions } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { analyzeUserMessage } from '@/lib/agents/intake-agent';
-import { runMainLoop } from '@/lib/agents/main-loop';
-import {
-  initializeBrainDoc,
-  serializeBrainDoc
-} from '@/lib/utils/question-operations';
+import { runResearch } from '@/lib/research/run';
 
 // export const maxDuration = 300; // 5 minutes
 
@@ -228,20 +224,9 @@ export async function POST(
               return;
             }
 
-            // POC: Credit checks disabled - free to use
-            // TODO: Enable credit checks before production launch
-
-            // Initialize BrainDoc with objective and success criteria
-            const newDoc = initializeBrainDoc(
-              researchBrief.objective,
-              researchBrief.successCriteria || []
-            );
-            const serializedBrain = serializeBrainDoc(newDoc);
-
             await db
               .update(chatSessions)
               .set({
-                brain: serializedBrain,
                 status: 'researching',
                 updatedAt: new Date()
               })
@@ -260,7 +245,7 @@ export async function POST(
 
             const researchSessionId = researchSession.id;
 
-            // Send confirmation message if provided, otherwise default message
+            // Send confirmation message
             const startMessage = decision.message || "Starting research now...";
 
             sendEvent({
@@ -283,57 +268,30 @@ export async function POST(
               })
               .where(eq(chatSessions.id, sessionId));
 
-            // Start research
             sendEvent({
               type: 'research_started',
               objective: researchBrief.objective,
               brief: researchBrief
             });
 
-            // Emit brain update with new structured memory
-            sendEvent({
-              type: 'brain_update',
-              brain: serializedBrain
-            });
-
             let researchResult: any = null;
             try {
-              researchResult = await runMainLoop({
+              researchResult = await runResearch({
                 chatSessionId: sessionId,
-                researchSessionId,
-                userId: user.id,
                 researchBrief,
-                existingBrain: serializedBrain,
-                onProgress: (update) => {
-                  // Forward all progress events to frontend
-                  sendEvent(update);
-                }
+                onProgress: (update) => sendEvent(update)
               });
-              // (researchResult used below for final answer)
             } catch (researchError: any) {
-              // Check if research was stopped by user
               if (researchError.message === 'Research stopped by user') {
-                // Update research session status
                 await db
                   .update(researchSessions)
                   .set({ status: 'stopped', completedAt: new Date() })
                   .where(eq(researchSessions.id, researchSessionId));
 
-                sendEvent({
-                  type: 'message',
-                  message: 'Research stopped.',
-                  role: 'assistant',
-                  metadata: { researchStep: 'stopped' }
-                });
-                sendEvent({
-                  type: 'complete'
-                });
-                return; // Exit early
+                sendEvent({ type: 'message', message: 'Research stopped.', role: 'assistant' });
+                sendEvent({ type: 'complete' });
+                return;
               }
-
-              // POC: Credit error handling disabled
-
-              // Re-throw other errors to be caught by outer catch
               throw researchError;
             }
 
@@ -343,45 +301,21 @@ export async function POST(
               .update(researchSessions)
               .set({
                 status: 'completed',
-                confidenceLevel: output?.confidenceLevel,
                 finalAnswer: output?.finalAnswer,
-                totalSteps: researchResult?.totalResearchQuestions || 0,
-                totalCost: researchResult?.creditsUsed || 0,
+                totalSteps: researchResult?.totalQuestions || 0,
                 completedAt: new Date()
               })
               .where(eq(researchSessions.id, researchSessionId));
 
-            // Get final answer from structured output - typed by ResearchOutputSchema
+            // Get final answer
+            const finalMessage = output?.finalAnswer?.trim() ||
+              '**Research Complete**\n\nI\'ve finished researching this topic.';
+
+            // Get current messages
             const [updatedSession] = await db
               .select({ messages: chatSessions.messages })
               .from(chatSessions)
               .where(eq(chatSessions.id, sessionId));
-
-            // Build final message from structured output
-            let finalMessage = '';
-
-            if (output?.finalAnswer?.trim()) {
-              // Primary: use the finalAnswer markdown
-              finalMessage = output.finalAnswer.trim();
-            } else if (output?.keyFindings?.length || output?.recommendedActions?.length) {
-              // Fallback: build from structured fields
-              const parts: string[] = ['**Research Complete**\n'];
-
-              if (output.keyFindings?.length) {
-                parts.push('**Key Findings:**');
-                output.keyFindings.forEach((f: string) => parts.push(`- ${f}`));
-                parts.push('');
-              }
-
-              if (output.recommendedActions?.length) {
-                parts.push('**Recommended Actions:**');
-                output.recommendedActions.forEach((a: string) => parts.push(`- ${a}`));
-              }
-
-              finalMessage = parts.join('\n');
-            } else {
-              finalMessage = '**Research Complete**\n\nI\'ve finished researching this topic. Check the findings above for details.';
-            }
 
             const updatedConversation = (updatedSession?.messages as any[] || []).concat([{
               role: 'assistant',
