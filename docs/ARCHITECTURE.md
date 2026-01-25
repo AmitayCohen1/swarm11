@@ -63,7 +63,7 @@ PHASE 4: Synthesize Final Answer
 **Evaluation Decisions:**
 | Action | When |
 |--------|------|
-| `spawn_new` | Gap identified, need new angle |
+| `spawn_new` | Gap identified, spawns 1-3 new questions in parallel |
 | `synthesize` | Sufficient evidence gathered |
 
 **Real-Time Saves:**
@@ -287,14 +287,16 @@ interface BrainDecision {
 4. Main Loop
    ├─→ Initialize BrainDoc
    ├─→ Kickoff: explore big unknowns with 3 questions
-   ├─→ For each question:
-   │       └─→ Researcher Agent loop (search → reflect → ... → complete)
+   ├─→ For each question in batch:
+   │       └─→ Researcher Agent loop (search → reflect → ... → done)
    │       └─→ Researcher sees prior completed docs (builds on, not duplicates)
    │       └─→ Append to memory after each step
+   │       └─→ Summarize findings when loop ends
    │       └─→ Emit SSE events
-   ├─→ Evaluate after all complete (brain sees all question documents)
-   │       └─→ spawn_new: add focused follow-up question
+   ├─→ After batch complete: Brain evaluates (sees all question documents)
+   │       └─→ spawn_new: add 1-3 focused follow-up questions
    │       └─→ synthesize: enough evidence gathered
+   ├─→ Loop continues with new batch until synthesize
    └─→ Synthesize final answer from all question documents
    ↓
 5. Stream final answer to UI
@@ -333,7 +335,7 @@ interface BrainDecision {
 | Max Credits | 1000 | `BRAIN_MAX_CREDITS_BUDGET` |
 | Max Iterations/Question | 30 | hardcoded |
 | Max Cycles/Question | 30 | hardcoded |
-| Min Searches Before Done | 4 | hardcoded |
+| Min Searches Before Done | 4 | hardcoded (enforced silently, not in prompt) |
 
 When guardrails are hit, research gracefully synthesizes with available evidence.
 
@@ -362,6 +364,127 @@ components/sessions/
 ├── SessionView.tsx               # Main session UI
 └── ResearchProgress.tsx          # Research progress view
 ```
+
+---
+
+## Memory & Context Per Component
+
+### Brain: Generate Questions (Kickoff)
+
+**Receives:**
+```
+- objective (string)
+```
+
+**Does NOT receive:**
+- Success criteria (intentionally omitted - explore first)
+- Any prior research
+
+**Purpose:** Explore the biggest unknowns without bias from criteria.
+
+---
+
+### Brain: Evaluate Questions
+
+**Receives:**
+```
+- objective
+- successCriteria[]
+- Full BrainDoc state:
+  - All questions with status
+  - Each question's document (answer, keyFindings, sources, limitations)
+  - Brain decision log
+- Summary of completed vs running vs pending
+```
+
+**Context window:** Sees ALL completed research to make informed decisions.
+
+---
+
+### Brain: Synthesize Final Answer
+
+**Receives:**
+```
+- objective
+- successCriteria[]
+- All completed question documents:
+  - question.name
+  - question.question
+  - question.document.answer
+  - question.document.keyFindings
+  - question.document.sources (top 3)
+  - question.document.limitations
+  - question.confidence
+```
+
+**Purpose:** Combine all findings into coherent final answer.
+
+---
+
+### Researcher: Search Step
+
+**Receives:**
+```
+- currentQuestion.question
+- currentQuestion.goal
+- objective (main research objective)
+- siblingInfo (all questions with status indicators)
+- priorKnowledge (completed question documents from OTHER questions)
+- searchHistory (this question's previous searches + results)
+- previousQueries (list of queries to avoid repeating)
+```
+
+**Important:** Each researcher sees sibling questions and completed docs to avoid duplication.
+
+---
+
+### Researcher: Reflect Step
+
+**Receives:**
+```
+- Last search query
+- Last search result (answer + sources)
+- currentQuestion.question
+- currentQuestion.goal
+- objective
+- queriesExecuted.length (count of searches so far)
+```
+
+**Does NOT receive:**
+- Full search history (only last search)
+- Sibling questions
+
+**Purpose:** Decide if last search helped, what to do next.
+
+---
+
+### Researcher: Complete Step (Summarize)
+
+**Receives:**
+```
+- currentQuestion.question
+- currentQuestion.goal
+- objective
+- Full searchHistory array:
+  - Each: { query, answer (truncated), sources }
+```
+
+**Purpose:** Generate comprehensive markdown summary of findings.
+
+---
+
+## Context Isolation
+
+| Component | Sees Other Questions? | Sees Prior Rounds? |
+|-----------|----------------------|-------------------|
+| Brain (kickoff) | No | No |
+| Brain (evaluate) | Yes (all) | Yes (all docs) |
+| Brain (synthesize) | Yes (all completed) | Yes (all docs) |
+| Researcher (search) | Yes (status only) | Yes (completed docs) |
+| Researcher (reflect) | No | No |
+| Researcher (complete) | No | No |
+
+**Key principle:** Researchers see enough to avoid duplication but stay focused on their specific question.
 
 ---
 

@@ -51,9 +51,9 @@ interface BrainAgentConfig {
 
 const QuestionSchema = z.object({
   name: z.string().describe('Tab label (2-4 words). E.g., "Podcast Networks"'),
-  question: z.string().describe('Short, precise question (max 15 words). E.g., "Which podcast networks have the biggest advertising budgets?"'),
-  description: z.string().describe('Explain how this question helps the main objective (2-3 sentences). Start with "This will help us understand..."'),
-  goal: z.string().describe('What specific output we need (1 sentence). E.g., "List of 10+ networks with their estimated ad revenue."'),
+  question: z.string().describe('Short, precise question (max 15 words)'),
+  description: z.string().describe('How this helps the user (1-2 sentences)'),
+  goal: z.string().describe('CONCRETE deliverable with quantity. E.g., "List of 10 networks with contact pages" or "Top 5 pain points with examples". Must be countable/verifiable.'),
 });
 
 const KickoffSchema = z.object({
@@ -109,25 +109,31 @@ export async function generateResearchQuestions(
 
 OBJECTIVE: ${doc.objective}
 
-Your job is NOT to plan the entire research end-to-end. Instead, start with ${count} exploratory questions to answer the biggest unknowns and get a sense of the landscape.
+Generate ${count} research questions with SPECIFIC, CONCRETE targets.
 
-Think of it like: "Before I can even plan this properly, I need to understand X, Y, and Z."
+RULES FOR GOOD QUESTIONS:
+- Each question has ONE clear deliverable (a list, a ranking, specific names, etc.)
+- Targets must be actionable for the user's actual situation (not academic/theoretical)
+- Be specific about WHAT you want and HOW MANY
+- Each researcher works independently - make questions self-contained
+
+GOOD EXAMPLES:
+- "List 10 podcast networks that accept sponsored ads with their ad sales contact pages"
+- "Find 5 companies that recently hired for 'audio QA' or 'content moderation' roles"
+- "What are the top 3 compliance pain points for financial services call centers?"
+
+BAD EXAMPLES (too broad):
+- "Which industries face risk from audio misinformation?" (no deliverable)
+- "What does the podcast advertising landscape look like?" (too vague)
+- "How do companies handle audio fact-checking?" (academic, not actionable)
 
 Provide:
 
-1. STRATEGY - What are the biggest unknowns? What do you need to learn first?
-   Keep it short (2-3 sentences). Example:
-   "The biggest unknown is whether podcast networks even have public ad sales contacts. Let me also check what budget ranges look like. Once I see what's out there, I'll know where to dig deeper."
+1. STRATEGY - What specific outputs will answer the user's need? (2-3 sentences)
 
-2. QUESTIONS - ${count} exploratory questions:
-   - Each question runs IN PARALLEL by a separate researcher (they don't share context)
-   - Make each question SELF-CONTAINED - don't assume knowledge from other questions
-   - Answer different big unknowns
-   - Keep them SHORT (max 15 words)
-   - Good: "Do podcast networks publish ad sales contact info?"
-   - Bad: "What are the top 20-40 verified concrete outreach targets with contact information..."
-
-Don't try to solve everything. Just get a sense of the landscape first.`;
+2. QUESTIONS - ${count} questions with specific targets:
+   - State the exact deliverable (e.g., "list of 10", "top 5", "3 examples with contact info")
+   - Keep grounded in user's context - what would actually help them?`;
 
   onProgress?.({ type: 'brain_generating_questions', count });
 

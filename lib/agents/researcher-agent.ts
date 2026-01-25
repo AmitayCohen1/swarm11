@@ -254,18 +254,16 @@ ${searchSources.map(s => `- ${s.title || s.url}`).join('\n') || '(none)'}
 
 ---
 
-YOUR QUESTION: ${currentQuestion.question}
 YOUR GOAL: ${currentQuestion.goal}
-MAIN OBJECTIVE: ${objective}
 
-Searches so far: ${queriesExecuted.length}
+REFLECT SYSTEMATICALLY:
+1. What specific pieces of the goal do I now have? (names, numbers, facts)
+2. What's still missing to complete the deliverable?
+3. What's the most DIRECT next search to fill that gap?
 
-Reflect on what you learned. Think out loud like:
-- "Interesting, I found X... Now let me look for Y"
-- "Hmm, that didn't help much. Let me try Z instead"
-- "Good progress! I now know A, B, C. Still need to find D"
+Stay focused on the GOAL. Don't explore tangents. Each search should get you closer to the specific deliverable.
 
-Set status="done" only when you've fully achieved the goal with specific facts and examples. Keep searching if gaps remain.`;
+Set status="done" when you can produce the deliverable. Set status="continue" if gaps remain.`;
 
     log(questionId, `Cycle ${i + 1}: Reflecting...`);
 
