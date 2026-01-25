@@ -322,18 +322,8 @@ ${searchHistory.map((h, idx) =>
   `${idx + 1}. Query: "${h.query}"\n   Result: ${h.answer.substring(0, 300)}${h.answer.length > 300 ? '...' : ''}\n   Sources: ${h.sources.slice(0, 3).join(', ')}`
 ).join('\n\n')}
 
-Write a comprehensive answer that helps achieve the MAIN OBJECTIVE.
-Be specific with names, numbers, and facts.
-
-Respond with JSON only:
-{
-  "answer": "comprehensive answer here (2-3 paragraphs)",
-  "keyFindings": ["finding 1", "finding 2", ...],
-  "sources": [{"url": "...", "title": "...", "contribution": "..."}],
-  "limitations": "what we could not find (or empty string)",
-  "confidence": "low" | "medium" | "high",
-  "recommendation": "promising" | "dead_end" | "needs_more"
-}`;
+Write a comprehensive answer in markdown.
+Include key findings, sources, and any limitations.`;
 
       log(questionId, `Completing...`);
 
@@ -345,31 +335,15 @@ Respond with JSON only:
 
       trackUsage(completeResult.usage);
 
-      // Parse JSON from response
-      let output: any;
-      try {
-        const jsonMatch = completeResult.text.match(/\{[\s\S]*\}/);
-        output = JSON.parse(jsonMatch?.[0] || '{}');
-      } catch (e) {
-        log(questionId, `Failed to parse completion JSON: ${e}`);
-        output = {
-          answer: completeResult.text,
-          keyFindings: [],
-          sources: [],
-          limitations: '',
-          confidence: 'medium',
-          recommendation: 'needs_more'
-        };
-      }
-
+      // Just use the markdown response directly
       questionDocument = {
-        answer: output.answer || '',
-        keyFindings: output.keyFindings || [],
-        sources: output.sources || [],
-        limitations: output.limitations || '',
+        answer: completeResult.text,
+        keyFindings: [],
+        sources: [],
+        limitations: '',
       };
-      confidence = output.confidence || 'medium';
-      recommendation = output.recommendation || 'needs_more';
+      confidence = 'medium';
+      recommendation = 'promising';
 
       onProgress?.({
         type: 'question_complete',

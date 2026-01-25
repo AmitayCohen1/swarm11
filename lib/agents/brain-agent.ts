@@ -12,7 +12,7 @@
  * No fake tools - just clean LLM calls that return structured data.
  */
 
-import { generateObject } from 'ai';
+import { generateObject, generateText } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import type { BrainDoc } from '@/lib/types/research-question';
