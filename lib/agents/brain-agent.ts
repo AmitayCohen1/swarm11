@@ -54,7 +54,7 @@ const QuestionSchema = z.object({
 
 const EvaluateSchema = z.object({
   decision: z.enum(['spawn_new', 'synthesize']).describe('spawn_new=need more research, synthesize=we have enough'),
-  strategy: z.string().optional().describe('For kickoff only: Your initial thinking about the biggest unknowns.'),
+  strategy: z.string().describe('For kickoff: your initial thinking about the biggest unknowns. For evaluation: empty string "".'),
   keyFindings: z.string().describe('2-3 sentence summary of what we learned (or "Kickoff - no research yet" for first round).'),
   gaps: z.string().describe('What information is still missing?'),
   reasoning: z.string().describe('Your decision rationale combining findings and gaps.'),
@@ -161,7 +161,8 @@ CRITICAL BEHAVIOR:
 - This is iterative - can take many rounds if needed.
 - Only synthesize if ALL success criteria are covered OR gaps are declared unfindable.
 - When spawning, provide questions that explore different gaps (they run in parallel, don't share context)
-- Questions must be short and specific (max 15 words each).`;
+- Questions must be short and specific (max 15 words each).
+- For strategy field, use empty string "" (strategy is only for kickoff).`;
 
   onProgress?.({ type: isKickoff ? 'brain_kickoff' : 'brain_evaluating' });
 
