@@ -14,7 +14,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.2",
     "@ai-sdk/openai": "^3.0.12",
-    "@ai-sdk/perplexity": "^3.0.8",
+    "@ai-sdk/perplexity": "^3.0.11",
     "@anthropic-ai/sdk": "^0.71.2",
     "@clerk/nextjs": "^6.36.5",
     "@neondatabase/serverless": "^1.0.2",

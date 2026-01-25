@@ -4,15 +4,18 @@
  * The worker that does the actual web research.
  * Executes one research question via search → reflect loops.
  *
- * MEMORY MODEL:
- * - Appends to question.memory (simple message list)
- * - Three entry types: search, result, reflect
+ * ARCHITECTURE:
+ * - Search = tool (calls Tavily API)
+ * - Reflect = LLM call with structured output (no tool)
+ * - Complete = LLM call with structured output (no tool)
+ *
+ * This separation makes the flow predictable and avoids toolChoice issues.
  */
 
-import { generateText, tool } from 'ai';
+import { generateText, generateObject } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
-import { search } from '@/lib/tools/tavily-search';
+import { search } from '@/lib/tools/perplexity-search';
 import type { BrainDoc, QuestionDocument } from '@/lib/types/research-question';
 import {
   addSearchToMemory,
@@ -47,6 +50,26 @@ interface ResearcherAgentResult {
   creditsUsed: number;
 }
 
+// Schemas for structured outputs
+const ReflectionSchema = z.object({
+  delta: z.enum(['progress', 'no_change', 'dead_end']).describe('How much did this search help?'),
+  thought: z.string().describe('Natural reflection: "Interesting, I found X... Now let me look for Y" - think out loud, not formal task descriptions'),
+  status: z.enum(['continue', 'done']).describe('continue = keep searching, done = question answered'),
+});
+
+const CompletionSchema = z.object({
+  answer: z.string().describe('Comprehensive answer to the research question (2-3 paragraphs). Be specific with names, numbers, facts.'),
+  keyFindings: z.array(z.string()).describe('3-7 bullet points of the most important facts discovered.'),
+  sources: z.array(z.object({
+    url: z.string(),
+    title: z.string(),
+    contribution: z.string().describe('What this source contributed (1 sentence)')
+  })).describe('Key sources used'),
+  limitations: z.string().optional().describe('What we could NOT find or verify'),
+  confidence: z.enum(['low', 'medium', 'high']).describe('Confidence in the answer quality'),
+  recommendation: z.enum(['promising', 'dead_end', 'needs_more']).describe('How useful was this research angle?'),
+});
+
 /**
  * Run search → reflect loop for one question
  */
@@ -77,7 +100,6 @@ export async function runResearchQuestionToCompletion(
   };
 
   const currentQuestion = getResearchQuestion(doc, questionId)!;
-
   log(questionId, `Starting: ${currentQuestion.name}`);
 
   // Build context from sibling questions
@@ -87,7 +109,7 @@ export async function runResearchQuestionToCompletion(
     return `${icon} ${i + 1}. ${q.name}${isCurrent ? ' ← YOU' : ''}`;
   }).join('\n');
 
-  // Build context from completed questions (so researcher can build on prior findings)
+  // Build context from completed questions
   const completedDocs = doc.questions
     .filter(q => q.status === 'done' && q.document && q.id !== questionId)
     .map(q => {
@@ -100,50 +122,7 @@ export async function runResearchQuestionToCompletion(
     ? `\n\n---\n\nPRIOR RESEARCH (build on this, don't duplicate):\n${completedDocs}`
     : '';
 
-  // Get previous queries to avoid repeating
-  const previousQueries = getSearchQueries(doc, questionId);
-  const previousQueriesText = previousQueries.length > 0
-    ? previousQueries.slice(-10).map(q => `- ${q}`).join('\n')
-    : '(none yet)';
-
-  const systemPrompt = `You are researching ONE specific question via web search.
-
-OVERALL OBJECTIVE: ${objective}
-
-ALL QUESTIONS:
-${siblingInfo}
-
-YOUR QUESTION: ${currentQuestion.question}
-GOAL: ${currentQuestion.goal}${priorKnowledge}
-
----
-
-WORKFLOW (STRICT):
-1) SEARCH using the search tool (ONE query)
-2) REFLECT using the reflect tool (required after every search)
-3) Repeat until you have THOROUGHLY explored this question
-4) When done, set reflect.status="done", then use COMPLETE to summarize
-
-RULES:
-- ONE search query at a time
-- Each search query must target ONE thing only (one fact / one entity / one decision)
-- You MUST reflect after each search
-- Don't repeat: ${previousQueriesText}
-- MINIMUM 4 searches before marking done (unless truly exhausted)
-- When reflect.status="done", use the complete tool to summarize findings
-
-REFLECTION STYLE:
-Write your thought like you're thinking out loud:
-- "Interesting, I found several studios. Let me dig into Gimlet's contact page..."
-- "Hmm, that search was too broad. Let me try something more specific..."
-- "Good progress! Now I need to find their business development contacts..."
-DO NOT write formal task descriptions like "Run a targeted search for X".
-
-DEPTH EXPECTATIONS:
-- Don't stop after finding one good result - look for alternatives, verify, cross-reference
-- If you found companies/people, search for more details on the top candidates
-- If you found a list, dig deeper on 2-3 promising items
-- Only mark "done" when you've genuinely exhausted useful angles`;
+  const MIN_SEARCHES_BEFORE_DONE = 4;
 
   onProgress?.({
     type: 'question_started',
@@ -152,231 +131,226 @@ DEPTH EXPECTATIONS:
     goal: currentQuestion.goal
   });
 
-  const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
-  messages.push({
-    role: 'user',
-    content: `Research this question: ${currentQuestion.question}\n\nStart with the most important search.`
-  });
+  // Accumulate search history for context
+  const searchHistory: Array<{ query: string; answer: string; sources: string[] }> = [];
 
-  const MIN_SEARCHES_BEFORE_DONE = 4;
-
-  // Reflect tool - analyze what was learned and decide next step
-  const reflectTool = tool({
-    description: `Reflect on the most recent search and decide what to do next.
-
-MAIN OBJECTIVE: ${objective}
-YOUR QUESTION: ${currentQuestion.question}
-YOUR GOAL: ${currentQuestion.goal}
-
-Consider: Does what you found help answer YOUR question? Does it contribute to the MAIN OBJECTIVE?`,
-    inputSchema: z.object({
-      delta: z.enum(['progress', 'no_change', 'dead_end']).describe('How much did this step help?'),
-      thought: z.string().describe('Natural language reflection: "Interesting, I found X... Now let me look for Y" or "Hmm, that didn\'t help much. Let me try Z instead." Think out loud.'),
-      status: z.enum(['continue', 'done']).describe('continue=keep searching, done=question answered'),
-    }),
-    execute: async ({ delta, thought, status: requestedStatus }) => {
-      const q = getResearchQuestion(doc, questionId);
-      const searchCount = getSearchQueries(doc, questionId).length;
-
-      // Prevent marking done too early
-      let status = requestedStatus;
-      if (requestedStatus === 'done' && searchCount < MIN_SEARCHES_BEFORE_DONE && delta !== 'dead_end') {
-        status = 'continue';
-        log(questionId, `Preventing early done - only ${searchCount} searches`);
-      }
-
-      // Add reflect to memory
-      doc = addReflectToMemory(doc, questionId, thought, delta);
-
-      return { delta, thought, status };
-    }
-  });
-
-  // Complete tool - generate structured document when done
-  const completeTool = tool({
-    description: `Complete this research question with a structured document. Call after reflect returns status=done.
-
-MAIN OBJECTIVE: ${objective}
-YOUR QUESTION: ${currentQuestion.question}
-YOUR GOAL: ${currentQuestion.goal}
-
-Write your answer to help achieve the MAIN OBJECTIVE. Focus on what's useful for the bigger picture.`,
-    inputSchema: z.object({
-      answer: z.string().describe('Comprehensive answer to the research question (2-3 paragraphs). Be specific with names, numbers, and facts. Frame it in context of the main objective.'),
-      keyFindings: z.array(z.string()).describe('3-7 bullet points of the most important facts discovered. Each should be a complete, standalone statement.'),
-      sources: z.array(z.object({
-        url: z.string(),
-        title: z.string(),
-        contribution: z.string().describe('What this source contributed (1 sentence)')
-      })).describe('Key sources used, with what each contributed'),
-      limitations: z.string().optional().describe('What we could NOT find or verify (if any)'),
-      confidence: z.enum(['low', 'medium', 'high']).describe('Confidence in the answer quality'),
-      recommendation: z.enum(['promising', 'dead_end', 'needs_more']).describe('How useful was this research angle?'),
-    }),
-    execute: async ({ answer, keyFindings, sources, limitations, confidence, recommendation }) => {
-      return { answer, keyFindings, sources, limitations, confidence, recommendation };
-    }
-  });
-
-  let done = false;
-  let needsComplete = false;
   let questionDocument: QuestionDocument | undefined;
   let confidence: 'low' | 'medium' | 'high' = 'medium';
   let recommendation: 'promising' | 'dead_end' | 'needs_more' = 'needs_more';
-  let lastWasSearch = false;
-
-  const allTools = {
-    search,
-    reflect: reflectTool,
-    complete: completeTool,
-  };
-
-  // Determine which tool to force based on state
-  const getToolChoice = () => {
-    if (needsComplete) return { type: 'tool' as const, toolName: 'complete' as const };
-    if (lastWasSearch) return { type: 'tool' as const, toolName: 'reflect' as const };
-    return { type: 'tool' as const, toolName: 'search' as const };
-  };
 
   for (let i = 0; i < maxIterations; i++) {
     if (abortSignal?.aborted) break;
 
-    // If we're about to search, treat this as a new cycle
-    if (!lastWasSearch && !needsComplete) {
-      doc = incrementResearchQuestionCycle(doc, questionId);
-    }
+    doc = incrementResearchQuestionCycle(doc, questionId);
 
-    const result = await generateText({
+    // Get previous queries to avoid repeating
+    const previousQueries = getSearchQueries(doc, questionId);
+    const previousQueriesText = previousQueries.length > 0
+      ? previousQueries.slice(-10).map(q => `- ${q}`).join('\n')
+      : '(none yet)';
+
+    // Build search history context
+    const historyContext = searchHistory.map((h, idx) =>
+      `Search ${idx + 1}: "${h.query}"\nResult: ${h.answer.substring(0, 500)}${h.answer.length > 500 ? '...' : ''}`
+    ).join('\n\n');
+
+    // ============ STEP 1: SEARCH ============
+    const searchPrompt = `You are researching: ${currentQuestion.question}
+GOAL: ${currentQuestion.goal}
+
+OVERALL OBJECTIVE: ${objective}
+
+ALL QUESTIONS:
+${siblingInfo}
+${priorKnowledge}
+
+${historyContext ? `\nPREVIOUS SEARCHES:\n${historyContext}\n` : ''}
+
+Don't repeat these queries:
+${previousQueriesText}
+
+USE THE SEARCH TOOL NOW. Provide:
+- query: A specific, detailed question (e.g., "What companies make podcast fact-checking software and who founded them?")
+- purpose: Why you need this information
+
+Make the query detailed enough to get comprehensive results. Don't be vague.`;
+
+    log(questionId, `Cycle ${i + 1}: Searching...`);
+
+    const searchResult = await generateText({
       model,
-      system: systemPrompt,
-      messages,
-      tools: allTools,
-      toolChoice: getToolChoice(),
+      prompt: searchPrompt,
+      tools: { search },
+      toolChoice: 'required',
       abortSignal
     });
 
-    trackUsage(result.usage);
+    trackUsage(searchResult.usage);
 
-    // Process tool calls
-    for (const toolCall of result.toolCalls || []) {
+    // Extract search results
+    let searchQuery = '';
+    let searchAnswer = '';
+    let searchSources: Array<{ url: string; title: string }> = [];
+
+    for (const toolCall of searchResult.toolCalls || []) {
       const tc = toolCall as any;
-
       if (tc.toolName === 'search') {
-        const toolResult = result.toolResults?.find((tr: any) => tr.toolCallId === tc.toolCallId);
-        const toolOutput = (toolResult as any)?.output || (toolResult as any)?.result || {};
+        // Get the result from tool execution
+        const toolResultObj = searchResult.toolResults?.find((tr: any) => tr.toolCallId === tc.toolCallId) as any;
+
+        // Input can be in tc.args OR toolResultObj.input (Vercel AI SDK quirk)
+        const toolInput = tc.args?.queries?.[0] || toolResultObj?.input?.queries?.[0] || {};
+        const inputQuery = toolInput.query || '';
+
+        // The tool result structure: { result: { count, results: [...], timestamp } }
+        const toolOutput = toolResultObj?.result || {};
         const searches = toolOutput.results || [];
 
-        for (const sr of searches) {
-          const query = sr.query;
-          const answer = sr.answer || '';
-          const sources = sr.results?.map((r: any) => ({ url: r.url, title: r.title })) || [];
+        // Get query and answer from search results
+        const sr = searches[0] || {};
+        searchQuery = sr.query || inputQuery || '';
+        searchAnswer = sr.answer || '';
+        searchSources = sr.results?.map((r: any) => ({ url: r.url, title: r.title })) || [];
 
-          queriesExecuted.push(query);
+        log(questionId, `Search executed: "${searchQuery.substring(0, 80)}..."`);
 
-          // Add to memory: search + result
-          doc = addSearchToMemory(doc, questionId, query);
-          doc = addResultToMemory(doc, questionId, answer, sources);
+        if (searchQuery) {
+          queriesExecuted.push(searchQuery);
+          doc = addSearchToMemory(doc, questionId, searchQuery);
+          doc = addResultToMemory(doc, questionId, searchAnswer, searchSources);
         }
 
         onProgress?.({
           type: 'question_search_completed',
           questionId,
-          queries: searches.map((sr: any) => ({
-            query: sr.query,
-            answer: sr.answer,
-            sources: sr.results?.map((r: any) => ({ url: r.url, title: r.title })) || []
-          }))
-        });
-        onProgress?.({ type: 'doc_updated', doc });
-        lastWasSearch = true;
-
-        // Include the search output in the message context for reflect
-        const sr0 = searches?.[0];
-        const qText = (sr0?.query || '').trim();
-        const answer = (sr0?.answer || '').toString().trim();
-        const topSources = (sr0?.results || [])
-          .slice(0, 5)
-          .map((r: any) => `- ${r.title ? `${r.title} — ` : ''}${r.url}`)
-          .join('\n');
-
-        const answerBlock = answer ? (answer.length > 1200 ? `${answer.slice(0, 1200)}…` : answer) : '(no answer)';
-
-        messages.push({
-          role: 'assistant',
-          content:
-            `SEARCH RESULTS\n` +
-            `${qText ? `Query: ${qText}\n` : ''}` +
-            `Answer:\n${answerBlock}\n` +
-            `Sources:\n${topSources || '(none)'}`
-        });
-      }
-
-      if (tc.toolName === 'reflect') {
-        const toolResult = result.toolResults?.find((tr: any) => tr.toolCallId === tc.toolCallId);
-        const output = (toolResult as any)?.output || (toolResult as any)?.result || {};
-        const delta = output.delta || 'no_change';
-        const thought = output.thought || '';
-        const status = output.status || 'continue';
-
-        onProgress?.({
-          type: 'question_reflection',
-          questionId,
-          delta,
-          thought,
-          status,
-        });
-        onProgress?.({ type: 'doc_updated', doc });
-
-        messages.push({
-          role: 'assistant',
-          content: `Thought: ${thought}\nDelta: ${delta}\nStatus: ${status}`
-        });
-
-        lastWasSearch = false;
-
-        if (status === 'done') {
-          needsComplete = true;
-        }
-      }
-
-      if (tc.toolName === 'complete') {
-        const toolResult = result.toolResults?.find((tr: any) => tr.toolCallId === tc.toolCallId);
-        const output = (toolResult as any)?.output || (toolResult as any)?.result || (tc as any)?.args || {};
-
-        console.log('[complete tool] Raw output:', JSON.stringify(output, null, 2));
-
-        // Build the structured document
-        questionDocument = {
-          answer: output.answer || 'Research completed.',
-          keyFindings: Array.isArray(output.keyFindings) ? output.keyFindings : [],
-          sources: Array.isArray(output.sources) ? output.sources : [],
-          limitations: output.limitations || undefined,
-        };
-        confidence = output.confidence || 'medium';
-        recommendation = output.recommendation || 'needs_more';
-        done = true;
-
-        onProgress?.({
-          type: 'question_complete',
-          questionId,
-          document: questionDocument,
-          confidence,
-          recommendation,
+          queries: [{
+            query: searchQuery,
+            answer: searchAnswer,
+            sources: searchSources
+          }]
         });
         onProgress?.({ type: 'doc_updated', doc });
       }
     }
 
-    if (done) break;
+    // Add to history
+    searchHistory.push({
+      query: searchQuery,
+      answer: searchAnswer,
+      sources: searchSources.map(s => s.url)
+    });
 
-    // Add continuation prompt only if no tool was called
-    if (!result.toolCalls || result.toolCalls.length === 0) {
-      messages.push({ role: 'user', content: 'Continue with the next step.' });
+    log(questionId, `Search: "${searchQuery.substring(0, 50)}..."`);
+
+    // ============ STEP 2: REFLECT ============
+    const reflectPrompt = `You just searched for: "${searchQuery}"
+
+Result:
+${searchAnswer || '(no answer returned)'}
+
+Sources:
+${searchSources.map(s => `- ${s.title || s.url}`).join('\n') || '(none)'}
+
+---
+
+YOUR QUESTION: ${currentQuestion.question}
+YOUR GOAL: ${currentQuestion.goal}
+MAIN OBJECTIVE: ${objective}
+
+Searches so far: ${queriesExecuted.length}
+Minimum required: ${MIN_SEARCHES_BEFORE_DONE}
+
+Reflect on what you learned. Think out loud like:
+- "Interesting, I found X... Now let me look for Y"
+- "Hmm, that didn't help much. Let me try Z instead"
+- "Good progress! I now know A, B, C. Still need to find D"
+
+If you've done at least ${MIN_SEARCHES_BEFORE_DONE} searches AND have enough info to answer the question, set status to "done".`;
+
+    log(questionId, `Cycle ${i + 1}: Reflecting...`);
+
+    const reflectResult = await generateObject({
+      model,
+      prompt: reflectPrompt,
+      schema: ReflectionSchema,
+      abortSignal
+    });
+
+    trackUsage(reflectResult.usage);
+
+    let { delta, thought, status } = reflectResult.object;
+
+    // Prevent marking done too early
+    if (status === 'done' && queriesExecuted.length < MIN_SEARCHES_BEFORE_DONE && delta !== 'dead_end') {
+      status = 'continue';
+      log(questionId, `Preventing early done - only ${queriesExecuted.length} searches`);
+    }
+
+    doc = addReflectToMemory(doc, questionId, thought, delta);
+
+    onProgress?.({
+      type: 'question_reflection',
+      questionId,
+      delta,
+      thought,
+      status,
+    });
+    onProgress?.({ type: 'doc_updated', doc });
+
+    log(questionId, `Reflect: ${delta} - "${thought.substring(0, 50)}..." → ${status}`);
+
+    // ============ STEP 3: COMPLETE (if done) ============
+    if (status === 'done') {
+      const completePrompt = `You've finished researching this question. Now summarize your findings.
+
+YOUR QUESTION: ${currentQuestion.question}
+YOUR GOAL: ${currentQuestion.goal}
+MAIN OBJECTIVE: ${objective}
+
+SEARCH HISTORY:
+${searchHistory.map((h, idx) =>
+  `${idx + 1}. Query: "${h.query}"\n   Result: ${h.answer.substring(0, 300)}${h.answer.length > 300 ? '...' : ''}\n   Sources: ${h.sources.slice(0, 3).join(', ')}`
+).join('\n\n')}
+
+Write a comprehensive answer that helps achieve the MAIN OBJECTIVE.
+Be specific with names, numbers, and facts.`;
+
+      log(questionId, `Completing...`);
+
+      const completeResult = await generateObject({
+        model,
+        prompt: completePrompt,
+        schema: CompletionSchema,
+        abortSignal
+      });
+
+      trackUsage(completeResult.usage);
+
+      const output = completeResult.object;
+
+      questionDocument = {
+        answer: output.answer,
+        keyFindings: output.keyFindings,
+        sources: output.sources,
+        limitations: output.limitations,
+      };
+      confidence = output.confidence;
+      recommendation = output.recommendation;
+
+      onProgress?.({
+        type: 'question_complete',
+        questionId,
+        document: questionDocument,
+        confidence,
+        recommendation,
+      });
+      onProgress?.({ type: 'doc_updated', doc });
+
+      break; // Exit loop
     }
   }
 
   // Complete the question with document
-  // Generate a short summary from the answer for backwards compatibility
   const answerText = questionDocument?.answer || '';
   const summary = answerText ? (answerText.substring(0, 200) + (answerText.length > 200 ? '...' : '')) : '';
   doc = completeResearchQuestion(doc, questionId, summary, confidence, recommendation, questionDocument);

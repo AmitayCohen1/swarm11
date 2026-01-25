@@ -500,6 +500,7 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
     researchDoc,
     stage,
     eventLog,
+    intakeSearch,
     sendMessage,
     stopResearch,
     initializeSession
@@ -507,7 +508,9 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
 
   const [inputMessage, setInputMessage] = useState('');
   const [isDarkMode, setIsDarkMode] = useState(true);
+  const [showLogs, setShowLogs] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const logsEndRef = useRef<HTMLDivElement>(null);
 
   // When BrainDoc tabs are visible, they already show searches/questions; avoid duplicating them in the chat timeline.
   const hasBrainTabs = Boolean(
@@ -538,6 +541,13 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [isResearching, status]);
+
+  // Auto-scroll logs panel
+  useEffect(() => {
+    if (showLogs) {
+      logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [eventLog, showLogs]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -579,9 +589,34 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
   // Show research progress inline when researching
   const showResearchProgress = isResearching || (researchDoc && 'questions' in researchDoc && (researchDoc as any).questions?.length > 0);
 
+  // Helper to get icon for log entry
+  const getLogIcon = (icon: string) => {
+    switch (icon) {
+      case 'plan': return <Brain className="w-3 h-3" />;
+      case 'search': return <Search className="w-3 h-3" />;
+      case 'reflect': return <PenLine className="w-3 h-3" />;
+      case 'phase': return <Activity className="w-3 h-3" />;
+      case 'complete': return <CheckCircle className="w-3 h-3" />;
+      case 'error': return <AlertCircle className="w-3 h-3" />;
+      default: return <Zap className="w-3 h-3" />;
+    }
+  };
+
+  const getLogColor = (icon: string) => {
+    switch (icon) {
+      case 'plan': return 'text-purple-400 bg-purple-500/10';
+      case 'search': return 'text-blue-400 bg-blue-500/10';
+      case 'reflect': return 'text-amber-400 bg-amber-500/10';
+      case 'phase': return 'text-cyan-400 bg-cyan-500/10';
+      case 'complete': return 'text-emerald-400 bg-emerald-500/10';
+      case 'error': return 'text-red-400 bg-red-500/10';
+      default: return 'text-slate-400 bg-white/5';
+    }
+  };
+
   return (
-    <div className={cn("h-screen w-full flex flex-col overflow-hidden font-sans selection:bg-blue-100 dark:selection:bg-blue-500/30", isDarkMode ? 'dark' : '')}>
-      {/* Main Content - Full width, no sidebar */}
+    <div className={cn("h-screen w-full flex overflow-hidden font-sans selection:bg-blue-100 dark:selection:bg-blue-500/30", isDarkMode ? 'dark' : '')}>
+      {/* Main Content */}
       <div className="flex-1 flex flex-col min-h-0 bg-white dark:bg-[#0a0a0a]">
 
         {/* Header */}
@@ -618,6 +653,21 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
             <CreditBalance />
 
             <div className="w-px h-4 bg-white/10 mx-1" />
+
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "w-8 h-8 rounded-lg transition-all",
+                showLogs
+                  ? "text-blue-400 bg-blue-500/10 hover:bg-blue-500/20"
+                  : "text-slate-400 hover:text-white hover:bg-white/5"
+              )}
+              onClick={() => setShowLogs(!showLogs)}
+              title={showLogs ? "Hide logs" : "Show logs"}
+            >
+              <Activity className="w-4 h-4" />
+            </Button>
 
             <Button
               variant="ghost"
@@ -798,8 +848,29 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
                 </div>
               ))}
 
+              {/* Intake Search Indicator */}
+              {intakeSearch && (
+                <div className="flex items-start gap-5 animate-in fade-in slide-in-from-left-2 duration-300">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-500/10 flex items-center justify-center shrink-0 border border-amber-500/20">
+                    <Search className="w-5 h-5 text-amber-400 animate-pulse" />
+                  </div>
+                  <div className="flex-1 pt-2">
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-bold text-amber-400 uppercase tracking-widest">Looking up</p>
+                      {intakeSearch.status === 'searching' && (
+                        <Loader2 className="w-3 h-3 text-amber-400 animate-spin" />
+                      )}
+                      {intakeSearch.status === 'complete' && (
+                        <Check className="w-3 h-3 text-emerald-400" />
+                      )}
+                    </div>
+                    <p className="text-sm text-slate-400 mt-1 font-medium">{intakeSearch.query}</p>
+                  </div>
+                </div>
+              )}
+
               {/* Thinking Indicator */}
-              {status === 'processing' && (
+              {status === 'processing' && !intakeSearch && (
                 <div className="flex items-start gap-5 animate-pulse">
                   <div className="w-10 h-10 rounded-2xl bg-white/5 flex items-center justify-center shrink-0 border border-white/5">
                     <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
@@ -854,6 +925,71 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
             </div>
           </form>
         </footer>
+      </div>
+
+      {/* Logs Panel */}
+      <div className={cn(
+        "h-full bg-[#0a0a0a] border-l border-white/5 flex flex-col transition-all duration-300 overflow-hidden",
+        showLogs ? "w-80" : "w-0"
+      )}>
+        {showLogs && (
+          <>
+            <div className="h-14 flex items-center justify-between px-4 border-b border-white/5 shrink-0">
+              <div className="flex items-center gap-2">
+                <Activity className="w-4 h-4 text-blue-400" />
+                <span className="text-sm font-bold text-white">Event Log</span>
+                <span className="text-[10px] font-bold text-slate-500 bg-white/5 px-1.5 py-0.5 rounded">
+                  {eventLog.length}
+                </span>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="w-6 h-6 text-slate-500 hover:text-white hover:bg-white/5 rounded"
+                onClick={() => setShowLogs(false)}
+              >
+                <XCircle className="w-4 h-4" />
+              </Button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-1">
+              {eventLog.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-32 text-slate-600">
+                  <Activity className="w-6 h-6 mb-2 opacity-50" />
+                  <p className="text-xs font-medium">No events yet</p>
+                </div>
+              ) : (
+                eventLog.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="group flex items-start gap-2 p-2 rounded-lg hover:bg-white/2 transition-colors"
+                  >
+                    <div className={cn(
+                      "w-5 h-5 rounded flex items-center justify-center shrink-0 mt-0.5",
+                      getLogColor(entry.icon)
+                    )}>
+                      {getLogIcon(entry.icon)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-slate-300 truncate">
+                        {entry.label}
+                      </p>
+                      {entry.detail && (
+                        <p className="text-[10px] text-slate-500 truncate mt-0.5">
+                          {entry.detail}
+                        </p>
+                      )}
+                      <p className="text-[9px] text-slate-600 mt-1 font-mono">
+                        {new Date(entry.timestamp).toLocaleTimeString()}
+                      </p>
+                    </div>
+                  </div>
+                ))
+              )}
+              <div ref={logsEndRef} />
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

@@ -138,6 +138,7 @@ export function useSession(options: UseSessionOptions = {}) {
   const [stage, setStage] = useState<'searching' | 'reflecting' | 'synthesizing' | null>(null);
   const [researchDoc, setResearchDoc] = useState<BrainDoc | null>(null);
   const [eventLog, setEventLog] = useState<EventLogEntry[]>([]);
+  const [intakeSearch, setIntakeSearch] = useState<{ query: string; status: 'searching' | 'complete' } | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -368,7 +369,21 @@ export function useSession(options: UseSessionOptions = {}) {
 
         if (update.type === 'analyzing') {
           setStatus('processing');
+          setIntakeSearch(null);
           addEvent('analyzing', 'Analyzing message', 'Understanding your request...', 'info');
+        }
+
+        // Intake search events
+        if (update.type === 'intake_searching') {
+          setIntakeSearch({ query: update.query || 'Looking up...', status: 'searching' });
+          addEvent('intake_searching', 'Looking up', update.query || '', 'search');
+        }
+
+        if (update.type === 'intake_search_complete') {
+          setIntakeSearch({ query: update.query || '', status: 'complete' });
+          addEvent('intake_search_complete', 'Lookup complete', update.answer?.substring(0, 50) || '', 'search');
+          // Clear after a short delay
+          setTimeout(() => setIntakeSearch(null), 500);
         }
 
         if (update.type === 'decision') {
@@ -735,6 +750,7 @@ export function useSession(options: UseSessionOptions = {}) {
     brain,
     stage,
     eventLog,
+    intakeSearch,
     sendMessage,
     stopResearch,
     initializeSession: initializeNewSession

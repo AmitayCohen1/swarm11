@@ -6,12 +6,16 @@
  * 2. Evaluates question results
  * 3. Decides next actions (spawn new questions, synthesize)
  * 4. Writes the final answer
+ *
+ * ARCHITECTURE:
+ * All functions use generateObject for structured output.
+ * No fake tools - just clean LLM calls that return structured data.
  */
 
-import { generateText, tool } from 'ai';
+import { generateObject } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
-import type { BrainDoc, ResearchQuestion } from '@/lib/types/research-question';
+import type { BrainDoc } from '@/lib/types/research-question';
 import {
   addResearchQuestion,
   addBrainDecision,
@@ -42,6 +46,39 @@ interface BrainAgentConfig {
 }
 
 // ============================================================
+// Schemas
+// ============================================================
+
+const QuestionSchema = z.object({
+  name: z.string().describe('Tab label (2-4 words). E.g., "Podcast Networks"'),
+  question: z.string().describe('Short, precise question (max 15 words). E.g., "Which podcast networks have the biggest advertising budgets?"'),
+  description: z.string().describe('Explain how this question helps the main objective (2-3 sentences). Start with "This will help us understand..."'),
+  goal: z.string().describe('What specific output we need (1 sentence). E.g., "List of 10+ networks with their estimated ad revenue."'),
+});
+
+const KickoffSchema = z.object({
+  strategy: z.string().describe('Your initial thinking about the biggest unknowns. What do we need to figure out first? (2-3 sentences, conversational)'),
+  questions: z.array(QuestionSchema).min(1).max(5).describe('Parallel research questions'),
+});
+
+const EvaluateSchema = z.object({
+  decision: z.enum(['spawn_new', 'synthesize']).describe('spawn_new=need to research something new, synthesize=we have enough'),
+  keyFindings: z.string().describe('2-3 sentence summary of what we learned. Be specific: names, numbers, facts.'),
+  gaps: z.string().describe('What information is still missing?'),
+  reasoning: z.string().describe('Your decision rationale combining findings and gaps.'),
+  // For spawn_new
+  name: z.string().optional().describe('Tab label (2-4 words)'),
+  question: z.string().optional().describe('Short, precise question (max 15 words)'),
+  description: z.string().optional().describe('Explain how this helps the objective (2-3 sentences)'),
+  goal: z.string().optional().describe('What specific output we need (1 sentence)'),
+});
+
+const SynthesizeSchema = z.object({
+  confidence: z.enum(['low', 'medium', 'high']).describe('Confidence in the answer'),
+  finalAnswer: z.string().describe('Complete, well-structured answer to the research objective'),
+});
+
+// ============================================================
 // ResearchQuestion Generation
 // ============================================================
 
@@ -67,56 +104,11 @@ export async function generateResearchQuestions(
   const { doc: initialDoc, count = 3, abortSignal, onProgress } = config;
   const model = openai('gpt-5.2');
   let doc = initialDoc;
-  let creditsUsed = 0;
   const questionIds: string[] = [];
 
   log('generateResearchQuestions', `Generating strategy + ${count} questions for: ${doc.objective}`);
 
-  // Single tool that kicks off research with initial questions
-  const kickoffTool = tool({
-    description: 'Kickoff the research with a few exploratory questions to understand the landscape',
-    inputSchema: z.object({
-      strategy: z.string().describe('Your initial thinking about the biggest unknowns. What do we need to figure out first before we can even plan properly? (2-3 sentences, conversational). Example: "The biggest unknown is whether X even exists. Let me also check Y to get a sense of the landscape. Once I see what comes back, I\'ll know where to dig deeper."'),
-      questions: z.array(z.object({
-        name: z.string().describe('Tab label (2-4 words). E.g., "Podcast Networks"'),
-        question: z.string().describe('Short, precise question (max 15 words). E.g., "Which podcast networks have the biggest advertising budgets?"'),
-        description: z.string().describe('Explain how this question helps the main objective (2-3 sentences). Start with "This will help us understand..." and explain the connection. E.g., "This will help us understand who the major players are in the podcast advertising space. By mapping out the networks, we can identify which ones are most likely to have the budget and interest in our solution."'),
-        goal: z.string().describe('What specific output we need (1 sentence). E.g., "List of 10+ networks with their estimated ad revenue."'),
-      })).min(1).max(5).describe(`${count} parallel research questions`),
-    }),
-    execute: async ({ strategy, questions }) => {
-      // Set strategy
-      doc = { ...doc, researchStrategy: strategy };
-
-      onProgress?.({
-        type: 'brain_strategy',
-        strategy,
-      });
-
-      // Log the strategy as brain decision for this batch
-      doc = addBrainDecision(doc, 'spawn', strategy);
-
-      // Create questions
-      for (const q of questions) {
-        doc = addResearchQuestion(doc, q.name, q.question, q.goal, 30, q.description);
-        const newQ = doc.questions[doc.questions.length - 1];
-        questionIds.push(newQ.id);
-
-        onProgress?.({
-          type: 'question_spawned',
-          questionId: newQ.id,
-          name: q.name,
-          question: q.question,
-          description: q.description,
-          goal: q.goal,
-        });
-      }
-
-      return { success: true, questionCount: questions.length };
-    }
-  });
-
-  const systemPrompt = `You are the brain of an autonomous research agent.
+  const prompt = `You are the brain of an autonomous research agent.
 
 OBJECTIVE: ${doc.objective}
 
@@ -124,7 +116,7 @@ Your job is NOT to plan the entire research end-to-end. Instead, start with ${co
 
 Think of it like: "Before I can even plan this properly, I need to understand X, Y, and Z."
 
-Use the kickoff tool with:
+Provide:
 
 1. STRATEGY - What are the biggest unknowns? What do you need to learn first?
    Keep it short (2-3 sentences). Example:
@@ -142,16 +134,42 @@ Don't try to solve everything. Just get a sense of the landscape first.`;
 
   log('generateResearchQuestions', 'Generating strategy + questions...');
 
-  const result = await generateText({
+  const result = await generateObject({
     model,
-    system: systemPrompt,
-    prompt: `Plan your research approach for: ${doc.objective}`,
-    tools: { kickoff: kickoffTool },
-    toolChoice: { type: 'tool', toolName: 'kickoff' },
+    prompt,
+    schema: KickoffSchema,
     abortSignal
   });
 
-  creditsUsed = Math.ceil((result.usage?.totalTokens || 0) / 1000);
+  const creditsUsed = Math.ceil((result.usage?.totalTokens || 0) / 1000);
+  const { strategy, questions } = result.object;
+
+  // Apply strategy to doc
+  doc = { ...doc, researchStrategy: strategy };
+
+  onProgress?.({
+    type: 'brain_strategy',
+    strategy,
+  });
+
+  // Log the strategy as brain decision
+  doc = addBrainDecision(doc, 'spawn', strategy);
+
+  // Create questions
+  for (const q of questions) {
+    doc = addResearchQuestion(doc, q.name, q.question, q.goal, 30, q.description);
+    const newQ = doc.questions[doc.questions.length - 1];
+    questionIds.push(newQ.id);
+
+    onProgress?.({
+      type: 'question_spawned',
+      questionId: newQ.id,
+      name: q.name,
+      question: q.question,
+      description: q.description,
+      goal: q.goal,
+    });
+  }
 
   log('generateResearchQuestions', `Generated ${questionIds.length} questions`);
 
@@ -198,13 +216,11 @@ export async function evaluateResearchQuestions(
   const { doc: initialDoc, abortSignal, onProgress } = config;
   const model = openai('gpt-5.2');
   let doc = initialDoc;
-  let creditsUsed = 0;
 
   const completed = getCompletedResearchQuestions(doc);
   const running = getRunningResearchQuestions(doc);
   const pending = getPendingResearchQuestions(doc);
 
-  // Count total memory entries across all questions
   const totalMemory = doc.questions.reduce((sum, q) => sum + q.memory.length, 0);
 
   log('evaluateResearchQuestions', 'Evaluating state:', {
@@ -214,26 +230,7 @@ export async function evaluateResearchQuestions(
     totalMemory
   });
 
-  const evaluateTool = tool({
-    description: 'Evaluate progress and decide what to do next',
-    inputSchema: z.object({
-      decision: z.enum(['spawn_new', 'synthesize']).describe(
-        'spawn_new=need to research something new, synthesize=we have enough, finish research'
-      ),
-      keyFindings: z.string().describe('2-3 sentence summary of what we learned from completed questions. E.g., "We identified 15 podcast networks including Gimlet and Wondery. Found that most have dedicated ad sales teams..."'),
-      gaps: z.string().describe('What information is still missing? E.g., "We still need contact emails and budget ranges for the top 5 networks."'),
-      reasoning: z.string().describe('Your decision rationale combining findings and gaps. E.g., "Based on our findings about networks, we now need to dig into their specific contact details..."'),
-
-      // For spawn_new - the new question to create
-      name: z.string().optional().describe('Tab label (2-4 words)'),
-      question: z.string().optional().describe('Short, precise question (max 15 words)'),
-      description: z.string().optional().describe('Explain how this helps the objective (2-3 sentences). Start with "This will help us understand..." E.g., "This will help us understand the specific contact routes for ad sales teams. With this info, we can prioritize outreach to networks most likely to respond."'),
-      goal: z.string().optional().describe('What specific output we need (1 sentence). E.g., "Direct emails or contact forms for 5+ network ad sales teams."'),
-    }),
-    execute: async (params) => params
-  });
-
-  const systemPrompt = `You are the Brain, the strategic research orchestrator.
+  const prompt = `You are the Brain, the strategic research orchestrator.
 
 OBJECTIVE: ${doc.objective}
 
@@ -268,24 +265,19 @@ CRITICAL BEHAVIOR:
 - This is iterative - can take MANY ROUNDS (10–20+) if needed.
 - For EACH success criterion: is it covered or not?
 - Only SYNTHESIZE if ALL criteria are covered OR gaps are declared unfindable.
-- New questions must be SHORT and SPECIFIC (max 15 words).
-`;
+- New questions must be SHORT and SPECIFIC (max 15 words).`;
 
   onProgress?.({ type: 'brain_evaluating' });
 
-  const result = await generateText({
+  const result = await generateObject({
     model,
-    system: systemPrompt,
-    prompt: 'Evaluate the current state and decide the next action.',
-    tools: { evaluate: evaluateTool },
-    toolChoice: { type: 'tool', toolName: 'evaluate' },
+    prompt,
+    schema: EvaluateSchema,
     abortSignal
   });
 
-  creditsUsed = Math.ceil((result.usage?.totalTokens || 0) / 1000);
-
-  const toolCall = result.toolCalls?.[0] as any;
-  const params = toolCall?.input || toolCall?.args || { decision: 'synthesize', reasoning: 'Fallback', keyFindings: '', gaps: '' };
+  const creditsUsed = Math.ceil((result.usage?.totalTokens || 0) / 1000);
+  const params = result.object;
 
   // Build rich reasoning from findings + gaps + reasoning
   const richReasoning = [
@@ -360,7 +352,7 @@ export async function synthesizeFinalAnswer(
   const model = openai('gpt-5.2');
   let doc = initialDoc;
 
-  // Collect question documents (the new structured output)
+  // Collect question documents
   const questionDocs = doc.questions
     .filter(q => q.status === 'done' && q.document)
     .map(q => ({
@@ -376,37 +368,28 @@ export async function synthesizeFinalAnswer(
     totalQuestions: doc.questions.length
   });
 
-  const synthesizeTool = tool({
-    description: 'Deliver the final synthesized answer',
-    inputSchema: z.object({
-      confidence: z.enum(['low', 'medium', 'high']).describe('Confidence in the answer'),
-      finalAnswer: z.string().describe('Complete, well-structured answer to the research objective'),
-    }),
-    execute: async ({ confidence, finalAnswer }) => ({ confidence, finalAnswer })
-  });
-
   // Format question documents for the prompt
   const formatQuestionDoc = (qd: typeof questionDocs[0], index: number) => {
-    const doc = qd.document;
-    const findings = doc.keyFindings.map(f => `  • ${f}`).join('\n');
-    const sources = doc.sources.slice(0, 3).map(s => `  - ${s.title}: ${s.contribution}`).join('\n');
+    const qdoc = qd.document;
+    const findings = qdoc.keyFindings.map(f => `  • ${f}`).join('\n');
+    const sources = qdoc.sources.slice(0, 3).map(s => `  - ${s.title}: ${s.contribution}`).join('\n');
     return `
 ### ${index + 1}. ${qd.name}
 **Question:** ${qd.question}
 **Confidence:** ${qd.confidence || 'medium'}
 
 **Answer:**
-${doc.answer}
+${qdoc.answer}
 
 **Key Findings:**
 ${findings}
 
 **Sources:**
 ${sources}
-${doc.limitations ? `\n**Limitations:** ${doc.limitations}` : ''}`;
+${qdoc.limitations ? `\n**Limitations:** ${qdoc.limitations}` : ''}`;
   };
 
-  const systemPrompt = `You are synthesizing the final research answer from ${questionDocs.length} research documents.
+  const prompt = `You are synthesizing the final research answer from ${questionDocs.length} research documents.
 
 OBJECTIVE: ${doc.objective}
 
@@ -431,35 +414,28 @@ SYNTHESIZE a comprehensive final answer:
 
   onProgress?.({ type: 'brain_synthesizing' });
 
-  const result = await generateText({
+  const result = await generateObject({
     model,
-    system: systemPrompt,
-    prompt: 'Synthesize your final answer. Use the synthesize tool.',
-    tools: { synthesize: synthesizeTool },
-    toolChoice: { type: 'tool', toolName: 'synthesize' },
+    prompt,
+    schema: SynthesizeSchema,
     abortSignal
   });
 
   const creditsUsed = Math.ceil((result.usage?.totalTokens || 0) / 1000);
+  const { confidence, finalAnswer } = result.object;
 
-  const toolCall = result.toolCalls?.[0] as any;
-  const output = toolCall?.input || toolCall?.args || {
-    confidence: 'low',
-    finalAnswer: 'Research completed but no synthesis extracted.'
-  };
-
-  doc = setFinalAnswer(doc, output.finalAnswer);
+  doc = setFinalAnswer(doc, finalAnswer);
 
   onProgress?.({
     type: 'brain_synthesis_complete',
-    confidence: output.confidence,
-    answerLength: output.finalAnswer.length
+    confidence,
+    answerLength: finalAnswer.length
   });
 
   return {
     doc,
-    finalAnswer: output.finalAnswer,
-    confidence: output.confidence,
+    finalAnswer,
+    confidence,
     creditsUsed
   };
 }

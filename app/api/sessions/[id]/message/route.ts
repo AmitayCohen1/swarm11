@@ -118,11 +118,17 @@ export async function POST(
 
     // Create SSE stream
     const encoder = new TextEncoder();
+    let streamClosed = false;
     const stream = new ReadableStream({
       async start(controller) {
         const sendEvent = (data: any) => {
-          const message = `data: ${JSON.stringify(data)}\n\n`;
-          controller.enqueue(encoder.encode(message));
+          if (streamClosed) return; // Guard against sending after close
+          try {
+            const message = `data: ${JSON.stringify(data)}\n\n`;
+            controller.enqueue(encoder.encode(message));
+          } catch (e) {
+            streamClosed = true; // Mark as closed if enqueue fails
+          }
         };
 
         try {
@@ -135,7 +141,8 @@ export async function POST(
           const decision = await analyzeUserMessage(
             userMessage,
             conversationHistory,
-            session.brain || ''
+            session.brain || '',
+            (update) => sendEvent(update) // Forward intake progress to frontend
           );
 
           sendEvent({
@@ -385,8 +392,12 @@ export async function POST(
             message: error.message || 'An error occurred'
           });
         } finally {
+          streamClosed = true;
           controller.close();
         }
+      },
+      cancel() {
+        streamClosed = true;
       }
     });
 
