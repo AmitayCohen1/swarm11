@@ -12,9 +12,8 @@
  * This separation makes the flow predictable and avoids toolChoice issues.
  */
 
-import { generateText, generateObject } from 'ai';
+import { generateText } from 'ai';
 import { openai } from '@ai-sdk/openai';
-import { z } from 'zod';
 import { search } from '@/lib/tools/perplexity-search';
 import type { BrainDoc, QuestionDocument } from '@/lib/types/research-question';
 import {
@@ -50,25 +49,8 @@ interface ResearcherAgentResult {
   creditsUsed: number;
 }
 
-// Schemas for structured outputs
-const ReflectionSchema = z.object({
-  delta: z.enum(['progress', 'no_change', 'dead_end']).describe('How much did this search help?'),
-  thought: z.string().describe('Natural reflection: "Interesting, I found X... Now let me look for Y" - think out loud, not formal task descriptions'),
-  status: z.enum(['continue', 'done']).describe('continue = keep searching, done = question answered'),
-});
-
-const CompletionSchema = z.object({
-  answer: z.string().describe('Comprehensive answer to the research question (2-3 paragraphs). Be specific with names, numbers, facts.'),
-  keyFindings: z.array(z.string()).describe('3-7 bullet points of the most important facts discovered.'),
-  sources: z.array(z.object({
-    url: z.string(),
-    title: z.string(),
-    contribution: z.string().describe('What this source contributed (1 sentence)')
-  })).describe('Key sources used'),
-  limitations: z.string().describe('What we could NOT find or verify. Use empty string if none.'),
-  confidence: z.enum(['low', 'medium', 'high']).describe('Confidence in the answer quality'),
-  recommendation: z.enum(['promising', 'dead_end', 'needs_more']).describe('How useful was this research angle?'),
-});
+// Note: Using generateText with JSON prompts instead of generateObject schemas
+// This avoids OpenAI's strict schema validation requirements
 
 /**
  * Run search → reflect loop for one question
@@ -170,10 +152,10 @@ Don't repeat these queries:
 ${previousQueriesText}
 
 USE THE SEARCH TOOL NOW. Provide:
-- query: A specific, detailed question (e.g., "What companies make podcast fact-checking software and who founded them?")
+- query: A focused question about ONE specific topic (not multiple topics combined)
 - purpose: Why you need this information
 
-Make the query detailed enough to get comprehensive results. Don't be vague.`;
+Keep queries focused - one topic per search. You can do multiple searches.`;
 
     log(questionId, `Cycle ${i + 1}: Searching...`);
 
@@ -272,27 +254,41 @@ YOUR GOAL: ${currentQuestion.goal}
 MAIN OBJECTIVE: ${objective}
 
 Searches so far: ${queriesExecuted.length}
-Minimum required: ${MIN_SEARCHES_BEFORE_DONE}
 
 Reflect on what you learned. Think out loud like:
 - "Interesting, I found X... Now let me look for Y"
 - "Hmm, that didn't help much. Let me try Z instead"
 - "Good progress! I now know A, B, C. Still need to find D"
 
-If you've done at least ${MIN_SEARCHES_BEFORE_DONE} searches AND have enough info to answer the question, set status to "done".`;
+If you've done at least ${MIN_SEARCHES_BEFORE_DONE} searches AND have enough info to answer the question, set status to "done".
+
+Respond with JSON only:
+{
+  "delta": "progress" | "no_change" | "dead_end",
+  "thought": "your reflection here",
+  "status": "continue" | "done"
+}`;
 
     log(questionId, `Cycle ${i + 1}: Reflecting...`);
 
-    const reflectResult = await generateObject({
+    const reflectResult = await generateText({
       model,
       prompt: reflectPrompt,
-      schema: ReflectionSchema,
       abortSignal
     });
 
     trackUsage(reflectResult.usage);
 
-    let { delta, thought, status } = reflectResult.object;
+    // Parse JSON from response
+    let reflectData: { delta: string; thought: string; status: string };
+    try {
+      const jsonMatch = reflectResult.text.match(/\{[\s\S]*\}/);
+      reflectData = JSON.parse(jsonMatch?.[0] || '{}');
+    } catch (e) {
+      reflectData = { delta: 'no_change', thought: reflectResult.text, status: 'continue' };
+    }
+
+    let { delta, thought, status } = reflectData as any;
 
     // Prevent marking done too early
     if (status === 'done' && queriesExecuted.length < MIN_SEARCHES_BEFORE_DONE && delta !== 'dead_end') {
@@ -327,29 +323,53 @@ ${searchHistory.map((h, idx) =>
 ).join('\n\n')}
 
 Write a comprehensive answer that helps achieve the MAIN OBJECTIVE.
-Be specific with names, numbers, and facts.`;
+Be specific with names, numbers, and facts.
+
+Respond with JSON only:
+{
+  "answer": "comprehensive answer here (2-3 paragraphs)",
+  "keyFindings": ["finding 1", "finding 2", ...],
+  "sources": [{"url": "...", "title": "...", "contribution": "..."}],
+  "limitations": "what we could not find (or empty string)",
+  "confidence": "low" | "medium" | "high",
+  "recommendation": "promising" | "dead_end" | "needs_more"
+}`;
 
       log(questionId, `Completing...`);
 
-      const completeResult = await generateObject({
+      const completeResult = await generateText({
         model,
         prompt: completePrompt,
-        schema: CompletionSchema,
         abortSignal
       });
 
       trackUsage(completeResult.usage);
 
-      const output = completeResult.object;
+      // Parse JSON from response
+      let output: any;
+      try {
+        const jsonMatch = completeResult.text.match(/\{[\s\S]*\}/);
+        output = JSON.parse(jsonMatch?.[0] || '{}');
+      } catch (e) {
+        log(questionId, `Failed to parse completion JSON: ${e}`);
+        output = {
+          answer: completeResult.text,
+          keyFindings: [],
+          sources: [],
+          limitations: '',
+          confidence: 'medium',
+          recommendation: 'needs_more'
+        };
+      }
 
       questionDocument = {
-        answer: output.answer,
-        keyFindings: output.keyFindings,
-        sources: output.sources,
-        limitations: output.limitations,
+        answer: output.answer || '',
+        keyFindings: output.keyFindings || [],
+        sources: output.sources || [],
+        limitations: output.limitations || '',
       };
-      confidence = output.confidence;
-      recommendation = output.recommendation;
+      confidence = output.confidence || 'medium';
+      recommendation = output.recommendation || 'needs_more';
 
       onProgress?.({
         type: 'question_complete',
