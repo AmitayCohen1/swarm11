@@ -52,18 +52,13 @@ const QuestionSchema = z.object({
   goal: z.string().describe('Whats the goal of that question? Must be a single goal, and very spesific and clear.'),
 });
 
-const KickoffSchema = z.object({
-  strategy: z.string().describe('Your initial thinking about the biggest unknowns. Where do we start the research? What should we understand first?'),
-  questions: z.array(QuestionSchema).min(1).max(5).describe('Parallel research questions'),
-});
-
 const EvaluateSchema = z.object({
   decision: z.enum(['spawn_new', 'synthesize']).describe('spawn_new=need more research, synthesize=we have enough'),
-  keyFindings: z.string().describe('2-3 sentence summary of what we learned. Be specific: names, numbers, facts.'),
+  strategy: z.string().optional().describe('For kickoff only: Your initial thinking about the biggest unknowns.'),
+  keyFindings: z.string().describe('2-3 sentence summary of what we learned (or "Kickoff - no research yet" for first round).'),
   gaps: z.string().describe('What information is still missing?'),
   reasoning: z.string().describe('Your decision rationale combining findings and gaps.'),
-  // For spawn_new - array of 1-3 questions (empty array if synthesize)
-  questions: z.array(QuestionSchema).max(3).describe('1-3 new research questions to spawn in parallel. Empty array if synthesize.'),
+  questions: z.array(QuestionSchema).max(5).describe('Research questions to spawn in parallel. Empty array if synthesize.'),
 });
 
 const SynthesizeSchema = z.object({
@@ -72,110 +67,7 @@ const SynthesizeSchema = z.object({
 });
 
 // ============================================================
-// ResearchQuestion Generation
-// ============================================================
-
-interface GenerateResearchQuestionsConfig {
-  doc: BrainDoc;
-  count?: number;
-  abortSignal?: AbortSignal;
-  onProgress?: (update: any) => void;
-}
-
-interface GenerateResearchQuestionsResult {
-  doc: BrainDoc;
-  questionIds: string[];
-  creditsUsed: number;
-}
-
-/**
- * Generate strategy + questions in one coherent thought
- */
-export async function generateResearchQuestions(
-  config: GenerateResearchQuestionsConfig
-): Promise<GenerateResearchQuestionsResult> {
-  const { doc: initialDoc, count = 3, abortSignal, onProgress } = config;
-  const model = openai('gpt-5.2');
-  let doc = initialDoc;
-  const questionIds: string[] = [];
-
-  log('generateResearchQuestions', `Generating strategy + a few questions for: ${doc.objective}`);
-
-  // PROMPT GOAL: Generate initial batch of research questions to explore the biggest unknowns
-  const prompt = `You are the brain of an autonomous research agent.
-
-OBJECTIVE: ${doc.objective}
-
-Your job is to start witha few exploratory questions to answer the biggest unknowns and get a sense of the landscape.
-
-
-Provide:
-
-1. STRATEGY - What are the biggest unknowns? What do you need to learn first?
-2. QUESTIONS - a few short exploratory questions:
-   - Each question runs IN PARALLEL by a separate researcher (they don't share context).
-   - Answer the biggest unknowns, start broad and slowly narrow down.
-   - Keep them SHORT (max 15 words)`;
-
-  onProgress?.({ type: 'brain_generating_questions', count });
-
-  log('generateResearchQuestions', 'Generating strategy + questions...');
-
-  const result = await generateText({
-    model,
-    prompt,
-    output: Output.object({ schema: KickoffSchema }),
-    abortSignal
-  });
-
-  const creditsUsed = Math.ceil((result.usage?.totalTokens || 0) / 1000);
-
-  const { strategy, questions } = result.output as z.infer<typeof KickoffSchema>;
-
-  // Apply strategy to doc
-  doc = { ...doc, researchStrategy: strategy };
-
-  onProgress?.({
-    type: 'brain_strategy',
-    strategy,
-  });
-
-  // Log the strategy as brain decision
-  doc = addBrainDecision(doc, 'spawn', strategy);
-
-  // Create questions
-  for (const q of questions) {
-    doc = addResearchQuestion(doc, q.name, q.question, q.goal, 30, q.description);
-    const newQ = doc.questions[doc.questions.length - 1];
-    questionIds.push(newQ.id);
-
-    onProgress?.({
-      type: 'question_spawned',
-      questionId: newQ.id,
-      name: q.name,
-      question: q.question,
-      description: q.description,
-      goal: q.goal,
-    });
-  }
-
-  log('generateResearchQuestions', `Generated ${questionIds.length} questions`);
-
-  onProgress?.({
-    type: 'brain_questions_generated',
-    count: questionIds.length,
-    questions: doc.questions.filter(i => questionIds.includes(i.id)).map(i => ({
-      id: i.id,
-      name: i.name,
-      goal: i.goal
-    }))
-  });
-
-  return { doc, questionIds, creditsUsed };
-}
-
-// ============================================================
-// Evaluation & Decision Making
+// Evaluation & Decision Making (also handles kickoff)
 // ============================================================
 
 interface EvaluateResearchQuestionsConfig {
@@ -196,7 +88,8 @@ interface EvaluateResearchQuestionsResult {
 }
 
 /**
- * Evaluate completed questions and decide next action
+ * Evaluate research state and decide next action.
+ * Handles both kickoff (first time, no questions yet) and subsequent evaluations.
  */
 export async function evaluateResearchQuestions(
   config: EvaluateResearchQuestionsConfig
@@ -205,23 +98,43 @@ export async function evaluateResearchQuestions(
   const model = openai('gpt-5.2');
   let doc = initialDoc;
 
+  const isKickoff = doc.questions.length === 0;
   const completed = getCompletedResearchQuestions(doc);
   const running = getRunningResearchQuestions(doc);
   const pending = getPendingResearchQuestions(doc);
 
   const totalMemory = doc.questions.reduce((sum, q) => sum + q.memory.length, 0);
 
-  log('evaluateResearchQuestions', 'Evaluating state:', {
+  log('evaluateResearchQuestions', isKickoff ? 'Kickoff - generating initial questions' : 'Evaluating state:', {
+    isKickoff,
     completed: completed.length,
     running: running.length,
     pending: pending.length,
     totalMemory
   });
 
-  // PROMPT GOAL: Evaluate completed research and decide: spawn more questions OR synthesize final answer
-  const prompt = `You are the Brain of the research.
+  // Build prompt - kickoff vs evaluation
+  const prompt = isKickoff
+    ? `You are the Brain of an autonomous research agent.
 
-Main research objective: 
+OBJECTIVE: ${doc.objective}
+
+Success criteria:
+${doc.successCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}
+
+**THIS IS KICKOFF** - Your job is to start with a few exploratory questions to answer the biggest unknowns and get a sense of the landscape.
+
+Provide:
+1. STRATEGY - What are the biggest unknowns? What do you need to learn first?
+2. QUESTIONS - 3-5 short exploratory questions:
+   - Each question runs IN PARALLEL by a separate researcher (they don't share context)
+   - Answer the biggest unknowns, start broad and slowly narrow down
+   - Keep them SHORT (max 15 words)
+
+For keyFindings, write "Kickoff - no research yet".`
+    : `You are the Brain of the research.
+
+Main research objective:
 ${doc.objective}
 
 Success criteria:
@@ -235,23 +148,22 @@ ${getResearchQuestionsSummary(doc)}
 
 ---
 
-Evaluate and decide what to do next: 
+Evaluate and decide what to do next:
 - Do we have enough information to answer the main research objective?
 - If not, what do we want to learn next? Which research questions could get us closer to understanding the main research objective?
 
-  Your response must include:
-  - KEY FINDINGS - Summarize what we learned (2-3 sentences). Be specific: names, numbers, facts.
-  - GAPS - What's still missing to satisfy success criteria?
-  - REASONING - Your decision based on findings and gaps.
+Your response must include:
+- KEY FINDINGS - Summarize what we learned (2-3 sentences). Be specific: names, numbers, facts.
+- GAPS - What's still missing to satisfy success criteria?
+- REASONING - Your decision based on findings and gaps.
 
 CRITICAL BEHAVIOR:
 - This is iterative - can take many rounds if needed.
 - Only synthesize if ALL success criteria are covered OR gaps are declared unfindable.
 - When spawning, provide questions that explore different gaps (they run in parallel, don't share context)
-- New questions must be short and specific (max 15 words each).
-`;
+- Questions must be short and specific (max 15 words each).`;
 
-  onProgress?.({ type: 'brain_evaluating' });
+  onProgress?.({ type: isKickoff ? 'brain_kickoff' : 'brain_evaluating' });
 
   const result = await generateText({
     model,
@@ -263,9 +175,16 @@ CRITICAL BEHAVIOR:
   const creditsUsed = Math.ceil((result.usage?.totalTokens || 0) / 1000);
   const params = result.output as z.infer<typeof EvaluateSchema>;
 
+  // For kickoff, store strategy if provided
+  if (isKickoff && params.strategy) {
+    doc = { ...doc, researchStrategy: params.strategy };
+    onProgress?.({ type: 'brain_strategy', strategy: params.strategy });
+  }
+
   // Build rich reasoning from findings + gaps + reasoning
   const richReasoning = [
-    params.keyFindings && `We found: ${params.keyFindings}`,
+    params.strategy && isKickoff && `Strategy: ${params.strategy}`,
+    params.keyFindings && params.keyFindings !== 'Kickoff - no research yet' && `We found: ${params.keyFindings}`,
     params.gaps && `Still needed: ${params.gaps}`,
     params.reasoning
   ].filter(Boolean).join(' ');
@@ -295,6 +214,8 @@ CRITICAL BEHAVIOR:
     reasoning: richReasoning,
     keyFindings: params.keyFindings,
     gaps: params.gaps,
+    strategy: params.strategy,
+    isKickoff,
     nextAction
   });
 

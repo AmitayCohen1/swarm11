@@ -47,17 +47,19 @@ User → Intake Agent → Main Loop → Researcher Agents → Web Search
 ```
 PHASE 1: Initialize BrainDoc
     ↓
-PHASE 2: Generate 3 ResearchQuestions (if none exist)
-    ↓
-PHASE 3: Execute ResearchQuestions (sequential in v1)
+PHASE 2: Research Loop
     │
-    ├─→ Run question to completion
+    ├─→ Brain evaluates (handles kickoff if no questions yet)
+    │       ↓
+    │   Decision: spawn_new / synthesize
+    │       ↓
+    ├─→ Run pending questions to completion
     │       ↓
     │   Researcher Agent loop
     │       ↓
-    └─→ Evaluate: spawn_new / synthesize
+    └─→ Loop back to Brain evaluation
     ↓
-PHASE 4: Synthesize Final Answer
+PHASE 3: Synthesize Final Answer
 ```
 
 **Evaluation Decisions:**
@@ -116,8 +118,7 @@ Each step appends to the question's `memory` array:
 **Functions:**
 | Function | Purpose |
 |----------|---------|
-| `generateResearchQuestions()` | Kickoff with 3 exploratory questions (biggest unknowns) |
-| `evaluateResearchQuestions()` | Decide next action based on all question documents |
+| `evaluateResearchQuestions()` | Evaluate state and decide next action. Handles kickoff (if no questions, generates initial exploratory questions) and subsequent evaluations. |
 | `synthesizeFinalAnswer()` | Combine all question documents into final answer |
 
 ---

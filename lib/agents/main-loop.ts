@@ -13,7 +13,6 @@ import { chatSessions, searchQueries } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import type { ResearchBrief } from './intake-agent';
 import {
-  generateResearchQuestions,
   evaluateResearchQuestions,
   synthesizeFinalAnswer,
 } from './brain-agent';
@@ -65,7 +64,6 @@ const CONFIG = {
   maxRounds: Number(process.env.BRAIN_MAX_EVAL_ROUNDS || 50),
   maxTimeMs: Number(process.env.BRAIN_MAX_WALL_TIME_MS || 15 * 60 * 1000),
   maxCredits: Number(process.env.BRAIN_MAX_CREDITS_BUDGET || 1000),
-  initialQuestions: 3,
 };
 
 // ============================================================
@@ -131,23 +129,7 @@ export async function runMainLoop(config: MainLoopConfig): Promise<MainLoopResul
   await save(doc);
   emit('brain_initialized', { objective: doc.objective, successCriteria: doc.successCriteria });
 
-  // --- 2. Generate first questions ---
-
-  if (doc.questions.length === 0) {
-    const result = await generateResearchQuestions({
-      doc,
-      count: CONFIG.initialQuestions,
-      abortSignal,
-      onProgress
-    });
-    doc = result.doc;
-    creditsUsed += result.creditsUsed;
-    await save(doc);
-  }
-
-  emit('doc_updated', { doc });
-
-  // --- 3. Research loop ---
+  // --- 2. Research loop (brain handles kickoff on first iteration) ---
 
   while (!shouldStop()) {
     round++;
@@ -200,7 +182,10 @@ export async function runMainLoop(config: MainLoopConfig): Promise<MainLoopResul
 
     // Spawn new questions
     if (evalResult.nextAction.action === 'spawn_new') {
-      doc = incrementResearchRound(doc);
+      // Only increment round if we have completed questions (not kickoff)
+      if (getCompletedResearchQuestions(doc).length > 0) {
+        doc = incrementResearchRound(doc);
+      }
       for (const q of evalResult.nextAction.questions) {
         doc = addResearchQuestion(doc, q.name, q.question, q.goal, 30, q.description);
       }
