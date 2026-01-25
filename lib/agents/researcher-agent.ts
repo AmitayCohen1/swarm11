@@ -123,8 +123,11 @@ export async function runResearchQuestionToCompletion(
 
     // ============ STEP 1: SEARCH ============
     // PROMPT GOAL: Execute one focused web search to gather information for the goal
-    const searchPrompt = `You are researching: ${currentQuestion.question}
+    const searchPrompt = `MAIN OBJECTIVE: ${objective}
+
+You are researching: ${currentQuestion.question}
 GOAL: ${currentQuestion.goal}
+CONTEXT: ${currentQuestion.description || ''}
 ${historyContext ? `\nPREVIOUS SEARCHES:\n${historyContext}\n` : ''}
 Don't repeat these queries:
 ${previousQueriesText}
@@ -228,9 +231,11 @@ ${searchSources.map(s => `- ${s.title || s.url}`).join('\n') || '(none)'}
 
 ---
 
+MAIN OBJECTIVE: ${objective}
+
 YOUR QUESTION: ${currentQuestion.question}
 YOUR GOAL: ${currentQuestion.goal}
-MAIN OBJECTIVE: ${objective}
+CONTEXT: ${currentQuestion.description || ''}
 
 Searches so far: ${queriesExecuted.length}
 
@@ -279,9 +284,11 @@ Set status="done" only when you've fully achieved the goal with specific facts a
     if (status === 'done') {
       const completePrompt = `You've finished researching this question. Now summarize your findings.
 
+MAIN OBJECTIVE: ${objective}
+
 YOUR QUESTION: ${currentQuestion.question}
 YOUR GOAL: ${currentQuestion.goal}
-MAIN OBJECTIVE: ${objective}
+CONTEXT: ${currentQuestion.description || ''}
 
 SEARCH HISTORY:
 ${searchHistory.map((h, idx) =>
@@ -331,8 +338,11 @@ Include key findings, sources, and any limitations.`;
     // PROMPT GOAL: Generate best-effort summary when research ended early
     const fallbackPrompt = `Summarize what you found researching this question. Even if incomplete, provide the best answer possible.
 
+MAIN OBJECTIVE: ${objective}
+
 YOUR QUESTION: ${currentQuestion.question}
 YOUR GOAL: ${currentQuestion.goal}
+CONTEXT: ${currentQuestion.description || ''}
 
 SEARCH HISTORY:
 ${searchHistory.map((h, idx) =>
