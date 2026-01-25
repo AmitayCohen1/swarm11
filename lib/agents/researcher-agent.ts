@@ -12,8 +12,9 @@
  * This separation makes the flow predictable and avoids toolChoice issues.
  */
 
-import { generateText } from 'ai';
+import { generateText, Output } from 'ai';
 import { openai } from '@ai-sdk/openai';
+import { z } from 'zod';
 import { search } from '@/lib/tools/perplexity-search';
 import type { BrainDoc, QuestionDocument } from '@/lib/types/research-question';
 import {
@@ -49,8 +50,12 @@ interface ResearcherAgentResult {
   creditsUsed: number;
 }
 
-// Note: Using generateText with JSON prompts instead of generateObject schemas
-// This avoids OpenAI's strict schema validation requirements
+// Schema for reflection step
+const ReflectionSchema = z.object({
+  delta: z.enum(['progress', 'no_change', 'dead_end']).describe('How much did this search help?'),
+  thought: z.string().describe('Natural reflection: "Interesting, I found X... Now let me look for Y"'),
+  status: z.enum(['continue', 'done']).describe('continue = keep searching, done = question answered'),
+});
 
 /**
  * Run search → reflect loop for one question
@@ -260,35 +265,21 @@ Reflect on what you learned. Think out loud like:
 - "Hmm, that didn't help much. Let me try Z instead"
 - "Good progress! I now know A, B, C. Still need to find D"
 
-If you've done at least ${MIN_SEARCHES_BEFORE_DONE} searches AND have enough info to answer the question, set status to "done".
-
-Respond with JSON only:
-{
-  "delta": "progress" | "no_change" | "dead_end",
-  "thought": "your reflection here",
-  "status": "continue" | "done"
-}`;
+If you've done at least ${MIN_SEARCHES_BEFORE_DONE} searches AND have enough info to answer the question, set status to "done".`;
 
     log(questionId, `Cycle ${i + 1}: Reflecting...`);
 
     const reflectResult = await generateText({
       model,
       prompt: reflectPrompt,
+      output: Output.object({ schema: ReflectionSchema }),
       abortSignal
     });
 
     trackUsage(reflectResult.usage);
 
-    // Parse JSON from response
-    let reflectData: { delta: string; thought: string; status: string };
-    try {
-      const jsonMatch = reflectResult.text.match(/\{[\s\S]*\}/);
-      reflectData = JSON.parse(jsonMatch?.[0] || '{}');
-    } catch (e) {
-      reflectData = { delta: 'no_change', thought: reflectResult.text, status: 'continue' };
-    }
-
-    let { delta, thought, status } = reflectData as any;
+    const reflectData = reflectResult.object as z.infer<typeof ReflectionSchema>;
+    let { delta, thought, status } = reflectData;
 
     // Prevent marking done too early
     if (status === 'done' && queriesExecuted.length < MIN_SEARCHES_BEFORE_DONE && delta !== 'dead_end') {

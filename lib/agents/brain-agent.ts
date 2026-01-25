@@ -12,7 +12,7 @@
  * No fake tools - just clean LLM calls that return structured data.
  */
 
-import { generateObject, generateText } from 'ai';
+import { generateText, Output } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import type { BrainDoc } from '@/lib/types/research-question';
@@ -66,11 +66,11 @@ const EvaluateSchema = z.object({
   keyFindings: z.string().describe('2-3 sentence summary of what we learned. Be specific: names, numbers, facts.'),
   gaps: z.string().describe('What information is still missing?'),
   reasoning: z.string().describe('Your decision rationale combining findings and gaps.'),
-  // For spawn_new
-  name: z.string().optional().describe('Tab label (2-4 words)'),
-  question: z.string().optional().describe('Short, precise question (max 15 words)'),
-  description: z.string().optional().describe('Explain how this helps the objective (2-3 sentences)'),
-  goal: z.string().optional().describe('What specific output we need (1 sentence)'),
+  // For spawn_new (use empty string if synthesize)
+  name: z.string().describe('Tab label (2-4 words). Empty string if synthesize.'),
+  question: z.string().describe('Short, precise question (max 15 words). Empty string if synthesize.'),
+  description: z.string().describe('Explain how this helps the objective (2-3 sentences). Empty string if synthesize.'),
+  goal: z.string().describe('What specific output we need (1 sentence). Empty string if synthesize.'),
 });
 
 const SynthesizeSchema = z.object({
@@ -134,15 +134,15 @@ Don't try to solve everything. Just get a sense of the landscape first.`;
 
   log('generateResearchQuestions', 'Generating strategy + questions...');
 
-  const result = await generateObject({
+  const result = await generateText({
     model,
     prompt,
-    schema: KickoffSchema,
+    output: Output.object({ schema: KickoffSchema }),
     abortSignal
   });
 
   const creditsUsed = Math.ceil((result.usage?.totalTokens || 0) / 1000);
-  const { strategy, questions } = result.object;
+  const { strategy, questions } = result.object as z.infer<typeof KickoffSchema>;
 
   // Apply strategy to doc
   doc = { ...doc, researchStrategy: strategy };
@@ -265,19 +265,21 @@ CRITICAL BEHAVIOR:
 - This is iterative - can take MANY ROUNDS (10–20+) if needed.
 - For EACH success criterion: is it covered or not?
 - Only SYNTHESIZE if ALL criteria are covered OR gaps are declared unfindable.
-- New questions must be SHORT and SPECIFIC (max 15 words).`;
+- New questions must be SHORT and SPECIFIC (max 15 words).
+
+`;
 
   onProgress?.({ type: 'brain_evaluating' });
 
-  const result = await generateObject({
+  const result = await generateText({
     model,
     prompt,
-    schema: EvaluateSchema,
+    output: Output.object({ schema: EvaluateSchema }),
     abortSignal
   });
 
   const creditsUsed = Math.ceil((result.usage?.totalTokens || 0) / 1000);
-  const params = result.object;
+  const params = result.object as z.infer<typeof EvaluateSchema>;
 
   // Build rich reasoning from findings + gaps + reasoning
   const richReasoning = [
@@ -414,15 +416,15 @@ SYNTHESIZE a comprehensive final answer:
 
   onProgress?.({ type: 'brain_synthesizing' });
 
-  const result = await generateObject({
+  const result = await generateText({
     model,
     prompt,
-    schema: SynthesizeSchema,
+    output: Output.object({ schema: SynthesizeSchema }),
     abortSignal
   });
 
   const creditsUsed = Math.ceil((result.usage?.totalTokens || 0) / 1000);
-  const { confidence, finalAnswer } = result.object;
+  const { confidence, finalAnswer } = result.object as z.infer<typeof SynthesizeSchema>;
 
   doc = setFinalAnswer(doc, finalAnswer);
 

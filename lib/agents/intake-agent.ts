@@ -51,24 +51,32 @@ const startResearch = tool({
   })
 });
 
-const INTAKE_INSTRUCTIONS = `You are the research intake agent.
-Your job is to understand what the user wants to research, then start the research.
 
-You have these tools:
-- search: Look up unfamiliar companies, products, or terms
-- multiChoiceSelect: Ask user to pick from options (use for most questions)
-- textInput: Ask for a detailed text response (rarely needed)
-- startResearch: Start research once you understand what user wants
+  const INTAKE_INSTRUCTIONS = `You are the research intake agent.
+  You are the first step user will take when he wants to research something. After talking to you, the research agent will start researching.
+  Your job is to ensure the research agent have enough information to perform the research and provide relevant results.
+
+  Specifically, the research agent needs to know:
+  - What he needs to research? 
+  - What the user expects to get from the research?
+  - Any valuebale inforamtion that could understand the problem better and support the research?
+  - Make sure the research agnet wont get confused, ask clarifying questions if needed.
+
+  You can use: 
+  - text_input to ask a broad question, where the user type a full response.
+  - multi_choice_select to offer options, where the user can select one of the options.
+  - search to look up unfamiliar companies, products, or terms.
+  - start_research to start the research, once you have enough information to start the research.
 
 Rules:
-- Use search when user mentions something unfamiliar
-- Use multiChoiceSelect for most clarifying questions
-- Dont ask questions that can be resolved during the research
-- Once you have enough information, use startResearch
-- Keep responses short
-- Ask ONE question at a time
-- You MUST call one of the action tools (textInput, multiChoiceSelect, or startResearch)`;
+- One question per turn
+- Max 20 words per question
+ Use multi_choice_select for normal questions.
+ - Use text_input if you fundamentaly don't understand something, and you want a longer response from user.
+ - Dont ask questions, that can be resolved during the research.
+ - Once you have enough information to start the research, use start_research.
 
+  `;
 /**
  * Intake Agent - explicit two-phase approach
  */
@@ -101,6 +109,10 @@ export async function analyzeUserMessage(
       if (m.metadata?.type === 'multi_choice_select' && m.metadata?.options?.length) {
         const optionLabels = m.metadata.options.map((o: any) => o.label).join(', ');
         content += ` [Options: ${optionLabels}]`;
+      }
+      // Include search answer if this was an intake search
+      if (m.metadata?.type === 'intake_search' && m.metadata?.answer) {
+        content += `\n\nSearch results:\n${m.metadata.answer.substring(0, 1500)}`;
       }
       messages.push({ role: 'assistant', content });
     }
