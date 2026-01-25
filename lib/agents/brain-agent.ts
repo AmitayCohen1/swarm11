@@ -123,6 +123,8 @@ Provide:
    "The biggest unknown is whether podcast networks even have public ad sales contacts. Let me also check what budget ranges look like. Once I see what's out there, I'll know where to dig deeper."
 
 2. QUESTIONS - ${count} exploratory questions:
+   - Each question runs IN PARALLEL by a separate researcher (they don't share context)
+   - Make each question SELF-CONTAINED - don't assume knowledge from other questions
    - Answer different big unknowns
    - Keep them SHORT (max 15 words)
    - Good: "Do podcast networks publish ad sales contact info?"
@@ -142,7 +144,8 @@ Don't try to solve everything. Just get a sense of the landscape first.`;
   });
 
   const creditsUsed = Math.ceil((result.usage?.totalTokens || 0) / 1000);
-  const { strategy, questions } = result.object as z.infer<typeof KickoffSchema>;
+
+  const { strategy, questions } = result.output as z.infer<typeof KickoffSchema>;
 
   // Apply strategy to doc
   doc = { ...doc, researchStrategy: strategy };
@@ -279,7 +282,7 @@ CRITICAL BEHAVIOR:
   });
 
   const creditsUsed = Math.ceil((result.usage?.totalTokens || 0) / 1000);
-  const params = result.object as z.infer<typeof EvaluateSchema>;
+  const params = result.output as z.infer<typeof EvaluateSchema>;
 
   // Build rich reasoning from findings + gaps + reasoning
   const richReasoning = [
@@ -424,7 +427,7 @@ SYNTHESIZE a comprehensive final answer:
   });
 
   const creditsUsed = Math.ceil((result.usage?.totalTokens || 0) / 1000);
-  const { confidence, finalAnswer } = result.object as z.infer<typeof SynthesizeSchema>;
+  const { confidence, finalAnswer } = result.output as z.infer<typeof SynthesizeSchema>;
 
   doc = setFinalAnswer(doc, finalAnswer);
 

@@ -278,7 +278,7 @@ If you've done at least ${MIN_SEARCHES_BEFORE_DONE} searches AND have enough inf
 
     trackUsage(reflectResult.usage);
 
-    const reflectData = reflectResult.object as z.infer<typeof ReflectionSchema>;
+    const reflectData = reflectResult.output as z.infer<typeof ReflectionSchema>;
     let { delta, thought, status } = reflectData;
 
     // Prevent marking done too early
