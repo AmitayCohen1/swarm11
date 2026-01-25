@@ -65,7 +65,7 @@ const CompletionSchema = z.object({
     title: z.string(),
     contribution: z.string().describe('What this source contributed (1 sentence)')
   })).describe('Key sources used'),
-  limitations: z.string().optional().describe('What we could NOT find or verify'),
+  limitations: z.string().describe('What we could NOT find or verify. Use empty string if none.'),
   confidence: z.enum(['low', 'medium', 'high']).describe('Confidence in the answer quality'),
   recommendation: z.enum(['promising', 'dead_end', 'needs_more']).describe('How useful was this research angle?'),
 });
@@ -198,13 +198,26 @@ Make the query detailed enough to get comprehensive results. Don't be vague.`;
         // Get the result from tool execution
         const toolResultObj = searchResult.toolResults?.find((tr: any) => tr.toolCallId === tc.toolCallId) as any;
 
-        // Input can be in tc.args OR toolResultObj.input (Vercel AI SDK quirk)
-        const toolInput = tc.args?.queries?.[0] || toolResultObj?.input?.queries?.[0] || {};
+        // Debug logging - show full structure
+        console.log('[Researcher] toolResultObj:', JSON.stringify(toolResultObj, null, 2)?.substring(0, 2000));
+        console.log('[Researcher] tc (toolCall):', JSON.stringify(tc, null, 2)?.substring(0, 500));
+
+        // Input can be in tc.input (Anthropic) or tc.args (OpenAI) or toolResultObj.input
+        const toolInput = tc.input?.queries?.[0] || tc.args?.queries?.[0] || toolResultObj?.input?.queries?.[0] || {};
         const inputQuery = toolInput.query || '';
 
-        // The tool result structure: { result: { count, results: [...], timestamp } }
-        const toolOutput = toolResultObj?.result || {};
+        // The tool result structure varies by provider:
+        // - Anthropic: { output: { count, results: [...] } }
+        // - OpenAI: { result: { count, results: [...] } }
+        // Try all possible paths
+        const toolOutput = toolResultObj?.output || toolResultObj?.result || toolResultObj || {};
         const searches = toolOutput.results || [];
+
+        console.log('[Researcher] Extracted - toolOutput keys:', Object.keys(toolOutput));
+        console.log('[Researcher] Extracted - searches count:', searches.length);
+        if (searches[0]) {
+          console.log('[Researcher] Extracted - answer length:', searches[0].answer?.length || 0);
+        }
 
         // Get query and answer from search results
         const sr = searches[0] || {};
@@ -241,6 +254,7 @@ Make the query detailed enough to get comprehensive results. Don't be vague.`;
     });
 
     log(questionId, `Search: "${searchQuery.substring(0, 50)}..."`);
+    log(questionId, `Search answer length: ${searchAnswer.length}, first 200 chars: ${searchAnswer.substring(0, 200)}`);
 
     // ============ STEP 2: REFLECT ============
     const reflectPrompt = `You just searched for: "${searchQuery}"

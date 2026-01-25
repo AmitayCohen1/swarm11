@@ -1,4 +1,4 @@
-import { generateText, Output, stepCountIs } from 'ai';
+import { generateText, tool } from 'ai';
 import { anthropic } from '@ai-sdk/anthropic';
 import { z } from 'zod';
 import { search } from '../tools/perplexity-search';
@@ -15,53 +15,62 @@ export interface OrchestratorDecision {
   reason?: string;
   options?: { label: string }[];
   researchBrief?: ResearchBrief;
+  // Search info if intake performed a search
+  searchPerformed?: {
+    query: string;
+    answer: string;
+  };
 }
 
-const DecisionSchema = z.object({
-  decision: z.enum(['text_input', 'multi_choice_select', 'start_research']),
-  message: z.string(),
-  reason: z.string().optional(),
-  options: z.array(z.object({
-    label: z.string()
-  })).optional(),
-  objective: z.string().optional(),
-  successCriteria: z.array(z.string()).optional(),
-  reasoning: z.string()
+// Action tools (no execute - they stop the loop)
+const textInput = tool({
+  description: 'Ask the user a question that requires a text response',
+  inputSchema: z.object({
+    message: z.string().describe('The question to ask'),
+    reason: z.string().optional().describe('Why you need this info')
+  })
+});
+
+const multiChoiceSelect = tool({
+  description: 'Ask the user to select one of several options',
+  inputSchema: z.object({
+    message: z.string().describe('The question to ask'),
+    options: z.array(z.object({
+      label: z.string().describe('2-4 word option label')
+    })).min(2).max(4).describe('2-4 options to choose from'),
+    reason: z.string().optional().describe('Why you need this info')
+  })
+});
+
+const startResearch = tool({
+  description: 'Start the research process once you have enough information',
+  inputSchema: z.object({
+    message: z.string().describe('Confirmation message to user'),
+    objective: z.string().describe('Clear research objective'),
+    successCriteria: z.array(z.string()).min(1).max(4).describe('1-4 success criteria')
+  })
 });
 
 const INTAKE_INSTRUCTIONS = `You are the research intake agent.
-You are the first step user will take when he wants to research something. After talking to you, the research agent will start researching.
-Your job is to ensure the research agent have enough information to perform the research and provide relevant results.
+Your job is to understand what the user wants to research, then start the research.
 
-Specifically, the research agent needs to know:
-- What he needs to research?
-- What the user expects to get from the research?
-- Any valuable information that could understand the problem better and support the research?
-- Make sure the research agent wont get confused, ask clarifying questions if needed.
-
-You have access to:
-- search: Quick web lookup to understand unfamiliar companies, products, or terms
+You have these tools:
+- search: Look up unfamiliar companies, products, or terms
+- multiChoiceSelect: Ask user to pick from options (use for most questions)
+- textInput: Ask for a detailed text response (rarely needed)
+- startResearch: Start research once you understand what user wants
 
 Rules:
-- Use multi_choice_select if you want the user to select one of the options.
-- Use text_input if you fundamentally don't understand something and want a longer response from the user.
-- Use search when user mentions something unfamiliar (company, product, term) - look it up first
+- Use search when user mentions something unfamiliar
+- Use multiChoiceSelect for most clarifying questions
 - Dont ask questions that can be resolved during the research
-- Once you have enough information to start the research, use start_research
-- Keep responses short, concise, and to the point.
-- In every response - ask a single spesific question.
-
-Output format:
-- decision: "text_input", "multi_choice_select", or "start_research"
-- message: your response text (no markdown)
-- reason: why you need this info (optional, shown to user)
-- options: array of {label: string} when decision is multi_choice_select
-- objective: research objective string when decision is start_research
-- successCriteria: array of success criteria strings when decision is start_research
-- reasoning: your internal reasoning`;
+- Once you have enough information, use startResearch
+- Keep responses short
+- Ask ONE question at a time
+- You MUST call one of the action tools (textInput, multiChoiceSelect, or startResearch)`;
 
 /**
- * Intake Agent - generateText with tools + structured output
+ * Intake Agent - explicit two-phase approach
  */
 export async function analyzeUserMessage(
   userMessage: string,
@@ -70,14 +79,30 @@ export async function analyzeUserMessage(
   onProgress?: (update: { type: string; query?: string; answer?: string }) => void
 ): Promise<OrchestratorDecision> {
 
-  // Build simple messages array
+  // Build messages array
   const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
 
   for (const m of conversationHistory) {
     if (m.role === 'user' && m.content) {
-      messages.push({ role: 'user', content: m.content });
+      if (m.metadata?.type === 'option_selected') {
+        const selected = m.content;
+        const allOptions = m.metadata.offeredOptions?.map((o: any) => o.label) || [];
+        const notChosen = allOptions.filter((o: string) => o !== selected);
+        let content = `Selected: "${selected}"`;
+        if (notChosen.length > 0) {
+          content += ` (Did NOT choose: ${notChosen.map((o: string) => `"${o}"`).join(', ')})`;
+        }
+        messages.push({ role: 'user', content });
+      } else {
+        messages.push({ role: 'user', content: m.content });
+      }
     } else if (m.role === 'assistant' && m.content) {
-      messages.push({ role: 'assistant', content: m.content });
+      let content = m.content;
+      if (m.metadata?.type === 'multi_choice_select' && m.metadata?.options?.length) {
+        const optionLabels = m.metadata.options.map((o: any) => o.label).join(', ');
+        content += ` [Options: ${optionLabels}]`;
+      }
+      messages.push({ role: 'assistant', content });
     }
   }
 
@@ -87,56 +112,132 @@ export async function analyzeUserMessage(
     messages.push({ role: 'user', content: userMessage });
   }
 
-  console.log('[Intake] Messages count:', messages.length);
+  console.log('[Intake] ====== NEW REQUEST ======');
+  console.log('[Intake] Messages:', JSON.stringify(messages, null, 2));
 
-  const result = await generateText({
+  // Phase 1: Call with all tools (including search)
+  const result1 = await generateText({
     model: anthropic('claude-sonnet-4-20250514'),
     system: INTAKE_INSTRUCTIONS,
     messages,
-    tools: { search },
-    stopWhen: stepCountIs(3), // Allow up to 3 steps (search → search → respond)
-    output: Output.object({ schema: DecisionSchema }),
-    onStepFinish: (step: any) => {
-      for (const tc of step.toolCalls || []) {
-        if (tc.toolName === 'search') {
-          const query = tc.args?.queries?.[0]?.query || '';
-          console.log('[Intake] Searching:', query);
-          onProgress?.({ type: 'intake_searching', query });
-        }
-      }
-      for (const tr of step.toolResults || []) {
-        if (tr.toolName === 'search') {
-          const answer = tr.result?.results?.[0]?.answer || '';
-          console.log('[Intake] Search complete');
-          onProgress?.({ type: 'intake_search_complete', query: '', answer });
-        }
-      }
-    }
+    tools: { search, textInput, multiChoiceSelect, startResearch },
+    toolChoice: 'required'
   });
 
-  const output = result.output;
-  console.log('[Intake] Decision:', output?.decision);
+  // Check if search was called
+  const searchCall = result1.toolCalls?.find((tc: any) => tc.toolName === 'search');
 
-  if (!output) {
+  if (searchCall) {
+    // Debug: log the full structures
+    console.log('[Intake] ======= SEARCH DEBUG =======');
+    console.log('[Intake] searchCall keys:', Object.keys(searchCall));
+    console.log('[Intake] searchCall.input:', JSON.stringify(searchCall.input, null, 2));
+    console.log('[Intake] result1.toolResults:', JSON.stringify(result1.toolResults, null, 2)?.substring(0, 2000));
+
+    // Extract query from input (Anthropic AI SDK uses .input for tool call arguments)
+    const searchArgs = (searchCall.input || searchCall.args || {}) as any;
+    const query = searchArgs?.queries?.[0]?.query || '';
+    console.log('[Intake] Extracted query:', query);
+    onProgress?.({ type: 'intake_searching', query });
+
+    // Get search result - toolResults contains the executed tool results
+    const searchResult = result1.toolResults?.find((tr: any) => tr.toolName === 'search') as any;
+    console.log('[Intake] searchResult keys:', searchResult ? Object.keys(searchResult) : 'null');
+
+    // The result structure: { toolCallId, toolName, output: { count, results: [{ query, answer, ... }], timestamp } }
+    // Note: Anthropic SDK uses .output, not .result
+    const toolOutput = searchResult?.output || searchResult?.result;
+    console.log('[Intake] toolOutput keys:', toolOutput ? Object.keys(toolOutput) : 'null');
+    console.log('[Intake] toolOutput.results[0]:', JSON.stringify(toolOutput?.results?.[0], null, 2)?.substring(0, 500));
+
+    // Extract answer from the nested structure
+    const answer = toolOutput?.results?.[0]?.answer || 'No results found';
+    console.log('[Intake] Final answer length:', answer.length);
+    console.log('[Intake] ======= END DEBUG =======');
+
+    onProgress?.({ type: 'intake_search_complete', query, answer });
+
+    // Phase 2: Call again with search results in context
+    const messagesWithSearch = [
+      ...messages,
+      { role: 'assistant' as const, content: `[I searched for "${query}"]` },
+      { role: 'user' as const, content: `Search results: ${answer.substring(0, 1000)}` }
+    ];
+
+    console.log('[Intake] Calling again with search results...');
+
+    const result2 = await generateText({
+      model: anthropic('claude-sonnet-4-20250514'),
+      system: INTAKE_INSTRUCTIONS,
+      messages: messagesWithSearch,
+      tools: { textInput, multiChoiceSelect, startResearch }, // No search this time
+      toolChoice: 'required'
+    });
+
+    const decision = extractActionFromResult(result2);
+    // Attach search info so it can be stored in conversation
+    decision.searchPerformed = { query, answer };
+    return decision;
+  }
+
+  // No search - check for action tool
+  return extractActionFromResult(result1);
+}
+
+function extractActionFromResult(result: any): OrchestratorDecision {
+  console.log('[Intake] ======= ACTION EXTRACTION =======');
+  console.log('[Intake] All toolCalls:', JSON.stringify(result.toolCalls, null, 2));
+
+  const actionCall = result.toolCalls?.find((tc: any) =>
+    ['textInput', 'multiChoiceSelect', 'startResearch'].includes(tc.toolName)
+  );
+
+  console.log('[Intake] Found action:', actionCall?.toolName);
+
+  if (!actionCall) {
+    console.log('[Intake] No action tool found in toolCalls');
     return {
       type: 'text_input',
       message: 'What would you like me to research?',
-      reasoning: 'No output generated'
+      reasoning: 'No action tool called'
     };
   }
 
-  // Build researchBrief from flat fields
-  const researchBrief = output.objective ? {
-    objective: output.objective,
-    successCriteria: output.successCriteria || []
-  } : undefined;
+  console.log('[Intake] actionCall keys:', Object.keys(actionCall));
+  console.log('[Intake] actionCall.input:', JSON.stringify(actionCall.input, null, 2));
 
+  // Anthropic AI SDK uses .input for tool call arguments (not .args)
+  const args = (actionCall.input || actionCall.args || {}) as any;
+  console.log('[Intake] Final args:', JSON.stringify(args, null, 2));
+  console.log('[Intake] ======= END ACTION =======');
+
+  if (actionCall.toolName === 'startResearch') {
+    return {
+      type: 'start_research',
+      message: args.message || 'Starting research...',
+      reasoning: 'Starting research',
+      researchBrief: {
+        objective: args.objective || '',
+        successCriteria: args.successCriteria || []
+      }
+    };
+  }
+
+  if (actionCall.toolName === 'multiChoiceSelect') {
+    return {
+      type: 'multi_choice_select',
+      message: args.message || 'Please select:',
+      reasoning: 'Asking multi-choice question',
+      reason: args.reason,
+      options: args.options || []
+    };
+  }
+
+  // textInput
   return {
-    type: output.decision,
-    message: output.message,
-    reasoning: output.reasoning,
-    reason: output.reason,
-    options: output.options,
-    researchBrief
+    type: 'text_input',
+    message: args.message || 'Please tell me more:',
+    reasoning: 'Asking text question',
+    reason: args.reason
   };
 }

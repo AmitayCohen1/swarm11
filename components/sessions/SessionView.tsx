@@ -658,10 +658,10 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
               variant="ghost"
               size="icon"
               className={cn(
-                "w-8 h-8 rounded-lg transition-all",
+                "w-8 h-8 rounded-lg transition-all border",
                 showLogs
-                  ? "text-blue-400 bg-blue-500/10 hover:bg-blue-500/20"
-                  : "text-slate-400 hover:text-white hover:bg-white/5"
+                  ? "text-blue-400 bg-blue-500/20 border-blue-500/50"
+                  : "text-yellow-400 border-yellow-500/30 hover:bg-yellow-500/10"
               )}
               onClick={() => setShowLogs(!showLogs)}
               title={showLogs ? "Hide logs" : "Show logs"}
@@ -757,11 +757,43 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
                     />
                   );
                 }
+                if (msg.metadata?.type === 'intake_search') {
+                  return (
+                    <div key={idx} className="flex items-start gap-5 animate-in fade-in slide-in-from-left-2 duration-500">
+                      <div className="w-10 h-10 rounded-2xl bg-amber-500/10 flex items-center justify-center shrink-0 border border-amber-500/20">
+                        <Search className="w-5 h-5 text-amber-400" />
+                      </div>
+                      <div className="flex-1 pt-2 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-bold text-amber-400 uppercase tracking-widest">Looked up</p>
+                          <Check className="w-3 h-3 text-emerald-400" />
+                        </div>
+                        <p className="text-sm text-slate-300 font-medium">{msg.metadata.query}</p>
+                        {msg.metadata.answer && (
+                          <div className="p-4 rounded-2xl bg-white/2 border border-white/5 mt-2">
+                            <div className="text-[13px] text-slate-400 leading-relaxed prose prose-invert prose-sm max-w-none">
+                              <ReactMarkdown
+                                components={{
+                                  p: ({ node, ...props }) => <p {...props} className="mb-2 last:mb-0" />,
+                                  a: ({ node, ...props }) => (
+                                    <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline font-medium" />
+                                  ),
+                                }}
+                              >
+                                {msg.metadata.answer.substring(0, 800)}{msg.metadata.answer.length > 800 ? '...' : ''}
+                              </ReactMarkdown>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
                 if (msg.metadata?.type === 'ask_user' || msg.metadata?.type === 'multi_choice_select') {
                   return (
                     <div key={idx} className="animate-in fade-in duration-500">
                       <AskUserOptions
-                        question={msg.metadata.question}
+                        question={msg.metadata.question || msg.content}
                         options={msg.metadata.options || []}
                         reason={msg.metadata.reason}
                         status={status}

@@ -151,6 +151,32 @@ export async function POST(
             reasoning: decision.reasoning
           });
 
+          // If intake performed a search, add it to conversation history
+          if (decision.searchPerformed) {
+            const { query, answer } = decision.searchPerformed;
+            conversationHistory.push({
+              role: 'assistant',
+              content: `Looked up: ${query}`,
+              timestamp: new Date().toISOString(),
+              metadata: {
+                type: 'intake_search',
+                query,
+                answer
+              }
+            });
+
+            await db
+              .update(chatSessions)
+              .set({ messages: conversationHistory, updatedAt: new Date() })
+              .where(eq(chatSessions.id, sessionId));
+
+            sendEvent({
+              type: 'intake_search_result',
+              query,
+              answer
+            });
+          }
+
           // Handle decision
           if (decision.type === 'text_input') {
             const assistantMessage = decision.message || 'Hello! How can I help?';
