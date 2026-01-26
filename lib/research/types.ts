@@ -31,6 +31,7 @@ export interface ResearchQuestionMemory {
   question: string;
   description: string;
   goal: string;
+  round: number;
   status: 'pending' | 'running' | 'done';
   history: ResearchQuestionEvent[];
   answer?: string;
@@ -61,13 +62,15 @@ export function createBrainMemory(objective: string, successCriteria?: string[])
 export function createQuestion(
   question: string,
   description: string,
-  goal: string
+  goal: string,
+  round: number
 ): ResearchQuestionMemory {
   return {
     id: `q_${generateId()}`,
     question,
     description,
     goal,
+    round,
     status: 'pending',
     history: [],
   };

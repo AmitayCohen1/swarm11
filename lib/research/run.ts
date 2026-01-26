@@ -58,7 +58,7 @@ function toFrontendFormat(state: ResearchState, round: number): any {
 
     return {
       id: q.id,
-      researchRound: round,
+      researchRound: q.round || 1,
       name: q.question.substring(0, 30) + (q.question.length > 30 ? '...' : ''),
       question: q.question,
       description: q.description,
@@ -169,10 +169,10 @@ export async function runResearch(config: RunConfig): Promise<RunResult> {
       break;
     }
 
-    // Add new questions from brain
+    // Add new questions from brain (with current round number)
     if (evalResult.questions) {
       for (const q of evalResult.questions) {
-        questions[q.id] = q;
+        questions[q.id] = { ...q, round };
       }
     }
 

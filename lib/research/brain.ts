@@ -81,7 +81,7 @@ export async function evaluate(
     reason: data.reason,
     decision: data.decision,
     questions: data.questions.length > 0
-      ? data.questions.map(q => createQuestion(q.question, q.description, q.goal))
+      ? data.questions.map(q => createQuestion(q.question, q.description, q.goal, 0)) // round set by run.ts
       : undefined,
   };
 }

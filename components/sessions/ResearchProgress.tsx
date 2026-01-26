@@ -254,6 +254,14 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
 
         return (
           <div key={roundNum} className="space-y-6">
+            {/* Round Header */}
+            <div className="flex items-center gap-3">
+              <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
+                Batch {roundNum}
+              </span>
+              <div className="flex-1 h-px bg-white/5" />
+            </div>
+
             <div className="p-6 rounded-3xl bg-white/2 border border-white/5 shadow-2xl backdrop-blur-sm">
               {/* Question Selection - Simple underline tabs */}
               {questions.length > 0 && (
