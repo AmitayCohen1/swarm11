@@ -60,53 +60,56 @@ export function brainEvalPrompt(args: {
     ? args.successCriteria.map(c => `- ${c}`).join('\n')
     : '(none provided)';
 
-  return `You are the Brain (evaluator) in an autonomous research system.
+  return `You are the Brain of an autonomous research system.
 
-## Our main research objective is:
+## Main Research Objective
 ${args.objective}
 
-## Our success criteria are:
+## Success Criteria
 ${criteria}
 
+Your role is to decide whether we need to ask additional research questions or if we already have enough information to synthesize a final answer.
 
+Work systematically and strategically:
+- Start broad and identify major unknowns.
+- Prioritize high-impact uncertainties first.
+- Gradually narrow toward more specific unknowns.
 
-Your job is to decide if we need to ask more questions or if we have enough information to synthesize a final answer.
-Work smartly, and systematically. Start broad, research big unknowns first, then narrow down to smaller unknowns.
-${args.isFirstBatch ? `This is the first batch of questions. Start broad to explore the problem space, then we'll narrow based on findings.` : `
-  ## We have completed ${args.completedQuestionsCount} research questions:\n${args.questionsContext}\n`}
-  --------------------------------
+${args.isFirstBatch 
+? `This is the first batch of questions. Begin with broad exploration of the problem space. We will narrow based on findings.` 
+: `## Completed Research
+We have completed ${args.completedQuestionsCount} research questions:
+${args.questionsContext}
+`}
 
-## Reason
-Always provide a brief "reason" explaining your decision - why you're continuing (and what you'll look for next) or why you're done (what made you confident).
+We do not need to finish the research in a single batch. The system may run for hours.
 
+## Decision Policy
+Choose:
+- decision = "done" if the completed research is sufficient to satisfy the objective or if further research is unlikely to produce meaningful new information.
+- decision = "continue" if additional research is required.
 
-## Decision policy
-Choose decision="done" when the completed research is sufficient to satisfy the objective.
-Choose decision="continue" if you prefer researching deeper and asking more questions to get more information.
+## If Continuing: Produce Questions
+Questions are the smallest building blocks of research.
 
-## If continuing: produce questions.
-Propose a few questions that would get us closer to the objective.
-Each question will run in parallel by separate researchers who do not share context.
-Research questions are the smallest units of work that can be done to get us closer to the objective, therefore they must be really precise and focused.
+Each question MUST be:
+- Maximum 15 words
+- A single, focused question
+- Simple enough to type into Google
 
-Research questions must be:
-- very specific, short and focused, with a single, messureable goal.
-- self-contained, meaning it can be answered by a single web search.
-- goal-driven with a measurable goal.
-- Ask for a single thing every time, don't try to ask for multiple things at once.
+Keep it short. One thing at a time. No compound questions with "AND" or multiple clauses.
 
-Return:
-{
-  "decision": "continue" | "done",
-  "reason": "Brief explanation of your decision in plain english - 'I decided to... because...'",
-  "questions": [
-    {
-      "question": "short, precise, single question",
-      "description": "Explain how this research question supports our main objective.",
-      "goal": "Realistic, specific answer we are looking for that will help us know when to finish the research."
-    }
-  ]
-}
+Each question runs in parallel by independent researchers without shared context.
+Focus on major unknowns first. Explore multiple directions. Double down or pivot as needed.
+You may propose up to 3 questions at a time.
+
+Output:
+  Decision: Continue or Done,
+  Reason: Brief explanation (1-2 sentences),
+  Questions: For each:
+    Question: 15 words max,
+    Description: How this helps the objective (1 sentence),
+    Goal: What answer we need (1 sentence)
 `;
 }
 
@@ -136,6 +139,10 @@ ${criteria}
 ${args.questionsContext}
  
 ## Based on the findings, synthesize a final answer. If we couldn't satisfy the success criteria, explain why.
+
+Output:
+  Answer: Final answer,
+  Reason: Brief explanation in plain English (e.g., 'I decided to continue because...'),
 `;
 }
 
@@ -160,16 +167,22 @@ ${args.question}
 ${args.goal || '(not provided)'}
 
 ## Your job is to answer this sub-question in service of the main objective.
-You'll run research question after research question until you can answer the sub-question or decide that you can't answer it and it's a dead end.
-If you think we have enough information to answer the sub-question, you should return "done".
-If you want to continue researching, you should return "continue" and propose a new sub-question to research - the query you write will be send to perplexity to be answered.
+You'll run search query after search query until you can answer the sub-question or decide it's a dead end.
+If you have enough information, return "done".
+If you need more data, return "continue" with a search query for Perplexity.
+
+## CRITICAL: Search query format
+Your search query MUST be:
+- Maximum 10-15 words
+- A simple search phrase, NOT a full sentence
+- Like what you'd type into Google
+
+Keep it short. One thing at a time. No compound queries with "AND" or multiple requirements.
 
 Return:
-{
-  "decision": "continue" | "done",
-  "reason": "Brief explanation of your reasoning in plain english - 'Looks like... that's why...', etc.",
-  "question": "short, precise, single question"
-}
+  Decision: Continue or Done,
+  Reason: Brief explanation (1-2 sentences max),
+  Question: Search query (10-15 words max),
 `;
 }
 

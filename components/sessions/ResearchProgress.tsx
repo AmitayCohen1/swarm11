@@ -238,36 +238,12 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
           direction="top"
         />
         {doc.researchReason && (
-          <div className="flex items-start gap-4 p-4 rounded-2xl bg-purple-500/[0.03] border border-purple-500/10">
-            <Brain className="w-5 h-5 text-purple-400 shrink-0 mt-0.5" />
-            <div className="prose prose-invert prose-sm max-w-none">
-              <ReactMarkdown
-                components={{
-                  p: ({ node, ...props }) => <p {...props} className="text-sm text-slate-300 leading-relaxed mb-2 last:mb-0 italic" />,
-                  ul: ({ node, ...props }) => <ul {...props} className="text-sm text-slate-300 list-disc list-inside space-y-1 mb-2 italic" />,
-                  ol: ({ node, ...props }) => <ol {...props} className="text-sm text-slate-300 list-decimal list-inside space-y-1 mb-2 italic" />,
-                  li: ({ node, ...props }) => <li {...props} className="text-sm text-slate-300" />,
-                  strong: ({ node, ...props }) => <strong {...props} className="text-slate-200 font-semibold" />,
-                }}
-              >
-                {doc.researchReason}
-              </ReactMarkdown>
-            </div>
-          </div>
+          <p className="text-sm text-slate-500 italic leading-relaxed">
+            "{doc.researchReason}"
+          </p>
         )}
       </div>
 
-      {/* Empty State - Research just started */}
-      {rounds.length === 0 && doc.status === 'running' && (
-        <div className="flex flex-col items-center justify-center py-20">
-          <div className="flex items-center gap-3">
-            <div className="w-2 h-2 rounded-full bg-white/40 animate-pulse" />
-            <div className="w-2 h-2 rounded-full bg-white/40 animate-pulse [animation-delay:150ms]" />
-            <div className="w-2 h-2 rounded-full bg-white/40 animate-pulse [animation-delay:300ms]" />
-          </div>
-          <p className="mt-6 text-sm text-slate-500">Researching...</p>
-        </div>
-      )}
 
       {/* Research Rounds */}
       {rounds.map((roundNum, roundIndex) => {

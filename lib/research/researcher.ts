@@ -98,11 +98,17 @@ export async function finish(
 
   const result = await generateText({
     model,
-    // PROMPT GOAL (Researcher.finish): Summarize this question's findings for the Brain.
-    // Output = { answer, confidence }. (Sources aren't threaded through this pipeline today.)
-    system: `${researchQuestionEvalPrompt({ objective, question, goal })}
+    system: `You are summarizing research findings.
 
-Summarize what you found for the brain. Include key facts, and explicitly note uncertainties/limits.`,
+Main objective: ${objective}
+Sub-question researched: ${question}
+Goal: ${goal || '(not provided)'}
+
+Based on the search results in this conversation, write a clear summary of what was found.
+Include key facts, data points, and explicitly note any gaps or uncertainties.
+
+Do NOT include any JSON, decision fields, or structured output format in your answer.
+Just write a plain text summary.`,
     messages,
     output: Output.object({ schema: FinishSchema }),
   });
