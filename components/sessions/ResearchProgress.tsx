@@ -238,16 +238,16 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
           direction="top"
         />
         {doc.researchReason && (
-          <div className="p-4 rounded-2xl bg-white/2 border border-white/5">
-            <p className="text-slate-500 text-[10px] uppercase tracking-widest mb-3">Reason</p>
+          <div className="flex items-start gap-4 p-4 rounded-2xl bg-purple-500/[0.03] border border-purple-500/10">
+            <Brain className="w-5 h-5 text-purple-400 shrink-0 mt-0.5" />
             <div className="prose prose-invert prose-sm max-w-none">
               <ReactMarkdown
                 components={{
-                  p: ({ node, ...props }) => <p {...props} className="text-sm text-slate-400 leading-relaxed mb-2 last:mb-0" />,
-                  ul: ({ node, ...props }) => <ul {...props} className="text-sm text-slate-400 list-disc list-inside space-y-1 mb-2" />,
-                  ol: ({ node, ...props }) => <ol {...props} className="text-sm text-slate-400 list-decimal list-inside space-y-1 mb-2" />,
-                  li: ({ node, ...props }) => <li {...props} className="text-sm text-slate-400" />,
-                  strong: ({ node, ...props }) => <strong {...props} className="text-slate-300 font-semibold" />,
+                  p: ({ node, ...props }) => <p {...props} className="text-sm text-slate-300 leading-relaxed mb-2 last:mb-0 italic" />,
+                  ul: ({ node, ...props }) => <ul {...props} className="text-sm text-slate-300 list-disc list-inside space-y-1 mb-2 italic" />,
+                  ol: ({ node, ...props }) => <ol {...props} className="text-sm text-slate-300 list-decimal list-inside space-y-1 mb-2 italic" />,
+                  li: ({ node, ...props }) => <li {...props} className="text-sm text-slate-300" />,
+                  strong: ({ node, ...props }) => <strong {...props} className="text-slate-200 font-semibold" />,
                 }}
               >
                 {doc.researchReason}

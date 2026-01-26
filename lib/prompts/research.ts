@@ -73,7 +73,7 @@ ${criteria}
 Your job is to decide if we need to ask more questions or if we have enough information to synthesize a final answer.
 Work smartly, and systematically. Start broad, research big unknowns first, then narrow down to smaller unknowns.
 ${args.isFirstBatch ? `This is the first batch of questions. Start broad to explore the problem space, then we'll narrow based on findings.` : `
-  ## We have completed ' + args.completedQuestionsCount + ' questions:\n' + args.questionsContext + '\n'}
+  ## We have completed ${args.completedQuestionsCount} research questions:\n${args.questionsContext}\n`}
   --------------------------------
 
 ## Reason
@@ -93,19 +93,20 @@ Research questions must be:
 - very specific, short and focused, with a single, messureable goal.
 - self-contained, meaning it can be answered by a single web search.
 - goal-driven with a measurable goal.
-- answerable via web search.
+- Ask for a single thing every time, don't try to ask for multiple things at once.
 
-Return: 
+Return:
 {
   "decision": "continue" | "done",
-  "reason": "brief explanation of your decision - 'I decided to ... because...'",
+  "reason": "Brief explanation of your decision in plain english - 'I decided to... because...'",
   "questions": [
     {
-      "question": "short, precise question (max 15 words)",
-      "description": "why this helps the objective (1-2 sentences)",
-      "goal": "realistic, specific goal"
+      "question": "short, precise, single question",
+      "description": "Explain how this research question supports our main objective.",
+      "goal": "Realistic, specific answer we are looking for that will help us know when to finish the research."
     }
   ]
+}
 `;
 }
 
@@ -162,6 +163,13 @@ ${args.goal || '(not provided)'}
 You'll run research question after research question until you can answer the sub-question or decide that you can't answer it and it's a dead end.
 If you think we have enough information to answer the sub-question, you should return "done".
 If you want to continue researching, you should return "continue" and propose a new sub-question to research - the query you write will be send to perplexity to be answered.
+
+Return:
+{
+  "decision": "continue" | "done",
+  "reason": "Brief explanation of your reasoning in plain english - 'Looks like... that's why...', etc.",
+  "question": "short, precise, single question"
+}
 `;
 }
 
