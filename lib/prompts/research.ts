@@ -68,12 +68,13 @@ ${args.objective}
 ## Our success criteria are:
 ${criteria}
 
-## We have completed ${args.completedQuestionsCount} questions:
-${args.questionsContext}
+
 
 Your job is to decide if we need to ask more questions or if we have enough information to synthesize a final answer.
 Work smartly, and systematically. Start broad, research big unknowns first, then narrow down to smaller unknowns.
---------------------------------
+${args.isFirstBatch ? `This is the first batch of questions. Start broad to explore the problem space, then we'll narrow based on findings.` : `
+  ## We have completed ' + args.completedQuestionsCount + ' questions:\n' + args.questionsContext + '\n'}
+  --------------------------------
 
 ## Reason
 Always provide a brief "reason" explaining your decision - why you're continuing (and what you'll look for next) or why you're done (what made you confident).
