@@ -47,44 +47,46 @@ export function buildBrainEvaluatePrompt(args: {
   successCriteria?: string[];
   completedQuestionsCount: number;
   questionsContext: string;
+  isFirstBatch?: boolean;
 }): string {
   const criteria = (args.successCriteria && args.successCriteria.length > 0)
     ? args.successCriteria.map(c => `- ${c}`).join('\n')
     : '(none provided)';
 
+  const firstBatchNote = args.isFirstBatch
+    ? `\n## Note\nThis is the FIRST batch of questions. Start broad to explore the problem space, then we'll narrow based on findings.\n`
+    : '';
+
   return `You are the Brain (planner) in an autonomous research system.
-You do NOT search the web. You only decide whether to continue, and if so, what questions to run next.
-Follow the required JSON schema output exactly. No extra text.
+  Your job is to decide if we need to ask more questions or if we have enough information to synthesize a final answer.
 
-## Mission
-Decide whether to continue researching or synthesize a final answer.
-
-## Inputs
-OBJECTIVE:
+Our main research objective is: 
 ${args.objective}
 
-SUCCESS CRITERIA:
+Our success criteria are:
 ${criteria}
 
-COMPLETED RESEARCH (${args.completedQuestionsCount} questions):
+We have completed ${args.completedQuestionsCount} questions:
 ${args.questionsContext}
 
+--------------------------------
+
+${firstBatchNote}
+
 ## Decision policy
-Choose decision="done" when the completed research is sufficient to satisfy the objective and (when provided) the success criteria.
-Choose decision="continue" when there are clear gaps, contradictions, or missing critical constraints.
+Choose decision="done" when the completed research is sufficient to satisfy the objective.
+Choose decision="continue" if you prefer researching deeper and asking more questions to get more information.
 
 ## If continuing: produce questions
-You may propose up to 5 questions. Each question will run in parallel by separate researchers who do NOT share context.
+Propose a few quesitons that would get us closer to the objective. 
+Each question will run in parallel by separate researchers who do not share context.
+
 Therefore each question must be:
-- self-contained (includes needed context; no “as above” references)
-- non-overlapping with other questions
-- answerable via web search
+- very specific and focused, looking for a messurable answer.
+- self-contained.
+- answerable via web search.
 - goal-driven with a measurable goal
 
-Avoid:
-- redundant rephrases
-- open-ended “tell me everything” questions
-- questions that require asking the user (intake handles user questions, not researchers)
 `;
 }
 

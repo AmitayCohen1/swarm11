@@ -50,6 +50,7 @@ export async function evaluate(
   completedQuestions: ResearchQuestionMemory[],
   successCriteria?: string[]
 ): Promise<EvaluateResult> {
+  const isFirstBatch = completedQuestions.length === 0;
   const questionsContext = completedQuestions.length > 0
     ? completedQuestions.map(q =>
         `### ${q.question}\n**Confidence:** ${q.confidence || 'unknown'}\n**Answer:** ${q.answer || 'No answer'}`
@@ -66,6 +67,7 @@ export async function evaluate(
       successCriteria,
       completedQuestionsCount: completedQuestions.length,
       questionsContext,
+      isFirstBatch,
     }),
     output: Output.object({ schema: EvaluateSchema }),
   });

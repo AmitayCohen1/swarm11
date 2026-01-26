@@ -292,9 +292,9 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
         return (
           <div key={roundNum} className="space-y-6">
             <div className="p-6 rounded-3xl bg-white/2 border border-white/5 shadow-2xl backdrop-blur-sm">
-              {/* Question Selection */}
+              {/* Question Selection - Simple underline tabs */}
               {questions.length > 0 && (
-                <div className="mb-6 flex gap-2 overflow-x-auto pb-4 custom-scrollbar">
+                <div className="mb-6 flex gap-6 overflow-x-auto border-b border-white/10">
                   {questions.map((question) => {
                     const isActive = question.id === activeTab;
                     const isDone = question.status === 'done';
@@ -306,25 +306,22 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
                         key={question.id}
                         onClick={() => setActiveTabByRound(prev => ({ ...prev, [roundNum]: question.id }))}
                         className={cn(
-                          "flex items-center gap-3 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest whitespace-nowrap transition-all border",
+                          "flex items-center gap-2 pb-3 text-sm whitespace-nowrap transition-colors border-b-2 -mb-[1px]",
                           isActive
-                            ? "bg-white text-black border-white shadow-lg shadow-white/10 scale-105"
-                            : "bg-white/5 text-slate-500 border-transparent hover:bg-white/10 hover:text-slate-300"
+                            ? "text-white border-white"
+                            : "text-slate-500 border-transparent hover:text-slate-300"
                         )}
                       >
                         <div
                           className={cn(
-                            "w-2 h-2 rounded-full",
-                            isDone ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" : 
-                            isRunning ? "bg-amber-500 animate-pulse" : "bg-slate-700"
+                            "w-1.5 h-1.5 rounded-full",
+                            isDone ? "bg-emerald-500" :
+                            isRunning ? "bg-amber-500 animate-pulse" : "bg-slate-600"
                           )}
                         />
                         {question.name}
                         {searchCount > 0 && (
-                          <span className={cn(
-                            "px-1.5 py-0.5 rounded-md text-[9px]",
-                            isActive ? "bg-black/10 text-black/60" : "bg-white/5 text-slate-600"
-                          )}>
+                          <span className="text-xs text-slate-600">
                             {searchCount}
                           </span>
                         )}
