@@ -789,7 +789,7 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
                                   ),
                                 }}
                               >
-                                {msg.metadata.answer.substring(0, 800) + (msg.metadata.answer.length > 800 ? '...' : '')}
+                                {msg.metadata.answer}
                               </ReactMarkdown>
                             </div>
                           </div>
@@ -911,9 +911,8 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
                     {intakeSearch.status === 'complete' && intakeSearch.answer && (
                       <div className="mt-2 p-3 rounded-lg bg-white/[0.02] border border-white/5 max-h-48 overflow-y-auto">
                         <p className="text-xs text-slate-400 leading-relaxed whitespace-pre-wrap">
-                          {intakeSearch.answer.substring(0, 800)}
-                          {intakeSearch.answer.length > 800 && '...'}
-                        </p>
+                          {intakeSearch.answer}
+                                                  </p>
                       </div>
                     )}
                   </div>

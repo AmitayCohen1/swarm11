@@ -27,6 +27,7 @@ const QuestionSchema = z.object({
 
 const EvaluateSchema = z.object({
   reasoning: z.string().describe('Analysis of current state'),
+  strategy: z.string().describe('For first batch: Brief plan of attack. For later batches: empty string.'),
   decision: z.enum(['continue', 'done']),
   questions: z.array(QuestionSchema).max(5).describe('Questions to research (empty array if decision is done)'),
 });
@@ -41,6 +42,7 @@ const FinishSchema = z.object({
 
 export interface EvaluateResult {
   reasoning: string;
+  strategy: string;
   decision: 'continue' | 'done';
   questions?: ResearchQuestionMemory[];
 }
@@ -76,6 +78,7 @@ export async function evaluate(
 
   return {
     reasoning: data.reasoning,
+    strategy: data.strategy,
     decision: data.decision,
     questions: data.questions.length > 0
       ? data.questions.map(q => createQuestion(q.question, q.description, q.goal))

@@ -96,6 +96,7 @@ function toFrontendFormat(state: ResearchState, round: number): any {
     version: 1,
     objective: state.brain.objective,
     successCriteria: state.brain.successCriteria || [],
+    researchStrategy: state.brain.strategy,
     researchRound: round,
     questions,
     brainLog,
@@ -148,6 +149,11 @@ export async function runResearch(config: RunConfig): Promise<RunResult> {
     const evalResult = await brainEvaluate(brain.objective, completed, brain.successCriteria);
     log('Brain decided', { decision: evalResult.decision, newQuestions: evalResult.questions?.length || 0 });
 
+    // Store strategy on first batch (only if non-empty)
+    if (evalResult.strategy && evalResult.strategy.trim() && !brain.strategy) {
+      brain.strategy = evalResult.strategy;
+    }
+
     brain.history.push({
       type: 'evaluate',
       reasoning: evalResult.reasoning,
@@ -155,7 +161,7 @@ export async function runResearch(config: RunConfig): Promise<RunResult> {
       spawnedIds: evalResult.questions?.map(q => q.id),
     });
 
-    onProgress?.({ type: 'brain_evaluate', reasoning: evalResult.reasoning, decision: evalResult.decision });
+    onProgress?.({ type: 'brain_evaluate', reasoning: evalResult.reasoning, strategy: evalResult.strategy, decision: evalResult.decision });
 
     // If brain says done, we're ready to finish
     if (evalResult.decision === 'done') {

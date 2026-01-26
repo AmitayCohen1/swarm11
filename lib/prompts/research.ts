@@ -61,7 +61,7 @@ export function brainEvalPrompt(args: {
     : '(none provided)';
 
   const firstBatchNote = args.isFirstBatch
-    ? `\n## Note\nThis is the FIRST batch of questions. Start broad to explore the problem space, then we'll narrow based on findings.\n`
+    ? `\n## Note\nThis is the FIRST batch of questions. Start broad to explore the problem space, then we'll narrow based on findings.\nProvide a brief "strategy" explaining your plan of attack (e.g., "I'll start by understanding the market, then identify key players, then...").\n`
     : '';
 
   return `You are the Brain (evaluator) in an autonomous research system.

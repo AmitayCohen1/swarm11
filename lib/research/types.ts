@@ -13,6 +13,7 @@ export type BrainEvent =
 export interface BrainMemory {
   objective: string;
   successCriteria?: string[];
+  strategy?: string;
   history: BrainEvent[];
   finalAnswer?: string;
 }

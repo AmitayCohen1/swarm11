@@ -239,46 +239,33 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
         />
         {doc.researchStrategy && (
           <div className="p-4 rounded-2xl bg-white/2 border border-white/5">
-            <ShinyText
-              text="Current Protocol"
-              className="text-slate-500 font-black text-[10px] uppercase tracking-widest block mb-2"
-              color="#64748b"
-              shineColor="#94a3b8"
-              speed={4}
-            />
-            <BlurText
-              text={doc.researchStrategy}
-              className="text-sm text-slate-400 leading-relaxed font-medium italic"
-              delay={40}
-              animateBy="words"
-              direction="top"
-              stepDuration={0.25}
-            />
+            <p className="text-slate-500 text-[10px] uppercase tracking-widest mb-3">Strategy</p>
+            <div className="prose prose-invert prose-sm max-w-none">
+              <ReactMarkdown
+                components={{
+                  p: ({ node, ...props }) => <p {...props} className="text-sm text-slate-400 leading-relaxed mb-2 last:mb-0" />,
+                  ul: ({ node, ...props }) => <ul {...props} className="text-sm text-slate-400 list-disc list-inside space-y-1 mb-2" />,
+                  ol: ({ node, ...props }) => <ol {...props} className="text-sm text-slate-400 list-decimal list-inside space-y-1 mb-2" />,
+                  li: ({ node, ...props }) => <li {...props} className="text-sm text-slate-400" />,
+                  strong: ({ node, ...props }) => <strong {...props} className="text-slate-300 font-semibold" />,
+                }}
+              >
+                {doc.researchStrategy}
+              </ReactMarkdown>
+            </div>
           </div>
         )}
       </div>
 
       {/* Empty State - Research just started */}
       {rounds.length === 0 && doc.status === 'running' && (
-        <div className="flex flex-col items-center justify-center py-16 space-y-6">
-          <div className="relative">
-            <div className="w-16 h-16 rounded-2xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
-              <Brain className="w-8 h-8 text-blue-400" />
-            </div>
-            <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-amber-500/20 flex items-center justify-center border border-amber-500/30">
-              <Loader2 className="w-3 h-3 text-amber-400 animate-spin" />
-            </div>
+        <div className="flex flex-col items-center justify-center py-20">
+          <div className="flex items-center gap-3">
+            <div className="w-2 h-2 rounded-full bg-white/40 animate-pulse" />
+            <div className="w-2 h-2 rounded-full bg-white/40 animate-pulse [animation-delay:150ms]" />
+            <div className="w-2 h-2 rounded-full bg-white/40 animate-pulse [animation-delay:300ms]" />
           </div>
-          <div className="text-center space-y-2">
-            <ShinyText
-              text="Initializing Research"
-              className="text-sm font-black uppercase tracking-[0.2em]"
-              color="#60a5fa"
-              shineColor="#93c5fd"
-              speed={2.5}
-            />
-            <p className="text-xs text-slate-500">Generating research questions...</p>
-          </div>
+          <p className="mt-6 text-sm text-slate-500">Thinking...</p>
         </div>
       )}
 
