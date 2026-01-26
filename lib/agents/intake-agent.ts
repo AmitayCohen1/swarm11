@@ -2,7 +2,7 @@ import { generateText, tool } from 'ai';
 import { anthropic } from '@ai-sdk/anthropic';
 import { z } from 'zod';
 import { searchWeb } from '../research/search';
-import { buildIntakeSystemPrompt } from '@/lib/prompts/research';
+import { intakePrompt } from '@/lib/prompts/research';
 
 export interface ResearchBrief {
   objective: string;
@@ -59,7 +59,7 @@ const quick_web_search = tool({
   })
 });
 
-const INTAKE_INSTRUCTIONS = buildIntakeSystemPrompt();
+const INTAKE_INSTRUCTIONS = intakePrompt();
 
 /**
  * Simple two-step intake:

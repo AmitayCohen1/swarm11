@@ -11,7 +11,7 @@ import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { searchWeb } from './search';
 import type { ResearchQuestionMemory, ResearchQuestionEvent } from './types';
-import { buildResearcherSystemPrompt } from '@/lib/prompts/research';
+import { researchQuestionEvalPrompt } from '@/lib/prompts/research';
 
 const model = openai('gpt-5.2');
 
@@ -65,7 +65,7 @@ export async function evaluate(
     // PROMPT GOAL (Researcher.evaluate): Given a single question + its search/reflection history,
     // decide whether to keep searching and propose the next web query.
     // Output = { decision: 'continue'|'done', query, reasoning }.
-    system: buildResearcherSystemPrompt({ objective, question, goal }),
+    system: researchQuestionEvalPrompt({ objective, question, goal }),
     messages,
     output: Output.object({ schema: EvaluateSchema }),
   });
@@ -100,7 +100,7 @@ export async function finish(
     model,
     // PROMPT GOAL (Researcher.finish): Summarize this question's findings for the Brain.
     // Output = { answer, confidence }. (Sources aren't threaded through this pipeline today.)
-    system: `${buildResearcherSystemPrompt({ objective, question, goal })}
+    system: `${researchQuestionEvalPrompt({ objective, question, goal })}
 
 Summarize what you found for the brain. Include key facts, and explicitly note uncertainties/limits.`,
     messages,

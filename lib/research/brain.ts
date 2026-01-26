@@ -11,7 +11,7 @@ import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import type { ResearchQuestionMemory } from './types';
 import { createQuestion } from './types';
-import { buildBrainEvaluatePrompt, buildBrainFinishPrompt } from '@/lib/prompts/research';
+import { brainEvalPrompt, brainFinishPrompt } from '@/lib/prompts/research';
 
 const model = openai('gpt-5.2');
 
@@ -62,7 +62,7 @@ export async function evaluate(
     // PROMPT GOAL (Brain.evaluate): Decide whether to continue researching, and if so, which questions to run next.
     // Input = objective + completed question summaries. Output = { decision, reasoning, questions[] }.
     // Important: Brain does NOT search the web. It only plans/decides.
-    prompt: buildBrainEvaluatePrompt({
+    prompt: brainEvalPrompt({
       objective,
       successCriteria,
       completedQuestionsCount: completedQuestions.length,
@@ -104,7 +104,7 @@ export async function finish(
     model,
     // PROMPT GOAL (Brain.finish): Write the final user-facing answer from completed question summaries.
     // Output = { answer } only (no citations/sources are plumbed through today).
-    prompt: buildBrainFinishPrompt({ objective, successCriteria, questionsContext }),
+    prompt: brainFinishPrompt({ objective, successCriteria, questionsContext }),
     output: Output.object({ schema: FinishSchema }),
   });
 

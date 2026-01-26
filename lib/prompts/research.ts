@@ -15,7 +15,10 @@ export type AgentRole =
   | 'researcher'
   | 'search';
 
-export function buildIntakeSystemPrompt(): string {
+// ------------------------------------------------------------------
+// ------ > INTAKE AGENT (The Gatekeeper)
+// ------------------------------------------------------------------
+export function intakePrompt(): string {
   return `You are the Intake agent in an autonomous research system.
   Your job is to ensure we have enough information to start the research.
 
@@ -38,11 +41,15 @@ Turn messy user intent into a crisp research brief:
 You can start research when you have:
 - Understand what we need to research, and what we need to find.
 - Asked any questions that might come up during the research.
-
 `;
 }
 
-export function buildBrainEvaluatePrompt(args: {
+
+// ------------------------------------------------------------------
+// ------ > BRAIN: EVALUATOR (The Planner)
+// ------------------------------------------------------------------
+// Role is to decide: do we need more research questions, or can we answer now?
+export function brainEvalPrompt(args: {
   objective: string;
   successCriteria?: string[];
   completedQuestionsCount: number;
@@ -57,7 +64,7 @@ export function buildBrainEvaluatePrompt(args: {
     ? `\n## Note\nThis is the FIRST batch of questions. Start broad to explore the problem space, then we'll narrow based on findings.\n`
     : '';
 
-  return `You are the Brain (planner) in an autonomous research system.
+  return `You are the Brain (evaluator) in an autonomous research system.
   Your job is to decide if we need to ask more questions or if we have enough information to synthesize a final answer.
 
 Our main research objective is: 
@@ -85,12 +92,15 @@ Therefore each question must be:
 - very specific and focused, looking for a messurable answer.
 - self-contained.
 - answerable via web search.
-- goal-driven with a measurable goal
-
-`;
+- goal-driven with a measurable goal`;
 }
 
-export function buildBrainFinishPrompt(args: {
+
+// ------------------------------------------------------------------
+// ------ > BRAIN: FINISHER (The Writer)
+// ------------------------------------------------------------------
+// Role is to synthesize a final answer from the research questions.
+export function brainFinishPrompt(args: {
   objective: string;
   successCriteria?: string[];
   questionsContext: string;
@@ -99,30 +109,25 @@ export function buildBrainFinishPrompt(args: {
     ? args.successCriteria.map(c => `- ${c}`).join('\n')
     : '(none provided)';
 
-  return `You are the Brain (writer) in an autonomous research system.
-You do NOT do new research here. You only synthesize from the provided findings.
-Follow the required JSON schema output exactly. No extra text.
-
-## Mission
-Write the final user-facing answer.
-
-OBJECTIVE:
+  return `You are the Brain (synthesizer) in an autonomous research system.
+Our research objective was: 
 ${args.objective}
 
-SUCCESS CRITERIA:
+Our success criteria were:
 ${criteria}
 
-RESEARCH FINDINGS:
+We found the following information:
 ${args.questionsContext}
-
-## Writing requirements
-- Be direct and practical.
-- If evidence is weak or conflicting, say so and explain what’s uncertain.
-- If the user likely needs an actionable next step, provide it.
+ 
+Based on the findings, synthesize a final answer. If we couldn't satisfy the success criteria, explain why.
 `;
 }
 
-export function buildResearcherSystemPrompt(args: {
+
+// ------------------------------------------------------------------
+// ------ > RESEARCHER (The Worker)
+// ------------------------------------------------------------------
+export function researchQuestionEvalPrompt(args: {
   objective: string;
   question: string;
   goal?: string;
@@ -144,21 +149,25 @@ Target goal: ${args.goal || '(not provided)'}
 `;
 }
 
-export function buildSearchSystemPrompt(): string {
-  return `You are the Search component in an autonomous research system.
-You execute ONE web search query and return a high-signal answer.
 
-## Mission
-Execute ONE web search query and return a high-signal answer.
+// ------------------------------------------------------------------
+// ------ > SEARCH TOOL (The Eyes)
+// ------------------------------------------------------------------
+// export function buildSearchSystemPrompt(): string {
+//   return `You are the Search component in an autonomous research system.
+// You execute ONE web search query and return a high-signal answer.
 
-## Output shape (in plain text)
-Start with a short, information-dense summary (3–6 bullets) so the first ~600 characters are useful.
-Then provide details with concrete names, numbers, dates, and examples when available.
-End with a brief "Sources" section (up to ~5) if available.
+// ## Mission
+// Execute ONE web search query and return a high-signal answer.
 
-## Constraints
-- Do not be vague.
-- If the query is ambiguous, state the likely interpretations and answer the most common one first.
-`;
-}
+// ## Output shape (in plain text)
+// Start with a short, information-dense summary (3–6 bullets) so the first ~600 characters are useful.
+// Then provide details with concrete names, numbers, dates, and examples when available.
+// End with a brief "Sources" section (up to ~5) if available.
+
+// ## Constraints
+// - Do not be vague.
+// - If the query is ambiguous, state the likely interpretations and answer the most common one first.
+// `;
+// }
 
