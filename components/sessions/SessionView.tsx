@@ -571,7 +571,7 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
     const variants: Record<string, { bg: string; text: string; label: string; pulse?: boolean }> = {
       initializing: { bg: 'bg-slate-100 dark:bg-white/10', text: 'text-slate-500', label: 'Booting' },
       ready: { bg: 'bg-emerald-100 dark:bg-emerald-500/20', text: 'text-emerald-600 dark:text-emerald-400', label: 'Online' },
-      processing: { bg: 'bg-blue-100 dark:bg-blue-500/20', text: 'text-blue-600 dark:text-blue-400', label: 'Thinking', pulse: true },
+      processing: { bg: 'bg-blue-100 dark:bg-blue-500/20', text: 'text-blue-600 dark:text-blue-400', label: 'Researching', pulse: true },
       researching: { bg: 'bg-indigo-100 dark:bg-indigo-500/20', text: 'text-indigo-600 dark:text-indigo-400', label: 'Researching', pulse: true },
       error: { bg: 'bg-red-100 dark:bg-red-500/20', text: 'text-red-600 dark:text-red-400', label: 'Offline' }
     };
@@ -919,18 +919,6 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
                 </div>
               )}
 
-              {/* Thinking Indicator */}
-              {status === 'processing' && !intakeSearch && (
-                <div className="flex items-start gap-5 animate-pulse">
-                  <div className="w-10 h-10 rounded-2xl bg-white/5 flex items-center justify-center shrink-0 border border-white/5">
-                    <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
-                  </div>
-                  <div className="flex-1 pt-3">
-                    <div className="h-4 bg-white/5 rounded-full w-24 mb-3" />
-                    <div className="h-3 bg-white/5 rounded-full w-48 opacity-40" />
-                  </div>
-                </div>
-              )}
 
               {/* Error Display */}
               {error && (

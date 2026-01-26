@@ -265,7 +265,7 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
             <div className="w-2 h-2 rounded-full bg-white/40 animate-pulse [animation-delay:150ms]" />
             <div className="w-2 h-2 rounded-full bg-white/40 animate-pulse [animation-delay:300ms]" />
           </div>
-          <p className="mt-6 text-sm text-slate-500">Thinking...</p>
+          <p className="mt-6 text-sm text-slate-500">Researching...</p>
         </div>
       )}
 

@@ -72,11 +72,12 @@ ${criteria}
 ${args.questionsContext}
 
 Your job is to decide if we need to ask more questions or if we have enough information to synthesize a final answer.
-
+Work smartly, and systematically. Start broad, research big unknowns first, then narrow down to smaller unknowns.
 --------------------------------
 
 ## Reason
 Always provide a brief "reason" explaining your decision - why you're continuing (and what you'll look for next) or why you're done (what made you confident).
+
 
 ## Decision policy
 Choose decision="done" when the completed research is sufficient to satisfy the objective.
