@@ -138,40 +138,32 @@ export async function POST(
             userMessage,
             conversationHistory,
             session.brain || '',
-            (update) => sendEvent(update) // Forward intake progress to frontend
+            (update) => sendEvent(update)
           );
+
+          // Save search to DB if performed
+          if (decision.searchPerformed) {
+            const { query, answer } = decision.searchPerformed;
+            console.log('[Route] Saving search to DB:', query);
+            conversationHistory.push({
+              role: 'assistant',
+              content: `Looked up "${query}"`,
+              timestamp: new Date().toISOString(),
+              metadata: { type: 'intake_search', query, answer }
+            });
+            await db
+              .update(chatSessions)
+              .set({ messages: conversationHistory, updatedAt: new Date() })
+              .where(eq(chatSessions.id, sessionId));
+          }
+
+          console.log('[Route] Decision type:', decision.type);
 
           sendEvent({
             type: 'decision',
             decision: decision.type,
             reasoning: decision.reasoning
           });
-
-          // If intake performed a search, add it to conversation history
-          if (decision.searchPerformed) {
-            const { query, answer } = decision.searchPerformed;
-            conversationHistory.push({
-              role: 'assistant',
-              content: `Looked up: ${query}`,
-              timestamp: new Date().toISOString(),
-              metadata: {
-                type: 'intake_search',
-                query,
-                answer
-              }
-            });
-
-            await db
-              .update(chatSessions)
-              .set({ messages: conversationHistory, updatedAt: new Date() })
-              .where(eq(chatSessions.id, sessionId));
-
-            sendEvent({
-              type: 'intake_search_result',
-              query,
-              answer
-            });
-          }
 
           // Handle decision
           if (decision.type === 'text_input') {
@@ -311,18 +303,48 @@ export async function POST(
             const finalMessage = output?.finalAnswer?.trim() ||
               '**Research Complete**\n\nI\'ve finished researching this topic.';
 
-            // Get current messages
+            // Get current messages and append research result
             const [updatedSession] = await db
               .select({ messages: chatSessions.messages })
               .from(chatSessions)
               .where(eq(chatSessions.id, sessionId));
 
-            const updatedConversation = (updatedSession?.messages as any[] || []).concat([{
+            // Add a context message so intake knows what just happened
+            const researchContextMessage = {
               role: 'assistant',
-              content: finalMessage,
+              content: `[Research completed] Objective: ${researchBrief.objective}`,
               timestamp: new Date().toISOString(),
-              metadata: { kind: 'final' }
-            }]);
+              metadata: { 
+                type: 'research_context',
+                objective: researchBrief.objective,
+                summary: finalMessage.substring(0, 800)
+              }
+            };
+
+            const updatedConversation = (updatedSession?.messages as any[] || []).concat([
+              researchContextMessage,
+              {
+                role: 'assistant',
+                content: finalMessage,
+                timestamp: new Date().toISOString(),
+                metadata: { kind: 'research_result' }
+              }
+            ]);
+
+            // Add follow-up question
+            const followUpQuestion = 'What would you like to do next?';
+            const followUpOptions = [
+              { label: 'Dive deeper' },
+              { label: 'New research' },
+              { label: 'Done for now' }
+            ];
+
+            updatedConversation.push({
+              role: 'assistant',
+              content: followUpQuestion,
+              timestamp: new Date().toISOString(),
+              metadata: { type: 'multi_choice_select', options: followUpOptions }
+            });
 
             await db
               .update(chatSessions)
@@ -333,16 +355,22 @@ export async function POST(
               })
               .where(eq(chatSessions.id, sessionId));
 
+            // Send research result
             sendEvent({
               type: 'message',
               message: finalMessage,
               role: 'assistant',
-              metadata: { kind: 'final' }
+              metadata: { kind: 'research_result' }
             });
 
+            // Send follow-up question
             sendEvent({
-              type: 'complete'
+              type: 'multi_choice_select',
+              question: followUpQuestion,
+              options: followUpOptions
             });
+
+            sendEvent({ type: 'complete' });
           }
 
         } catch (error: any) {

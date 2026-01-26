@@ -1,11 +1,15 @@
 /**
- * Brain - Strategic planning and evaluation
+ * Brain - Cortex-level evaluate/finish cycle
+ *
+ * Same pattern as researcher:
+ *   evaluate(state) → continue or done?
+ *   finish(state) → produce output
  */
 
 import { generateText, Output } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
-import type { CortexMemory, ResearchQuestionMemory } from './types';
+import type { ResearchQuestionMemory } from './types';
 import { createQuestion } from './types';
 
 const model = openai('gpt-5.2');
@@ -17,86 +21,61 @@ const model = openai('gpt-5.2');
 const QuestionSchema = z.object({
   question: z.string().describe('Short, precise question (max 15 words)'),
   description: z.string().describe('Why this helps the objective (1-2 sentences)'),
-  goal: z.string().describe('Specific goal - what marks this as answered'),
-});
-
-const KickoffSchema = z.object({
-  reasoning: z.string().describe('Strategy for tackling the research'),
-  questions: z.array(QuestionSchema),
+  goal: z.string().describe('Realistic, measurable, specific goal (e.g., "Find 3 company names", "Get price range", "Yes/no answer")'),
 });
 
 const EvaluateSchema = z.object({
-  reasoning: z.string().describe('What we learned and what gaps remain'),
-  decision: z.enum(['spawn', 'synthesize']),
-  questions: z.array(QuestionSchema).max(5).optional(),
+  reasoning: z.string().describe('Analysis of current state'),
+  decision: z.enum(['continue', 'done']),
+  questions: z.array(QuestionSchema).max(5).describe('Questions to research (empty array if decision is done)'),
 });
 
-const SynthesizeSchema = z.object({
-  finalAnswer: z.string().describe('Complete answer to the research objective'),
+const FinishSchema = z.object({
+  answer: z.string().describe('Complete answer to the research objective'),
 });
 
 // ============================================================
-// Kickoff - Generate initial questions
-// ============================================================
-
-export interface KickoffResult {
-  reasoning: string;
-  questions: ResearchQuestionMemory[];
-}
-
-export async function kickoff(cortex: CortexMemory): Promise<KickoffResult> {
-  const result = await generateText({
-    model,
-    prompt: `You are part of a research system. You are the planner - you run first to break down the user's objective into questions. Then separate researchers will search the web to answer each question in parallel.
-
-OBJECTIVE: ${cortex.objective}
-
-Generate research questions that directly work toward this objective.
-Each question runs in parallel by a separate researcher (they don't share context).`,
-    output: Output.object({ schema: KickoffSchema }),
-  });
-
-  const data = result.output as z.infer<typeof KickoffSchema>;
-  const questions = data.questions.map(q => createQuestion(q.question, q.description, q.goal));
-
-  return { reasoning: data.reasoning, questions };
-}
-
-// ============================================================
-// Evaluate - Decide next action based on completed questions
+// Evaluate - Look at completed questions, decide continue/done
 // ============================================================
 
 export interface EvaluateResult {
   reasoning: string;
-  decision: 'spawn' | 'synthesize';
+  decision: 'continue' | 'done';
   questions?: ResearchQuestionMemory[];
 }
 
 export async function evaluate(
-  cortex: CortexMemory,
-  questions: Record<string, ResearchQuestionMemory>
+  objective: string,
+  completedQuestions: ResearchQuestionMemory[]
 ): Promise<EvaluateResult> {
-  const completed = Object.values(questions).filter(q => q.status === 'done');
-  const questionsContext = completed.map(q =>
-    `### ${q.question}\n**Confidence:** ${q.confidence || 'unknown'}\n**Answer:** ${q.answer || 'No answer'}`
-  ).join('\n\n');
+  const questionsContext = completedQuestions.length > 0
+    ? completedQuestions.map(q =>
+        `### ${q.question}\n**Confidence:** ${q.confidence || 'unknown'}\n**Answer:** ${q.answer || 'No answer'}`
+      ).join('\n\n')
+    : '(No research completed yet)';
 
   const result = await generateText({
     model,
-    prompt: `You are part of a research system. Researchers have finished answering questions. Now you decide: do we have enough to answer the user, or do we need more research?
+    // PROMPT GOAL (Brain.evaluate): Decide whether to continue researching, and if so, which questions to run next.
+    // Input = objective + completed question summaries. Output = { decision, reasoning, questions[] }.
+    // Important: Brain does NOT search the web. It only plans/decides.
+    prompt: `You are the brain of a research system. You look at the current state and decide what to do next.
 
-OBJECTIVE: ${cortex.objective}
+OBJECTIVE: ${objective}
 
-## Completed Research (${completed.length} questions)
+## Completed Research (${completedQuestions.length} questions)
 
 ${questionsContext}
 
 ## Your Task
 
-Do we have enough to give the user a useful answer?
+Based on what we have, decide:
+- If we need research (no questions yet, or gaps remain): decision = "continue" and provide questions
+- If we have enough to answer the user: decision = "done"
 
-- If YES: decision = "synthesize" (next step: writer creates final answer)
-- If NO: decision = "spawn" and provide new questions (next step: researchers answer them)`,
+Each question runs in parallel by a separate researcher (they don't share context).
+
+Important: Each question needs a realistic, measurable, specific goal - something the researcher can actually find and check off.`,
     output: Output.object({ schema: EvaluateSchema }),
   });
 
@@ -105,36 +84,43 @@ Do we have enough to give the user a useful answer?
   return {
     reasoning: data.reasoning,
     decision: data.decision,
-    questions: data.questions?.map(q => createQuestion(q.question, q.description, q.goal)),
+    questions: data.questions.length > 0
+      ? data.questions.map(q => createQuestion(q.question, q.description, q.goal))
+      : undefined,
   };
 }
 
 // ============================================================
-// Synthesize - Write final answer
+// Finish - Combine all findings into final answer
 // ============================================================
 
-export async function synthesize(
-  cortex: CortexMemory,
-  questions: Record<string, ResearchQuestionMemory>
-): Promise<string> {
-  const completed = Object.values(questions).filter(q => q.status === 'done');
-  const questionsContext = completed.map(q =>
+export interface FinishResult {
+  answer: string;
+}
+
+export async function finish(
+  objective: string,
+  completedQuestions: ResearchQuestionMemory[]
+): Promise<FinishResult> {
+  const questionsContext = completedQuestions.map(q =>
     `### ${q.question}\n**Confidence:** ${q.confidence || 'unknown'}\n${q.answer || 'No answer'}`
   ).join('\n\n---\n\n');
 
   const result = await generateText({
     model,
+    // PROMPT GOAL (Brain.finish): Write the final user-facing answer from completed question summaries.
+    // Output = { answer } only (no citations/sources are plumbed through today).
     prompt: `You are part of a research system. You are the final step - the writer. Researchers have gathered information, and now you write the final answer that goes to the user.
 
-Our main objective is: ${cortex.objective}
+OBJECTIVE: ${objective}
 
 ## Research Findings
 
 ${questionsContext}
 
 Write a final answer that gives the user what they asked for. Be specific and practical.`,
-    output: Output.object({ schema: SynthesizeSchema }),
+    output: Output.object({ schema: FinishSchema }),
   });
 
-  return (result.output as z.infer<typeof SynthesizeSchema>).finalAnswer;
+  return { answer: (result.output as z.infer<typeof FinishSchema>).answer };
 }

@@ -8,7 +8,7 @@ import { eq } from 'drizzle-orm';
 import type { ResearchBrief } from '@/lib/agents/intake-agent';
 import type { ResearchState, CortexMemory, ResearchQuestionMemory, ResearchQuestionEvent } from './types';
 import { createCortex } from './types';
-import { kickoff, evaluate, synthesize } from './brain';
+import { evaluate as brainEvaluate, finish as brainFinish } from './brain';
 import { runQuestion } from './researcher';
 
 // ============================================================
@@ -81,18 +81,11 @@ function toFrontendFormat(state: ResearchState, round: number): any {
 
   // Build brain log from cortex history
   const brainLog = state.cortex.history.map((event, idx) => {
-    if (event.type === 'kickoff') {
+    if (event.type === 'evaluate') {
       return {
         id: `dec_${idx}`,
         timestamp: new Date().toISOString(),
-        action: 'spawn' as const,
-        reasoning: event.reasoning
-      };
-    } else if (event.type === 'evaluation') {
-      return {
-        id: `dec_${idx}`,
-        timestamp: new Date().toISOString(),
-        action: event.decision,
+        action: event.decision === 'continue' ? 'spawn' : 'synthesize', // map to frontend format
         reasoning: event.reasoning
       };
     }
@@ -145,27 +138,39 @@ export async function runResearch(config: RunConfig): Promise<RunResult> {
   await save(state);
   onProgress?.({ type: 'research_initialized', objective: cortex.objective });
 
-  // Kickoff - generate initial questions
-  log('Starting kickoff...');
-  const kickoffResult = await kickoff(cortex);
-  log('Kickoff complete', { questionCount: kickoffResult.questions.length });
-
-  cortex.history.push({
-    type: 'kickoff',
-    reasoning: kickoffResult.reasoning,
-    spawnedIds: kickoffResult.questions.map(q => q.id),
-  });
-
-  for (const q of kickoffResult.questions) {
-    questions[q.id] = q;
-  }
-
-  await save(state);
-  onProgress?.({ type: 'brain_kickoff', reasoning: kickoffResult.reasoning, questionCount: kickoffResult.questions.length });
-
-  // Main loop
+  // Main loop - brain evaluates, researchers execute, repeat
   while (round < CONFIG.maxRounds && !shouldStop()) {
     round++;
+
+    // Brain evaluates - decides continue or done
+    const completed = Object.values(questions).filter(q => q.status === 'done');
+    log('Brain evaluating...', { completedQuestions: completed.length });
+    const evalResult = await brainEvaluate(cortex.objective, completed);
+    log('Brain decided', { decision: evalResult.decision, newQuestions: evalResult.questions?.length || 0 });
+
+    cortex.history.push({
+      type: 'evaluate',
+      reasoning: evalResult.reasoning,
+      decision: evalResult.decision,
+      spawnedIds: evalResult.questions?.map(q => q.id),
+    });
+
+    onProgress?.({ type: 'brain_evaluate', reasoning: evalResult.reasoning, decision: evalResult.decision });
+
+    // If brain says done, we're ready to finish
+    if (evalResult.decision === 'done') {
+      await save(state);
+      break;
+    }
+
+    // Add new questions from brain
+    if (evalResult.questions) {
+      for (const q of evalResult.questions) {
+        questions[q.id] = q;
+      }
+    }
+
+    await save(state);
 
     // Run all pending questions
     const pending = Object.values(questions).filter(q => q.status === 'pending');
@@ -193,53 +198,27 @@ export async function runResearch(config: RunConfig): Promise<RunResult> {
 
     // Check if we should stop
     if (shouldStop()) break;
-
-    // Evaluate
-    log('Evaluating...');
-    const evalResult = await evaluate(cortex, questions);
-    log('Evaluation complete', { decision: evalResult.decision });
-
-    cortex.history.push({
-      type: 'evaluation',
-      reasoning: evalResult.reasoning,
-      decision: evalResult.decision,
-      spawnedIds: evalResult.questions?.map(q => q.id),
-    });
-
-    onProgress?.({ type: 'brain_evaluation', reasoning: evalResult.reasoning, decision: evalResult.decision });
-
-    if (evalResult.decision === 'synthesize') {
-      break;
-    }
-
-    // Spawn new questions
-    if (evalResult.questions) {
-      for (const q of evalResult.questions) {
-        questions[q.id] = q;
-      }
-    }
-
-    await save(state);
   }
 
-  // Synthesize final answer
-  log('Synthesizing...');
-  onProgress?.({ type: 'synthesizing' });
-  const finalAnswer = await synthesize(cortex, questions);
-  cortex.finalAnswer = finalAnswer;
-  log('Synthesis complete', { answerLength: finalAnswer.length });
+  // Brain finishes - produces final answer
+  const completedFinal = Object.values(questions).filter(q => q.status === 'done');
+  log('Brain finishing...');
+  onProgress?.({ type: 'brain_finishing' });
+  const finishResult = await brainFinish(cortex.objective, completedFinal);
+  cortex.finalAnswer = finishResult.answer;
+  log('Brain finished', { answerLength: finishResult.answer.length });
 
   await save(state);
 
   onProgress?.({
     type: 'research_complete',
     totalQuestions: Object.keys(questions).length,
-    answerLength: finalAnswer.length,
+    answerLength: finishResult.answer.length,
   });
 
   return {
     completed: true,
     totalQuestions: Object.keys(questions).length,
-    output: { finalAnswer },
+    output: { finalAnswer: finishResult.answer },
   };
 }

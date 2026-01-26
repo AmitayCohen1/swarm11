@@ -1,5 +1,9 @@
 /**
- * Researcher - Runs search/reflect loop for one question
+ * Researcher - Question-level evaluate/finish cycle
+ *
+ * Same pattern as brain:
+ *   evaluate(state) → continue or done?
+ *   finish(state) → produce output
  */
 
 import { generateText, Output } from 'ai';
@@ -10,16 +14,117 @@ import type { ResearchQuestionMemory, ResearchQuestionEvent } from './types';
 
 const model = openai('gpt-5.2');
 
-const ReflectSchema = z.object({
-  thought: z.string().describe('What you learned and what to do next'),
-  status: z.enum(['continue', 'done']),
-  nextQuery: z.string().describe('Next search query if continue, empty if done'),
+// ============================================================
+// Schemas
+// ============================================================
+
+const EvaluateSchema = z.object({
+  reasoning: z.string().describe('What you learned and what to do next'),
+  decision: z.enum(['continue', 'done']),
+  query: z.string().describe('Next search query if continue, empty string if done'),
 });
 
-const SummarizeSchema = z.object({
+const FinishSchema = z.object({
   answer: z.string().describe('Comprehensive answer to the question'),
   confidence: z.enum(['low', 'medium', 'high']).describe('How confident you are in this answer'),
 });
+
+// ============================================================
+// Evaluate - Look at search history, decide continue/done
+// ============================================================
+
+export interface EvaluateResult {
+  reasoning: string;
+  decision: 'continue' | 'done';
+  query: string;
+}
+
+function buildMessages(history: ResearchQuestionEvent[]): Array<{ role: 'user' | 'assistant'; content: string }> {
+  const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  for (const e of history) {
+    if (e.type === 'search') {
+      messages.push({ role: 'user', content: `Search for "${e.query}":\n${e.answer.substring(0, 600)}` });
+    } else {
+      messages.push({ role: 'assistant', content: e.thought });
+    }
+  }
+  return messages;
+}
+
+export async function evaluate(
+  question: string,
+  objective: string,
+  history: ResearchQuestionEvent[]
+): Promise<EvaluateResult> {
+  const messages = buildMessages(history);
+
+  const result = await generateText({
+    model,
+    // PROMPT GOAL (Researcher.evaluate): Given a single question + its search/reflection history,
+    // decide whether to keep searching and propose the next web query.
+    // Output = { decision: 'continue'|'done', query, reasoning }.
+    system: `You are part of a research system.
+
+Our main objective is: ${objective}
+You are researching: ${question}
+
+Look at what you've found so far and decide:
+- If you need more information: decision = "continue" and provide next search query
+- If you have enough to answer: decision = "done"`,
+    messages,
+    output: Output.object({ schema: EvaluateSchema }),
+  });
+
+  const data = result.output as z.infer<typeof EvaluateSchema>;
+
+  return {
+    reasoning: data.reasoning,
+    decision: data.decision,
+    query: data.query,
+  };
+}
+
+// ============================================================
+// Finish - Combine all search results into question answer
+// ============================================================
+
+export interface FinishResult {
+  answer: string;
+  confidence: 'low' | 'medium' | 'high';
+}
+
+export async function finish(
+  question: string,
+  objective: string,
+  history: ResearchQuestionEvent[]
+): Promise<FinishResult> {
+  const messages = buildMessages(history);
+
+  const result = await generateText({
+    model,
+    // PROMPT GOAL (Researcher.finish): Summarize this question's findings for the Brain.
+    // Output = { answer, confidence }. (Sources aren't threaded through this pipeline today.)
+    system: `You are part of a research system.
+
+Our main objective is: ${objective}
+You researched: ${question}
+
+Summarize what you found. This goes to the brain who decides if we need more research.`,
+    messages,
+    output: Output.object({ schema: FinishSchema }),
+  });
+
+  const data = result.output as z.infer<typeof FinishSchema>;
+
+  return {
+    answer: data.answer,
+    confidence: data.confidence,
+  };
+}
+
+// ============================================================
+// Run Question - Orchestrates the evaluate/search/finish loop
+// ============================================================
 
 const MIN_SEARCHES = 3;
 const MAX_SEARCHES = 15;
@@ -45,99 +150,40 @@ export async function runQuestion(
 
   while (searchCount < MAX_SEARCHES) {
     // Search
-    const result = await searchWeb(nextQuery);
+    const searchResult = await searchWeb(nextQuery);
     searchCount++;
 
-    const searchEvent: ResearchQuestionEvent = { type: 'search', query: nextQuery, answer: result.answer };
+    const searchEvent: ResearchQuestionEvent = { type: 'search', query: nextQuery, answer: searchResult.answer };
     q.history.push(searchEvent);
 
-    log(`Search ${searchCount}: "${nextQuery.substring(0, 40)}..." → ${result.answer.length} chars`);
-    onProgress?.({ type: 'question_search', questionId: q.id, query: nextQuery, answerLength: result.answer.length, question: q });
+    log(`Search ${searchCount}: "${nextQuery.substring(0, 40)}..." → ${searchResult.answer.length} chars`);
+    onProgress?.({ type: 'question_search', questionId: q.id, query: nextQuery, answerLength: searchResult.answer.length, question: q });
 
-    // Build messages array from history
-    const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
-    for (const e of q.history) {
-      if (e.type === 'search') {
-        // Search results come in as "user" (external info)
-        messages.push({ role: 'user', content: `Search for "${e.query}":\n${e.answer.substring(0, 600)}` });
-      } else {
-        // Reflections are assistant's own thoughts
-        messages.push({ role: 'assistant', content: e.thought });
-      }
-    }
-
-    // Reflect
-    const reflectResult = await generateText({
-      model,
-      system: `You are part of a research system. 
-      
-      Our main obejctive is: ${objective}
-      We are a spesific branch, that has research question: ${q.question}
-      Keep asking relevant questions to answer the question or seeing it's a dead end.
-      Return this schema: 
-
-      {
-        thought: "what you learned from last search and what we should do next (ask another question or finish.)"
-        status: "continue" or "done"
-        nextQuery: "Next search query if continue, empty if done"
-      }
-      `,
-      messages,
-      output: Output.object({ schema: ReflectSchema }),
-    });
-
-    const reflect = reflectResult.output as z.infer<typeof ReflectSchema>;
+    // Evaluate
+    const evalResult = await evaluate(q.question, objective, q.history);
 
     // Prevent early done
-    let status = reflect.status;
-    if (status === 'done' && searchCount < MIN_SEARCHES) {
-      status = 'continue';
+    let decision = evalResult.decision;
+    if (decision === 'done' && searchCount < MIN_SEARCHES) {
+      decision = 'continue';
     }
 
-    const reflectEvent: ResearchQuestionEvent = { type: 'reflect', thought: reflect.thought };
+    const reflectEvent: ResearchQuestionEvent = { type: 'reflect', thought: evalResult.reasoning };
     q.history.push(reflectEvent);
 
-    onProgress?.({ type: 'question_reflect', questionId: q.id, thought: reflect.thought, status, question: q });
+    onProgress?.({ type: 'question_evaluate', questionId: q.id, reasoning: evalResult.reasoning, decision, question: q });
 
-    if (status === 'done') {
+    if (decision === 'done') {
       break;
     }
 
-    nextQuery = reflect.nextQuery || `more about ${q.question}`;
+    nextQuery = evalResult.query || `more about ${q.question}`;
   }
 
-  // Summarize - use same messages format
-  const summaryMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
-  for (const e of q.history) {
-    if (e.type === 'search') {
-      summaryMessages.push({ role: 'user', content: `Search for "${e.query}":\n${e.answer.substring(0, 600)}` });
-    } else {
-      summaryMessages.push({ role: 'assistant', content: e.thought });
-    }
-  }
-
-  const summaryResult = await generateText({
-    model,
-    system: `You are part of a research system.
-
-Our main objective is: ${objective}
-You are a specific branch that researched: ${q.question}
-
-You've finished searching. Now summarize what you found.
-This summary goes to the evaluator who decides if we need more research.
-
-Return this schema:
-{
-  answer: "Clear summary of what you found that helps answer the main objective",
-  confidence: "low" | "medium" | "high"
-}`,
-    messages: summaryMessages,
-    output: Output.object({ schema: SummarizeSchema }),
-  });
-
-  const summary = summaryResult.output as z.infer<typeof SummarizeSchema>;
-  q.answer = summary.answer;
-  q.confidence = summary.confidence;
+  // Finish
+  const finishResult = await finish(q.question, objective, q.history);
+  q.answer = finishResult.answer;
+  q.confidence = finishResult.confidence;
   q.status = 'done';
 
   log(`Done: ${searchCount} searches, ${q.answer.length} char answer`);

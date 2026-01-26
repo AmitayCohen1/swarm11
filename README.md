@@ -1,172 +1,12 @@
-# Swarm11 - Autonomous Research Agent
+# Swarm11
 
-An autonomous research agent using the **Brain Architecture**: a three-tier system where an Intake Agent clarifies user intent, a Main Loop manages parallel research questions, and Researcher Agents execute focused searches with enforced reasoning cycles.
+Swarm11 is a **research chat app**: you send a message, it clarifies intent, then runs a bounded research loop and streams progress to the UI.
 
-## Architecture Overview
+## Architecture
 
-```
-User Message
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  INTAKE AGENT (gpt-5.2)                                         │
-│  - Clarifies intent (inference-hostile: asks, never guesses)    │
-│  - Extracts objective + success criteria                        │
-│  - Decides: respond / ask clarification / start research        │
-└─────────────────────────────────────────────────────────────────┘
-    │
-    ▼ (start_research)
-┌─────────────────────────────────────────────────────────────────┐
-│  MAIN LOOP                                            │
-│  - Generates 3 parallel questions                             │
-│  - Runs questions sequentially (v1)                           │
-│  - Evaluates progress: continue / drill_down / spawn / synth    │
-└─────────────────────────────────────────────────────────────────┘
-    │
-    ▼ (for each question)
-┌─────────────────────────────────────────────────────────────────┐
-│  RESEARCHER AGENT (gpt-5.2)                                │
-│  - One search query at a time                                   │
-│  - Enforced: search → search_reasoning → search → ...           │
-│  - Full context: overall objective + sibling questions        │
-│  - Saves to DB after every search and reasoning                 │
-└─────────────────────────────────────────────────────────────────┘
-    │
-    ▼
-Real-time UI via SSE (ResearchProgress component)
-```
+The single source of truth is:
 
-## ResearchQuestion Schema
-
-Each research question has:
-
-| Field | Purpose |
-|-------|---------|
-| `name` | Short label (e.g., "Market Analysis") |
-| `description` | Why this angle matters |
-| `goal` | What we're looking to achieve |
-| `status` | `pending` / `running` / `done` |
-| `findings` | Facts discovered (with sources) |
-| `searches` | Full search history with reasoning |
-| `reflections` | Cycle-level learnings |
-
-## Key Design Principles
-
-### 1. Inference-Hostile Intake
-
-The intake agent is explicitly forbidden from guessing:
-- If anything is unclear → ASK
-- Friction is better than wrong research
-- Only starts when objective, purpose, and success criteria are ALL clear
-
-### 2. Search → Reason → Search Flow
-
-Within each question, the agent MUST alternate:
-```
-search(1 query) → search_reasoning() → search(1 query) → search_reasoning() → ...
-```
-
-A state machine (`awaitingReasoning`) enforces this:
-- After `search()`: only `search_reasoning` tool is available
-- After `search_reasoning()`: all tools are available again
-
-### 3. Full Context for ResearchQuestions
-
-Each question agent receives:
-- Overall research objective
-- Success criteria for the whole research
-- List of all sibling questions (so it knows its place)
-- ALL previous search results (no truncation)
-- ALL previous reflections
-
-### 4. Real-Time Persistence
-
-Every action saves immediately:
-- Search completes → save to DB → emit SSE
-- Reasoning completes → save to DB → emit SSE
-- User sees progress in real-time
-
-## File Structure
-
-```
-lib/
-├── agents/
-│   ├── intake-agent.ts           # Clarifies intent, creates research brief
-│   ├── brain-agent.ts           # Generates questions, evaluates, synthesizes
-│   ├── main-loop.ts    # Manages full research flow
-│   └── researcher-agent.ts       # Executes one question (search/reason loop)
-├── types/
-│   └── question-doc.ts         # BrainDoc, ResearchQuestion, Finding schemas
-├── tools/
-│   └── tavily-search.ts          # Web search (max 1 query at a time)
-└── utils/
-    └── question-operations.ts  # BrainDoc manipulation helpers
-
-hooks/
-└── useChatAgent.ts               # React hook for SSE + state management
-
-components/chat/
-├── ChatAgentView.tsx             # Main chat UI
-└── ResearchProgress.tsx          # Real-time question progress (tabbed)
-
-app/api/chat/
-├── start/route.ts                # Create session
-├── [id]/message/route.ts         # Send message (SSE stream)
-└── [id]/stop/route.ts            # Stop research
-```
-
-## BrainDoc Structure
-
-The brain is stored as a `BrainDoc` JSON:
-
-```typescript
-{
-  version: 1,
-  objective: string,              // What we're researching
-  successCriteria: string[],      // How we know we're done
-  status: 'running' | 'synthesizing' | 'complete',
-  questions: ResearchQuestion[],       // Parallel research angles
-  brainLog: BrainDecision[],    // Orchestrator decisions
-  finalAnswer?: string            // Final synthesis
-}
-```
-
-Each `ResearchQuestion`:
-```typescript
-{
-  id: string,
-  name: string,                   // Short label
-  description: string,            // Why this matters
-  goal: string,                   // What we're looking for
-  status: 'pending' | 'running' | 'done',
-  cycles: number,
-  maxCycles: number,
-  findings: Finding[],            // Facts with sources
-  searches: Search[],  // Full search history
-  reflections: CycleReflection[], // Cycle learnings
-  confidence: 'low' | 'medium' | 'high' | null,
-  recommendation: 'promising' | 'dead_end' | 'needs_more' | null,
-  summary?: string
-}
-```
-
-## SSE Event Types
-
-```typescript
-type EventType =
-  | 'brain_initialized'      // BrainDoc created
-  | 'question_started'      // Beginning an question
-  | 'search_completed'        // Search results received
-  | 'reasoning_completed'     // Post-search reasoning done
-  | 'reflection_completed'    // Cycle reflection done
-  | 'question_completed'    // ResearchQuestion finished
-  | 'synthesizing_started'    // Writing final answer
-  | 'research_complete'       // All done
-  | 'doc_updated'             // BrainDoc changed (triggers save)
-  | 'brain_update'            // Brain saved to DB
-  | 'message'                 // Chat message
-  | 'error';                  // Error occurred
-```
+- `docs/ARCHITECTURE.md`
 
 ## Setup
 
@@ -188,11 +28,10 @@ CLERK_SECRET_KEY=sk_...
 # Database
 DATABASE_URL=postgresql://...
 
-# AI Models
-OPENAI_API_KEY=sk-...          # For all agents
-
-# Search
-TAVILY_API_KEY=tvly-...
+# AI + Search
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+PERPLEXITY_API_KEY=pplx-...
 ```
 
 ### 3. Database
@@ -212,19 +51,12 @@ npm run dev
 
 | Layer | Technology |
 |-------|------------|
-| Framework | Next.js 15, React 19 |
-| AI | AI SDK, gpt-5.2 (intake/brain), gpt-5.2 (researcher) |
-| Search | Tavily AI |
+| Framework | Next.js (App Router) |
+| AI | AI SDK (OpenAI + Anthropic) |
+| Search | Perplexity (Sonar) |
 | Database | Neon PostgreSQL + Drizzle |
 | Auth | Clerk |
 | Styling | Tailwind CSS |
-
-## Links
-
-- [AI SDK Docs](https://ai-sdk.dev)
-- [Tavily API](https://tavily.com)
-- [Neon](https://neon.tech)
-- [Clerk](https://clerk.com)
 
 ## License
 

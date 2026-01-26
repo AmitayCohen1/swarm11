@@ -258,6 +258,30 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
         )}
       </div>
 
+      {/* Empty State - Research just started */}
+      {rounds.length === 0 && doc.status === 'running' && (
+        <div className="flex flex-col items-center justify-center py-16 space-y-6">
+          <div className="relative">
+            <div className="w-16 h-16 rounded-2xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
+              <Brain className="w-8 h-8 text-blue-400" />
+            </div>
+            <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-amber-500/20 flex items-center justify-center border border-amber-500/30">
+              <Loader2 className="w-3 h-3 text-amber-400 animate-spin" />
+            </div>
+          </div>
+          <div className="text-center space-y-2">
+            <ShinyText
+              text="Initializing Research"
+              className="text-sm font-black uppercase tracking-[0.2em]"
+              color="#60a5fa"
+              shineColor="#93c5fd"
+              speed={2.5}
+            />
+            <p className="text-xs text-slate-500">Generating research questions...</p>
+          </div>
+        </div>
+      )}
+
       {/* Research Rounds */}
       {rounds.map((roundNum, roundIndex) => {
         const questions = questionsByRound.get(roundNum) || [];
@@ -314,14 +338,50 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
               {activeQuestion && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
                   <div className="space-y-4">
-                    <h3 className="text-xl font-bold text-white leading-tight">
-                      {activeQuestion.question}
-                    </h3>
+                    <div className="flex items-start justify-between gap-4">
+                      <h3 className="text-xl font-bold text-white leading-tight">
+                        {activeQuestion.question}
+                      </h3>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {activeQuestion.confidence && (
+                          <span className={cn(
+                            "px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-widest",
+                            activeQuestion.confidence === 'high'
+                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                              : activeQuestion.confidence === 'medium'
+                              ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                              : "bg-red-500/10 text-red-400 border border-red-500/20"
+                          )}>
+                            {activeQuestion.confidence}
+                          </span>
+                        )}
+                        <span className={cn(
+                          "px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-widest",
+                          activeQuestion.status === 'done'
+                            ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                            : activeQuestion.status === 'running'
+                            ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                            : "bg-slate-500/10 text-slate-400 border border-slate-500/20"
+                        )}>
+                          {activeQuestion.status}
+                        </span>
+                      </div>
+                    </div>
 
-                    {(activeQuestion.description || activeQuestion.goal) && (
+                    {activeQuestion.description && (
                       <p className="text-sm text-slate-400 leading-relaxed">
-                        {activeQuestion.description}{activeQuestion.description && activeQuestion.goal ? ' ' : ''}{activeQuestion.goal}
+                        {activeQuestion.description}
                       </p>
+                    )}
+
+                    {activeQuestion.goal && (
+                      <div className="flex items-start gap-2 p-3 rounded-lg bg-white/[0.02] border border-white/5">
+                        <CheckCircle className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+                        <div>
+                          <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest block mb-1">Goal</span>
+                          <p className="text-sm text-slate-300">{activeQuestion.goal}</p>
+                        </div>
+                      </div>
                     )}
 
                     <div className="flex items-center gap-4">

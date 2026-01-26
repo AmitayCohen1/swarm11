@@ -781,7 +781,7 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
                                   ),
                                 }}
                               >
-                                {msg.metadata.answer.substring(0, 800)}{msg.metadata.answer.length > 800 ? '...' : ''}
+                                {msg.metadata.answer.substring(0, 800) + (msg.metadata.answer.length > 800 ? '...' : '')}
                               </ReactMarkdown>
                             </div>
                           </div>
@@ -885,11 +885,13 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
               {intakeSearch && (
                 <div className="flex items-start gap-5 animate-in fade-in slide-in-from-left-2 duration-300">
                   <div className="w-10 h-10 rounded-2xl bg-amber-500/10 flex items-center justify-center shrink-0 border border-amber-500/20">
-                    <Search className="w-5 h-5 text-amber-400 animate-pulse" />
+                    <Search className={`w-5 h-5 text-amber-400 ${intakeSearch.status === 'searching' ? 'animate-pulse' : ''}`} />
                   </div>
-                  <div className="flex-1 pt-2">
+                  <div className="flex-1 pt-2 space-y-2">
                     <div className="flex items-center gap-2">
-                      <p className="text-xs font-bold text-amber-400 uppercase tracking-widest">Looking up</p>
+                      <p className="text-xs font-bold text-amber-400 uppercase tracking-widest">
+                        {intakeSearch.status === 'searching' ? 'Looking up' : 'Looked up'}
+                      </p>
                       {intakeSearch.status === 'searching' && (
                         <Loader2 className="w-3 h-3 text-amber-400 animate-spin" />
                       )}
@@ -897,7 +899,15 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
                         <Check className="w-3 h-3 text-emerald-400" />
                       )}
                     </div>
-                    <p className="text-sm text-slate-400 mt-1 font-medium">{intakeSearch.query}</p>
+                    <p className="text-sm text-slate-300 font-medium">{intakeSearch.query}</p>
+                    {intakeSearch.status === 'complete' && intakeSearch.answer && (
+                      <div className="mt-2 p-3 rounded-lg bg-white/[0.02] border border-white/5 max-h-48 overflow-y-auto">
+                        <p className="text-xs text-slate-400 leading-relaxed whitespace-pre-wrap">
+                          {intakeSearch.answer.substring(0, 800)}
+                          {intakeSearch.answer.length > 800 && '...'}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

@@ -7,9 +7,8 @@
 // ============================================================
 
 export type CortexEvent =
-  | { type: 'kickoff'; reasoning: string; spawnedIds: string[] }
-  | { type: 'question_done'; questionId: string }
-  | { type: 'evaluation'; reasoning: string; decision: 'spawn' | 'synthesize'; spawnedIds?: string[] };
+  | { type: 'evaluate'; reasoning: string; decision: 'continue' | 'done'; spawnedIds?: string[] }
+  | { type: 'question_done'; questionId: string };
 
 export interface CortexMemory {
   objective: string;

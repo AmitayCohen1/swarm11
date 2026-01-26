@@ -16,6 +16,8 @@ export async function searchWeb(query: string): Promise<SearchResult> {
   try {
     const result = await generateText({
       model: perplexity('sonar'),
+      // PROMPT GOAL (Search): Execute a single web search and return a detailed answer + sources.
+      // The Researcher later truncates `answer` when deciding next steps, so the opening should be high-signal.
       system: `You are a thorough research assistant. Provide DETAILED, comprehensive answers with:
 - Specific names, titles, and companies
 - Numbers, dates, and statistics when available

@@ -54,6 +54,7 @@ export default function SessionsPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deletingAll, setDeletingAll] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   const fetchSessions = useCallback(async (page: number = 1, append: boolean = false) => {
@@ -105,6 +106,24 @@ export default function SessionsPage() {
       alert('Failed to delete session');
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    if (!confirm('Are you sure you want to delete ALL sessions? This cannot be undone.')) return;
+
+    setDeletingAll(true);
+    try {
+      const response = await fetch('/api/sessions/delete-all', { method: 'DELETE' });
+      if (!response.ok) throw new Error('Failed to delete');
+      setSessions([]);
+      if (pagination) {
+        setPagination({ ...pagination, total: 0 });
+      }
+    } catch (err) {
+      alert('Failed to delete sessions');
+    } finally {
+      setDeletingAll(false);
     }
   };
 
@@ -261,14 +280,30 @@ export default function SessionsPage() {
               className="h-10 w-full rounded-xl border border-white/5 bg-white/5 pl-10 pr-4 text-sm text-white placeholder:text-slate-500 focus:border-white/20 focus:outline-none focus:ring-0 transition-all"
             />
           </div>
-          
-          <button
-            onClick={() => router.push('/sessions/new')}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-black transition-all hover:bg-slate-200 active:scale-95"
-          >
-            <Plus className="h-4 w-4" />
-            New Research
-          </button>
+
+          <div className="flex items-center gap-2">
+            {sessions.length > 0 && (
+              <button
+                onClick={handleDeleteAll}
+                disabled={deletingAll}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-400 transition-all hover:bg-red-500/20 active:scale-95 disabled:opacity-50"
+              >
+                {deletingAll ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+                Delete All
+              </button>
+            )}
+            <button
+              onClick={() => router.push('/sessions/new')}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-black transition-all hover:bg-slate-200 active:scale-95"
+            >
+              <Plus className="h-4 w-4" />
+              New Research
+            </button>
+          </div>
         </div>
 
         {/* Content */}

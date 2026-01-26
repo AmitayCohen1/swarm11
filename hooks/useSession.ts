@@ -138,7 +138,7 @@ export function useSession(options: UseSessionOptions = {}) {
   const [stage, setStage] = useState<'searching' | 'reflecting' | 'synthesizing' | null>(null);
   const [researchDoc, setResearchDoc] = useState<BrainDoc | null>(null);
   const [eventLog, setEventLog] = useState<EventLogEntry[]>([]);
-  const [intakeSearch, setIntakeSearch] = useState<{ query: string; status: 'searching' | 'complete' } | null>(null);
+  const [intakeSearch, setIntakeSearch] = useState<{ query: string; answer?: string; status: 'searching' | 'complete' } | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -197,9 +197,10 @@ export function useSession(options: UseSessionOptions = {}) {
               objective: parsed.objective
             });
             // Add anchor message for ResearchProgress if not already present
+            // Always add anchor for valid brain doc - ResearchProgress handles empty states
             const loadedMessages = session.messages || [];
             const hasAnchor = loadedMessages.some((m: Message) => m.metadata?.type === 'research_progress');
-            if (!hasAnchor && parsed.questions?.length > 0) {
+            if (!hasAnchor) {
               setMessages([
                 ...loadedMessages,
                 {
@@ -380,10 +381,21 @@ export function useSession(options: UseSessionOptions = {}) {
         }
 
         if (update.type === 'intake_search_complete') {
-          setIntakeSearch({ query: update.query || '', status: 'complete' });
-          addEvent('intake_search_complete', 'Lookup complete', update.answer?.substring(0, 50) || '', 'search');
-          // Clear after a short delay
-          setTimeout(() => setIntakeSearch(null), 500);
+          setIntakeSearch(null); // Clear the indicator
+          addEvent('intake_search_complete', 'Lookup complete', update.answer?.substring(0, 100) || '', 'search');
+
+          // Add search result as a message (in React state only, not saved to DB)
+          const searchMessage: Message = {
+            role: 'assistant',
+            content: `Looked up "${update.query}"`,
+            timestamp: new Date().toISOString(),
+            metadata: {
+              type: 'intake_search',
+              query: update.query,
+              answer: update.answer
+            }
+          };
+          setMessages(prev => [...prev, searchMessage]);
         }
 
         if (update.type === 'decision') {
