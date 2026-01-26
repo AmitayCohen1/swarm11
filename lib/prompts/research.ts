@@ -60,36 +60,34 @@ export function brainEvalPrompt(args: {
     ? args.successCriteria.map(c => `- ${c}`).join('\n')
     : '(none provided)';
 
-  const firstBatchNote = args.isFirstBatch
-    ? `\n## Note\nThis is the FIRST batch of questions. Start broad to explore the problem space, then we'll narrow based on findings.\nProvide a brief "strategy" explaining your plan of attack (e.g., "I'll start by understanding the market, then identify key players, then...").\n`
-    : '';
-
   return `You are the Brain (evaluator) in an autonomous research system.
-  Your job is to decide if we need to ask more questions or if we have enough information to synthesize a final answer.
 
-Our main research objective is: 
+## Our main research objective is:
 ${args.objective}
 
-Our success criteria are:
+## Our success criteria are:
 ${criteria}
 
-We have completed ${args.completedQuestionsCount} questions:
+## We have completed ${args.completedQuestionsCount} questions:
 ${args.questionsContext}
+
+Your job is to decide if we need to ask more questions or if we have enough information to synthesize a final answer.
 
 --------------------------------
 
-${firstBatchNote}
+## Reason
+Always provide a brief "reason" explaining your decision - why you're continuing (and what you'll look for next) or why you're done (what made you confident).
 
 ## Decision policy
 Choose decision="done" when the completed research is sufficient to satisfy the objective.
 Choose decision="continue" if you prefer researching deeper and asking more questions to get more information.
 
 ## If continuing: produce questions
-Propose a few quesitons that would get us closer to the objective. 
+Propose a few questions that would get us closer to the objective.
 Each question will run in parallel by separate researchers who do not share context.
 
 Therefore each question must be:
-- very specific and focused, looking for a messurable answer.
+- very specific and focused, looking for a measurable answer.
 - self-contained.
 - answerable via web search.
 - goal-driven with a measurable goal`;
@@ -110,16 +108,17 @@ export function brainFinishPrompt(args: {
     : '(none provided)';
 
   return `You are the Brain (synthesizer) in an autonomous research system.
-Our research objective was: 
+
+## Our research objective was: 
 ${args.objective}
 
-Our success criteria were:
+## Our success criteria were:
 ${criteria}
 
-We found the following information:
+## We found the following information:
 ${args.questionsContext}
  
-Based on the findings, synthesize a final answer. If we couldn't satisfy the success criteria, explain why.
+## Based on the findings, synthesize a final answer. If we couldn't satisfy the success criteria, explain why.
 `;
 }
 
@@ -132,20 +131,21 @@ export function researchQuestionEvalPrompt(args: {
   question: string;
   goal?: string;
 }): string {
-  return `You are a Researcher agent in an autonomous research system.
-You answer ONE question by iterating: search → evaluate → (maybe) another search.
-You can only learn from the provided search results in the conversation history.
-Follow the required JSON schema output exactly. No extra text.
+  return `You are part of an autonomous research system.
 
-## Mission
-Answer ONE research question in service of the main objective.
-Main objective: ${args.objective}
-Your question: ${args.question}
-Target goal: ${args.goal || '(not provided)'}
+## Our main objective is: 
+${args.objective}
 
-## Constraints
-- When continuing, you must propose a SINGLE next web search query that maximizes information gain.
-- Stop (decision="done") only when you can satisfy the goal with specific, checkable facts.
+## Within this objective, we are in charge of a sub-question which is:
+${args.question}
+
+## With this target goal:
+${args.goal || '(not provided)'}
+
+## Your job is to answer this sub-question in service of the main objective.
+You'll run research question after research question until you can answer the sub-question or decide that you can't answer it and it's a dead end.
+If you think we have enough information to answer the sub-question, you should return "done".
+If you want to continue researching, you should return "continue" and propose a new sub-question to research - the query you write will be send to perplexity to be answered.
 `;
 }
 

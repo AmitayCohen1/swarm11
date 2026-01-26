@@ -69,7 +69,7 @@ interface BrainDoc {
   objective: string;
   successCriteria: string[];
   researchRound?: number;
-  researchStrategy?: string;
+  researchReason?: string;
   questions: ResearchQuestion[];
   brainLog: BrainDecision[];
   status: 'running' | 'synthesizing' | 'complete';
@@ -237,9 +237,9 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
           animateBy="words"
           direction="top"
         />
-        {doc.researchStrategy && (
+        {doc.researchReason && (
           <div className="p-4 rounded-2xl bg-white/2 border border-white/5">
-            <p className="text-slate-500 text-[10px] uppercase tracking-widest mb-3">Strategy</p>
+            <p className="text-slate-500 text-[10px] uppercase tracking-widest mb-3">Reason</p>
             <div className="prose prose-invert prose-sm max-w-none">
               <ReactMarkdown
                 components={{
@@ -250,7 +250,7 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
                   strong: ({ node, ...props }) => <strong {...props} className="text-slate-300 font-semibold" />,
                 }}
               >
-                {doc.researchStrategy}
+                {doc.researchReason}
               </ReactMarkdown>
             </div>
           </div>
@@ -470,29 +470,17 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
       })}
 
       {/* Global Status */}
-      <div className="flex flex-col items-center justify-center py-10 space-y-4">
+      <div className="flex justify-center py-6">
         {doc.status === 'running' && (
-          <div className="flex items-center gap-3 px-6 py-3 rounded-full bg-blue-500/5 border border-blue-500/10">
-            <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
-            <ShinyText
-              text="Neural Research Active"
-              className="text-xs font-black uppercase tracking-[0.2em]"
-              color="#60a5fa"
-              shineColor="#93c5fd"
-              speed={2.5}
-            />
+          <div className="flex items-center gap-2 text-slate-500 text-sm">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span>Researching...</span>
           </div>
         )}
         {doc.status === 'synthesizing' && (
-          <div className="flex items-center gap-3 px-6 py-3 rounded-full bg-emerald-500/5 border border-emerald-500/10">
-            <Lightbulb className="w-4 h-4 animate-pulse text-emerald-400" />
-            <ShinyText
-              text="Final Synthesis Protocol"
-              className="text-xs font-black uppercase tracking-[0.2em]"
-              color="#34d399"
-              shineColor="#6ee7b7"
-              speed={2}
-            />
+          <div className="flex items-center gap-2 text-slate-500 text-sm">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span>Writing answer...</span>
           </div>
         )}
       </div>

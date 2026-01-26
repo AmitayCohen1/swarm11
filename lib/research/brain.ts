@@ -20,20 +20,20 @@ const model = openai('gpt-5.2');
 // ============================================================
 
 const QuestionSchema = z.object({
-  question: z.string().describe('Short, precise question (max 15 words)'),
-  description: z.string().describe('Why this helps the objective (1-2 sentences)'),
-  goal: z.string().describe('Realistic, measurable, specific goal (e.g., "Find 3 company names", "Get price range", "Yes/no answer")'),
+  question: z.string(),
+  description: z.string(),
+  goal: z.string(),
 });
 
 const EvaluateSchema = z.object({
-  reasoning: z.string().describe('Analysis of current state'),
-  strategy: z.string().describe('For first batch: Brief plan of attack. For later batches: empty string.'),
+  reasoning: z.string(),
+  reason: z.string(),
   decision: z.enum(['continue', 'done']),
-  questions: z.array(QuestionSchema).max(5).describe('Questions to research (empty array if decision is done)'),
+  questions: z.array(QuestionSchema).max(5),
 });
 
 const FinishSchema = z.object({
-  answer: z.string().describe('Complete answer to the research objective'),
+  answer: z.string(),
 });
 
 // ============================================================
@@ -42,7 +42,7 @@ const FinishSchema = z.object({
 
 export interface EvaluateResult {
   reasoning: string;
-  strategy: string;
+  reason: string;
   decision: 'continue' | 'done';
   questions?: ResearchQuestionMemory[];
 }
@@ -78,7 +78,7 @@ export async function evaluate(
 
   return {
     reasoning: data.reasoning,
-    strategy: data.strategy,
+    reason: data.reason,
     decision: data.decision,
     questions: data.questions.length > 0
       ? data.questions.map(q => createQuestion(q.question, q.description, q.goal))

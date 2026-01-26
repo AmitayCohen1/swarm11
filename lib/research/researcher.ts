@@ -20,14 +20,14 @@ const model = openai('gpt-5.2');
 // ============================================================
 
 const EvaluateSchema = z.object({
-  reasoning: z.string().describe('What you learned and what to do next'),
+  reasoning: z.string(),
   decision: z.enum(['continue', 'done']),
-  query: z.string().describe('Next search query if continue, empty string if done'),
+  query: z.string(),
 });
 
 const FinishSchema = z.object({
-  answer: z.string().describe('Comprehensive answer to the question'),
-  confidence: z.enum(['low', 'medium', 'high']).describe('How confident you are in this answer'),
+  answer: z.string(),
+  confidence: z.enum(['low', 'medium', 'high']),
 });
 
 // ============================================================
