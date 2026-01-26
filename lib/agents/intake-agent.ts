@@ -79,7 +79,12 @@ export async function analyzeUserMessage(
   for (const m of conversationHistory) {
     if (m.role === 'user' && m.content) {
       if (m.metadata?.type === 'option_selected') {
-        messages.push({ role: 'user', content: `Selected: "${m.content}"` });
+        const unselected = m.metadata?.unselectedOptionLabels as string[] | undefined;
+        if (unselected && unselected.length > 0) {
+          messages.push({ role: 'user', content: `Selected: "${m.content}" (other options were: ${unselected.join(', ')})` });
+        } else {
+          messages.push({ role: 'user', content: `Selected: "${m.content}"` });
+        }
       } else {
         messages.push({ role: 'user', content: m.content });
       }
@@ -88,7 +93,7 @@ export async function analyzeUserMessage(
 
       // For intake_search messages, include the actual search answer
       if (m.metadata?.type === 'intake_search' && m.metadata?.answer) {
-        const searchContent = `I looked up "${m.metadata.query}" and found:\n\n${m.metadata.answer.substring(0, 1500)}`;
+        const searchContent = `I looked up "${m.metadata.query}" and found:\n\n${m.metadata.answer}`;
         messages.push({ role: 'assistant', content: searchContent });
       } else {
         messages.push({ role: 'assistant', content: m.content });
@@ -146,7 +151,7 @@ export async function analyzeUserMessage(
     ...messages,
     {
       role: 'assistant' as const,
-      content: `I looked up "${query}" and found:\n\n${answer.substring(0, 1500)}`
+      content: `I looked up "${query}" and found:\n\n${answer}`
     }
   ];
 

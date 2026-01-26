@@ -71,6 +71,7 @@ function AskUserOptions({
   };
 
   if (selected) {
+    const unselectedOptions = options.filter(opt => opt.label !== selected);
     return (
       <div className="space-y-2 mt-2 animate-in fade-in slide-in-from-bottom-1 duration-300">
         <div className="flex items-start gap-3">
@@ -79,9 +80,16 @@ function AskUserOptions({
           </div>
           <div className="flex-1 space-y-1 pt-1.5">
             <p className="text-slate-400 text-sm font-medium">{question}</p>
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
-              <Check className="w-3 h-3" />
-              {selected}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                <Check className="w-3 h-3" />
+                {selected}
+              </div>
+              {unselectedOptions.map((opt, i) => (
+                <span key={i} className="px-3 py-1 text-xs text-slate-600 line-through">
+                  {opt.label}
+                </span>
+              ))}
             </div>
           </div>
         </div>

@@ -44,7 +44,7 @@ function buildMessages(history: ResearchQuestionEvent[]): Array<{ role: 'user' |
   const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
   for (const e of history) {
     if (e.type === 'search') {
-      messages.push({ role: 'user', content: `Search for "${e.query}":\n${e.answer.substring(0, 600)}` });
+      messages.push({ role: 'user', content: `Search for "${e.query}":\n${e.answer}` });
     } else {
       messages.push({ role: 'assistant', content: e.thought });
     }
