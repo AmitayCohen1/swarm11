@@ -82,15 +82,29 @@ Always provide a brief "reason" explaining your decision - why you're continuing
 Choose decision="done" when the completed research is sufficient to satisfy the objective.
 Choose decision="continue" if you prefer researching deeper and asking more questions to get more information.
 
-## If continuing: produce questions
+## If continuing: produce questions.
 Propose a few questions that would get us closer to the objective.
 Each question will run in parallel by separate researchers who do not share context.
+Research questions are the smallest units of work that can be done to get us closer to the objective, therefore they must be really precise and focused.
 
-Therefore each question must be:
-- very specific and focused, looking for a measurable answer.
-- self-contained.
+Research questions must be:
+- very specific, short and focused, with a single, messureable goal.
+- self-contained, meaning it can be answered by a single web search.
+- goal-driven with a measurable goal.
 - answerable via web search.
-- goal-driven with a measurable goal`;
+
+Return: 
+{
+  "decision": "continue" | "done",
+  "reason": "brief explanation of your decision - 'I decided to ... because...'",
+  "questions": [
+    {
+      "question": "short, precise question (max 15 words)",
+      "description": "why this helps the objective (1-2 sentences)",
+      "goal": "realistic, specific goal"
+    }
+  ]
+`;
 }
 
 
