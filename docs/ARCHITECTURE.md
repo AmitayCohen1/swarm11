@@ -32,7 +32,7 @@ UI (SessionView)
     - `text_input`: ask a clarifying question
     - `multi_choice_select`: offer 2–4 options
     - `start_research`: returns a `ResearchBrief { objective, successCriteria[] }`
-    - `search_performed`: optional quick lookup to unblock intake
+    - Any decision may include `searchPerformed: { query, answer }` if intake looked something up
   - `lib/research/run.ts` (**Research loop**): manages rounds and persistence.
   - `lib/research/brain.ts` (**Brain**): decides “continue vs done” and proposes new questions; writes the final answer.
   - `lib/research/researcher.ts` (**Researcher**): runs a single question:

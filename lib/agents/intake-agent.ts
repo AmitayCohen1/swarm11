@@ -2,6 +2,7 @@ import { generateText, tool } from 'ai';
 import { anthropic } from '@ai-sdk/anthropic';
 import { z } from 'zod';
 import { searchWeb } from '../research/search';
+import { buildIntakeSystemPrompt } from '@/lib/prompts/research';
 
 export interface ResearchBrief {
   objective: string;
@@ -58,22 +59,7 @@ const quick_web_search = tool({
   })
 });
 
-const INTAKE_INSTRUCTIONS = `
-You are the research intake agent.
-
-Your job is to talk with the user and understand what they want researched.
-
-Tools:
-- textInput → ask a question
-- multiChoiceSelect → offer options
-- quick_web_search → only call it for a quick search query, if you are not sure what the user is talking about.
-- startResearch → begin actual research
-
-Rules:
-- One question per turn, under 20 words
-- Use quick_web_search if you don't recognize a company/product/term
-- Call startResearch when you have enough info
-`;
+const INTAKE_INSTRUCTIONS = buildIntakeSystemPrompt();
 
 /**
  * Simple two-step intake:

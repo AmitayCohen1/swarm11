@@ -231,6 +231,7 @@ export async function POST(
                 userId: user.id,
                 chatSessionId: sessionId,
                 objective: researchBrief.objective,
+                successCriteria: researchBrief.successCriteria ? JSON.stringify(researchBrief.successCriteria) : null,
                 status: 'running'
               })
               .returning({ id: researchSessions.id });

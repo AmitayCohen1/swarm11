@@ -4,6 +4,7 @@
 
 import { generateText } from 'ai';
 import { perplexity } from '@ai-sdk/perplexity';
+import { buildSearchSystemPrompt } from '@/lib/prompts/research';
 
 export interface SearchResult {
   answer: string;
@@ -18,13 +19,7 @@ export async function searchWeb(query: string): Promise<SearchResult> {
       model: perplexity('sonar'),
       // PROMPT GOAL (Search): Execute a single web search and return a detailed answer + sources.
       // The Researcher later truncates `answer` when deciding next steps, so the opening should be high-signal.
-      system: `You are a thorough research assistant. Provide DETAILED, comprehensive answers with:
-- Specific names, titles, and companies
-- Numbers, dates, and statistics when available
-- Context and background that helps understand the topic
-- Multiple examples or options when relevant
-
-Don't be brief. Give complete, well-researched answers.`,
+      system: buildSearchSystemPrompt(),
       prompt: query
     });
 

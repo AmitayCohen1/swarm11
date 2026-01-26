@@ -3,16 +3,17 @@
  */
 
 // ============================================================
-// Cortex Memory - Brain's orchestration log
+// Brain Memory - Brain's orchestration log
 // ============================================================
 
-export type CortexEvent =
+export type BrainEvent =
   | { type: 'evaluate'; reasoning: string; decision: 'continue' | 'done'; spawnedIds?: string[] }
   | { type: 'question_done'; questionId: string };
 
-export interface CortexMemory {
+export interface BrainMemory {
   objective: string;
-  history: CortexEvent[];
+  successCriteria?: string[];
+  history: BrainEvent[];
   finalAnswer?: string;
 }
 
@@ -40,7 +41,7 @@ export interface ResearchQuestionMemory {
 // ============================================================
 
 export interface ResearchState {
-  cortex: CortexMemory;
+  brain: BrainMemory;
   questions: Record<string, ResearchQuestionMemory>;
 }
 
@@ -52,8 +53,8 @@ export function generateId(): string {
   return `${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 }
 
-export function createCortex(objective: string): CortexMemory {
-  return { objective, history: [] };
+export function createBrainMemory(objective: string, successCriteria?: string[]): BrainMemory {
+  return { objective, successCriteria, history: [] };
 }
 
 export function createQuestion(

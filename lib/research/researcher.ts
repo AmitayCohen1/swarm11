@@ -11,6 +11,7 @@ import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { searchWeb } from './search';
 import type { ResearchQuestionMemory, ResearchQuestionEvent } from './types';
+import { buildResearcherSystemPrompt } from '@/lib/prompts/research';
 
 const model = openai('gpt-5.2');
 
@@ -54,7 +55,8 @@ function buildMessages(history: ResearchQuestionEvent[]): Array<{ role: 'user' |
 export async function evaluate(
   question: string,
   objective: string,
-  history: ResearchQuestionEvent[]
+  history: ResearchQuestionEvent[],
+  goal?: string
 ): Promise<EvaluateResult> {
   const messages = buildMessages(history);
 
@@ -63,14 +65,7 @@ export async function evaluate(
     // PROMPT GOAL (Researcher.evaluate): Given a single question + its search/reflection history,
     // decide whether to keep searching and propose the next web query.
     // Output = { decision: 'continue'|'done', query, reasoning }.
-    system: `You are part of a research system.
-
-Our main objective is: ${objective}
-You are researching: ${question}
-
-Look at what you've found so far and decide:
-- If you need more information: decision = "continue" and provide next search query
-- If you have enough to answer: decision = "done"`,
+    system: buildResearcherSystemPrompt({ objective, question, goal }),
     messages,
     output: Output.object({ schema: EvaluateSchema }),
   });
@@ -96,7 +91,8 @@ export interface FinishResult {
 export async function finish(
   question: string,
   objective: string,
-  history: ResearchQuestionEvent[]
+  history: ResearchQuestionEvent[],
+  goal?: string
 ): Promise<FinishResult> {
   const messages = buildMessages(history);
 
@@ -104,12 +100,9 @@ export async function finish(
     model,
     // PROMPT GOAL (Researcher.finish): Summarize this question's findings for the Brain.
     // Output = { answer, confidence }. (Sources aren't threaded through this pipeline today.)
-    system: `You are part of a research system.
+    system: `${buildResearcherSystemPrompt({ objective, question, goal })}
 
-Our main objective is: ${objective}
-You researched: ${question}
-
-Summarize what you found. This goes to the brain who decides if we need more research.`,
+Summarize what you found for the brain. Include key facts, and explicitly note uncertainties/limits.`,
     messages,
     output: Output.object({ schema: FinishSchema }),
   });
@@ -146,7 +139,7 @@ export async function runQuestion(
   let nextQuery = q.question; // Start with the question itself
 
   log(`Starting: ${q.question.substring(0, 50)}`);
-  onProgress?.({ type: 'question_started', questionId: q.id, question: q.question });
+  onProgress?.({ type: 'question_started', questionId: q.id, questionText: q.question });
 
   while (searchCount < MAX_SEARCHES) {
     // Search
@@ -160,7 +153,7 @@ export async function runQuestion(
     onProgress?.({ type: 'question_search', questionId: q.id, query: nextQuery, answerLength: searchResult.answer.length, question: q });
 
     // Evaluate
-    const evalResult = await evaluate(q.question, objective, q.history);
+    const evalResult = await evaluate(q.question, objective, q.history, q.goal);
 
     // Prevent early done
     let decision = evalResult.decision;
@@ -181,7 +174,7 @@ export async function runQuestion(
   }
 
   // Finish
-  const finishResult = await finish(q.question, objective, q.history);
+  const finishResult = await finish(q.question, objective, q.history, q.goal);
   q.answer = finishResult.answer;
   q.confidence = finishResult.confidence;
   q.status = 'done';

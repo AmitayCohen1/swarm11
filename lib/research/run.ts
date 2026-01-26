@@ -6,8 +6,8 @@ import { db } from '@/lib/db';
 import { chatSessions } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import type { ResearchBrief } from '@/lib/agents/intake-agent';
-import type { ResearchState, CortexMemory, ResearchQuestionMemory, ResearchQuestionEvent } from './types';
-import { createCortex } from './types';
+import type { ResearchState, BrainMemory, ResearchQuestionMemory, ResearchQuestionEvent } from './types';
+import { createBrainMemory } from './types';
 import { evaluate as brainEvaluate, finish as brainFinish } from './brain';
 import { runQuestion } from './researcher';
 
@@ -79,8 +79,8 @@ function toFrontendFormat(state: ResearchState, round: number): any {
     };
   });
 
-  // Build brain log from cortex history
-  const brainLog = state.cortex.history.map((event, idx) => {
+  // Build brain log from brain history
+  const brainLog = state.brain.history.map((event, idx) => {
     if (event.type === 'evaluate') {
       return {
         id: `dec_${idx}`,
@@ -94,13 +94,13 @@ function toFrontendFormat(state: ResearchState, round: number): any {
 
   return {
     version: 1,
-    objective: state.cortex.objective,
-    successCriteria: [],
+    objective: state.brain.objective,
+    successCriteria: state.brain.successCriteria || [],
     researchRound: round,
     questions,
     brainLog,
-    status: state.cortex.finalAnswer ? 'complete' : 'running',
-    finalAnswer: state.cortex.finalAnswer
+    status: state.brain.finalAnswer ? 'complete' : 'running',
+    finalAnswer: state.brain.finalAnswer
   };
 }
 
@@ -131,12 +131,12 @@ export async function runResearch(config: RunConfig): Promise<RunResult> {
 
   // Initialize state
   log('Initializing research', { objective: researchBrief.objective });
-  const cortex: CortexMemory = createCortex(researchBrief.objective);
+  const brain: BrainMemory = createBrainMemory(researchBrief.objective, researchBrief.successCriteria);
   const questions: Record<string, ResearchQuestionMemory> = {};
-  const state: ResearchState = { cortex, questions };
+  const state: ResearchState = { brain, questions };
 
   await save(state);
-  onProgress?.({ type: 'research_initialized', objective: cortex.objective });
+  onProgress?.({ type: 'research_initialized', objective: brain.objective });
 
   // Main loop - brain evaluates, researchers execute, repeat
   while (round < CONFIG.maxRounds && !shouldStop()) {
@@ -145,10 +145,10 @@ export async function runResearch(config: RunConfig): Promise<RunResult> {
     // Brain evaluates - decides continue or done
     const completed = Object.values(questions).filter(q => q.status === 'done');
     log('Brain evaluating...', { completedQuestions: completed.length });
-    const evalResult = await brainEvaluate(cortex.objective, completed);
+    const evalResult = await brainEvaluate(brain.objective, completed, brain.successCriteria);
     log('Brain decided', { decision: evalResult.decision, newQuestions: evalResult.questions?.length || 0 });
 
-    cortex.history.push({
+    brain.history.push({
       type: 'evaluate',
       reasoning: evalResult.reasoning,
       decision: evalResult.decision,
@@ -182,17 +182,18 @@ export async function runResearch(config: RunConfig): Promise<RunResult> {
       questions[pendingQ.id] = { ...pendingQ, status: 'running' };
       await save(state);
 
-      const result = await runQuestion(pendingQ, cortex.objective, async (update) => {
+      const result = await runQuestion(pendingQ, brain.objective, async (update) => {
         onProgress?.(update);
         // Update question state from researcher progress and save to DB
-        if (update.question) {
+        // Only update if it's a proper question object (has history array)
+        if (update.question && typeof update.question === 'object' && Array.isArray(update.question.history)) {
           questions[pendingQ.id] = update.question;
           await save(state);
         }
       });
 
       questions[pendingQ.id] = result.question;
-      cortex.history.push({ type: 'question_done', questionId: pendingQ.id });
+      brain.history.push({ type: 'question_done', questionId: pendingQ.id });
       await save(state);
     }
 
@@ -204,8 +205,8 @@ export async function runResearch(config: RunConfig): Promise<RunResult> {
   const completedFinal = Object.values(questions).filter(q => q.status === 'done');
   log('Brain finishing...');
   onProgress?.({ type: 'brain_finishing' });
-  const finishResult = await brainFinish(cortex.objective, completedFinal);
-  cortex.finalAnswer = finishResult.answer;
+  const finishResult = await brainFinish(brain.objective, completedFinal, brain.successCriteria);
+  brain.finalAnswer = finishResult.answer;
   log('Brain finished', { answerLength: finishResult.answer.length });
 
   await save(state);

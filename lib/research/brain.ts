@@ -1,5 +1,5 @@
 /**
- * Brain - Cortex-level evaluate/finish cycle
+ * Brain - Orchestration evaluate/finish cycle
  *
  * Same pattern as researcher:
  *   evaluate(state) → continue or done?
@@ -11,6 +11,7 @@ import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import type { ResearchQuestionMemory } from './types';
 import { createQuestion } from './types';
+import { buildBrainEvaluatePrompt, buildBrainFinishPrompt } from '@/lib/prompts/research';
 
 const model = openai('gpt-5.2');
 
@@ -46,7 +47,8 @@ export interface EvaluateResult {
 
 export async function evaluate(
   objective: string,
-  completedQuestions: ResearchQuestionMemory[]
+  completedQuestions: ResearchQuestionMemory[],
+  successCriteria?: string[]
 ): Promise<EvaluateResult> {
   const questionsContext = completedQuestions.length > 0
     ? completedQuestions.map(q =>
@@ -59,23 +61,12 @@ export async function evaluate(
     // PROMPT GOAL (Brain.evaluate): Decide whether to continue researching, and if so, which questions to run next.
     // Input = objective + completed question summaries. Output = { decision, reasoning, questions[] }.
     // Important: Brain does NOT search the web. It only plans/decides.
-    prompt: `You are the brain of a research system. You look at the current state and decide what to do next.
-
-OBJECTIVE: ${objective}
-
-## Completed Research (${completedQuestions.length} questions)
-
-${questionsContext}
-
-## Your Task
-
-Based on what we have, decide:
-- If we need research (no questions yet, or gaps remain): decision = "continue" and provide questions
-- If we have enough to answer the user: decision = "done"
-
-Each question runs in parallel by a separate researcher (they don't share context).
-
-Important: Each question needs a realistic, measurable, specific goal - something the researcher can actually find and check off.`,
+    prompt: buildBrainEvaluatePrompt({
+      objective,
+      successCriteria,
+      completedQuestionsCount: completedQuestions.length,
+      questionsContext,
+    }),
     output: Output.object({ schema: EvaluateSchema }),
   });
 
@@ -100,7 +91,8 @@ export interface FinishResult {
 
 export async function finish(
   objective: string,
-  completedQuestions: ResearchQuestionMemory[]
+  completedQuestions: ResearchQuestionMemory[],
+  successCriteria?: string[]
 ): Promise<FinishResult> {
   const questionsContext = completedQuestions.map(q =>
     `### ${q.question}\n**Confidence:** ${q.confidence || 'unknown'}\n${q.answer || 'No answer'}`
@@ -110,15 +102,7 @@ export async function finish(
     model,
     // PROMPT GOAL (Brain.finish): Write the final user-facing answer from completed question summaries.
     // Output = { answer } only (no citations/sources are plumbed through today).
-    prompt: `You are part of a research system. You are the final step - the writer. Researchers have gathered information, and now you write the final answer that goes to the user.
-
-OBJECTIVE: ${objective}
-
-## Research Findings
-
-${questionsContext}
-
-Write a final answer that gives the user what they asked for. Be specific and practical.`,
+    prompt: buildBrainFinishPrompt({ objective, successCriteria, questionsContext }),
     output: Output.object({ schema: FinishSchema }),
   });
 
