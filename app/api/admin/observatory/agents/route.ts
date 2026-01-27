@@ -8,6 +8,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createAgent, deleteAgent, updateAgentMetrics, addAgentMetric, getAgent } from '@/lib/eval';
+import { db } from '@/lib/db';
+import { llmCalls, llmEvaluations } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
 
 export async function POST(req: NextRequest) {
   try {
@@ -56,7 +59,7 @@ export async function DELETE(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
-    const { id, metrics, addMetric } = body;
+    const { id, metrics, addMetric, resetData } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'id is required' }, { status: 400 });
@@ -66,6 +69,13 @@ export async function PATCH(req: NextRequest) {
     const agent = await getAgent(id);
     if (!agent) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
+    }
+
+    if (resetData) {
+      // Delete calls first (they reference evaluations via evaluation_batch_id)
+      await db.delete(llmCalls).where(eq(llmCalls.agentName, id));
+      await db.delete(llmEvaluations).where(eq(llmEvaluations.agentName, id));
+      return NextResponse.json({ success: true, message: `Data reset for agent ${id}` });
     }
 
     if (addMetric) {

@@ -8,6 +8,23 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 interface AgentStats {
   id: string;
@@ -60,6 +77,7 @@ export default function ObservatoryPage() {
   const [timeFilter, setTimeFilter] = useState<'7d' | '30d' | '90d' | 'all'>('30d');
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [dialogAction, setDialogAction] = useState<{ type: 'deleteAgent' | 'resetAgent' | 'deleteMetric'; id: string; metricName?: string } | null>(null);
 
   const copyInstructions = () => {
     if (!data?.agents || data.agents.length === 0) return;
@@ -140,17 +158,36 @@ export default function ObservatoryPage() {
     await fetchData();
   };
 
-  const deleteMetric = async (agentId: string, metricName: string) => {
-    const agent = data?.agents.find(a => a.id === agentId);
-    const existing = agent?.criteria || [];
-    const filtered = existing.filter(m => m.name !== metricName);
-    await fetch('/api/admin/observatory/agents', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: agentId, metrics: filtered }),
-    });
+  const handleDialogConfirm = async () => {
+    if (!dialogAction) return;
+
+    if (dialogAction.type === 'deleteMetric' && dialogAction.metricName) {
+      const agent = data?.agents.find(a => a.id === dialogAction.id);
+      const existing = agent?.criteria || [];
+      const filtered = existing.filter(m => m.name !== dialogAction.metricName);
+      await fetch('/api/admin/observatory/agents', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: dialogAction.id, metrics: filtered }),
+      });
+      if (selectedMetric === dialogAction.metricName) setSelectedMetric(null);
+    } else if (dialogAction.type === 'deleteAgent') {
+      await fetch(`/api/admin/observatory/agents?id=${dialogAction.id}`, {
+        method: 'DELETE',
+      });
+      if (selectedAgent === dialogAction.id) {
+        setSelectedAgent(data?.agents.find(a => a.id !== dialogAction.id)?.id || null);
+      }
+    } else if (dialogAction.type === 'resetAgent') {
+      await fetch('/api/admin/observatory/agents', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: dialogAction.id, resetData: true }),
+      });
+    }
+
     await fetchData();
-    if (selectedMetric === metricName) setSelectedMetric(null);
+    setDialogAction(null);
   };
 
   if (loading) {
@@ -355,8 +392,40 @@ export default function ObservatoryPage() {
                 })()}
 
                 <div className="text-right">
-                  <code className="text-[10px] text-neutral-600 font-mono">{agent.id}</code>
-                  <div className="text-xs text-neutral-600 mt-1">
+                  <div className="flex items-center justify-end gap-2 mb-1">
+                    <code className="text-[10px] text-neutral-600 font-mono">{agent.id}</code>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button className="p-1 rounded text-neutral-500 hover:text-white hover:bg-neutral-800 transition-colors">
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                          </svg>
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48 bg-neutral-900 border-neutral-800">
+                        <DropdownMenuItem
+                          onClick={() => setDialogAction({ type: 'resetAgent', id: agent.id })}
+                          className="text-neutral-300 focus:text-white focus:bg-neutral-800 cursor-pointer"
+                        >
+                          <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          Reset Data
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator className="bg-neutral-800" />
+                        <DropdownMenuItem
+                          onClick={() => setDialogAction({ type: 'deleteAgent', id: agent.id })}
+                          className="text-red-400 focus:text-red-300 focus:bg-red-500/10 cursor-pointer"
+                        >
+                          <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                          Delete Agent
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                  <div className="text-xs text-neutral-600">
                     {agent.stats.totalCalls} calls · {agent.stats.pendingEval} pending
                     {agent.stats.pendingEval >= 5 && (
                       <button
@@ -438,33 +507,29 @@ export default function ObservatoryPage() {
 
                 {/* Metric Detail Sheet */}
                 <Sheet open={!!selectedMetric} onOpenChange={(open) => !open && setSelectedMetric(null)}>
-                  <SheetContent side="right" className="w-full sm:max-w-lg bg-[#0a0a0a] border-neutral-800 overflow-y-auto">
+                  <SheetContent side="right" className="w-full sm:max-w-lg bg-[#0a0a0a] border-neutral-800 overflow-y-auto [&>button]:text-white [&>button]:opacity-100 [&>button]:hover:bg-neutral-800">
                     {selectedMetric && (
                       <>
-                        <SheetHeader>
-                          <div className="flex items-start justify-between pr-8">
-                            <div>
-                              <SheetTitle className="text-white text-xl">{selectedMetric}</SheetTitle>
-                              <SheetDescription className="text-neutral-500">
-                                {agent?.criteria?.find(c => c.name === selectedMetric)?.description || 'Performance over time'}
-                              </SheetDescription>
-                            </div>
-                            {selectedMetric !== 'overall' && agent?.criteria?.some(c => c.name === selectedMetric) && (
-                              <button
-                                onClick={() => {
-                                  if (confirm(`Delete metric "${selectedMetric}"?`)) {
-                                    deleteMetric(agent.id, selectedMetric);
-                                  }
-                                }}
-                                className="p-2 rounded-lg text-neutral-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                                title="Delete metric"
-                              >
-                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                              </button>
-                            )}
-                          </div>
+                        {/* Action buttons - top right */}
+                        <div className="absolute top-4 right-12 flex items-center gap-2">
+                          {selectedMetric !== 'overall' && agent?.criteria?.some(c => c.name === selectedMetric) && (
+                            <button
+                              onClick={() => setDialogAction({ type: 'deleteMetric', id: agent.id, metricName: selectedMetric })}
+                              className="p-2 rounded-lg bg-neutral-800 text-neutral-400 hover:text-red-400 hover:bg-red-500/20 transition-colors"
+                              title="Delete metric"
+                            >
+                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+
+                        <SheetHeader className="pr-20">
+                          <SheetTitle className="text-white text-xl">{selectedMetric}</SheetTitle>
+                          <SheetDescription className="text-neutral-400">
+                            {agent?.criteria?.find(c => c.name === selectedMetric)?.description || 'Performance over time'}
+                          </SheetDescription>
                         </SheetHeader>
 
                         <div className="px-4 pb-6">
@@ -537,6 +602,47 @@ export default function ObservatoryPage() {
           </div>
         )}
       </main>
+
+      {/* Confirmation Dialog */}
+      <AlertDialog open={!!dialogAction} onOpenChange={(open) => !open && setDialogAction(null)}>
+        <AlertDialogContent className="bg-neutral-900 border-neutral-800">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-white">
+              {dialogAction?.type === 'deleteAgent' && 'Delete Agent'}
+              {dialogAction?.type === 'resetAgent' && 'Reset Agent Data'}
+              {dialogAction?.type === 'deleteMetric' && 'Delete Metric'}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-neutral-400">
+              {dialogAction?.type === 'deleteAgent' && (
+                <>Are you sure you want to delete this agent? This will remove the agent and all its data permanently.</>
+              )}
+              {dialogAction?.type === 'resetAgent' && (
+                <>Are you sure you want to reset all data for this agent? This will delete all calls and evaluations but keep the agent configuration.</>
+              )}
+              {dialogAction?.type === 'deleteMetric' && (
+                <>Are you sure you want to delete the metric &quot;{dialogAction.metricName}&quot;? Historical scores for this metric will be preserved but it will no longer be tracked.</>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="bg-neutral-800 border-neutral-700 text-neutral-300 hover:bg-neutral-700 hover:text-white">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDialogConfirm}
+              className={
+                dialogAction?.type === 'deleteAgent' || dialogAction?.type === 'deleteMetric'
+                  ? 'bg-red-600 text-white hover:bg-red-700'
+                  : 'bg-amber-600 text-white hover:bg-amber-700'
+              }
+            >
+              {dialogAction?.type === 'deleteAgent' && 'Delete'}
+              {dialogAction?.type === 'resetAgent' && 'Reset'}
+              {dialogAction?.type === 'deleteMetric' && 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
