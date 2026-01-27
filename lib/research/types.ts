@@ -23,7 +23,7 @@ export interface BrainMemory {
 // ============================================================
 
 export type ResearchQuestionEvent =
-  | { type: 'search'; query: string; answer: string }
+  | { type: 'search'; query: string; answer: string; sources?: Array<{ title: string; url: string }> }
   | { type: 'reflect'; thought: string };
 
 export interface ResearchQuestionMemory {

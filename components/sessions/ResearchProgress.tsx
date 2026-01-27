@@ -186,9 +186,30 @@ export default function ResearchProgress({ doc: rawDoc, className }: ResearchPro
                     </CollapsibleTrigger>
                     {group.result && (
                       <CollapsibleContent className="mt-2">
-                        <p className="text-xs text-slate-500 leading-relaxed pl-1 border-l border-slate-800 ml-0.5">
-                          {group.result.answer || 'No findings recorded.'}
-                        </p>
+                        <div className="text-xs text-slate-500 leading-relaxed pl-1 border-l border-slate-800 ml-0.5 prose prose-invert prose-xs max-w-none">
+                          <ReactMarkdown
+                            components={{
+                              p: ({ node, ...props }) => (
+                                <p {...props} className="text-xs text-slate-500 leading-relaxed mb-2 last:mb-0" />
+                              ),
+                              a: ({ node, ...props }) => (
+                                <a
+                                  {...props}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+                                />
+                              ),
+                              ul: ({ node, ...props }) => <ul {...props} className="list-disc list-inside space-y-1 mb-2" />,
+                              ol: ({ node, ...props }) => <ol {...props} className="list-decimal list-inside space-y-1 mb-2" />,
+                              li: ({ node, ...props }) => <li {...props} className="text-xs" />,
+                              strong: ({ node, ...props }) => <strong {...props} className="font-semibold text-slate-300" />,
+                              code: ({ node, ...props }) => <code {...props} className="px-1 py-0.5 rounded bg-white/5" />,
+                            }}
+                          >
+                            {group.result.answer || 'No findings recorded.'}
+                          </ReactMarkdown>
+                        </div>
                         {group.result.sources && group.result.sources.length > 0 && (
                           <div className="flex flex-wrap gap-1.5 mt-2 pl-1 ml-0.5">
                             {group.result.sources.slice(0, 3).map((source, j) => (

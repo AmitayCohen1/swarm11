@@ -14,20 +14,40 @@ export interface SearchResult {
 export async function searchWeb(query: string): Promise<SearchResult> {
   console.log('[Search] Query:', query);
 
-  try {
-    const result = await generateText({
-      model: perplexity('sonar'),
-      // PROMPT GOAL (Search): Execute a single web search and return a detailed answer + sources.
-      // The Researcher later truncates `answer` when deciding next steps, so the opening should be high-signal.
-      // system: buildSearchSystemPrompt(),
-      prompt: query
-    });
+  const normalizeUrl = (url: string) => {
+    const u = (url || '').trim();
+    if (!u) return '';
+    if (u.startsWith('http://') || u.startsWith('https://')) return u;
+    return `https://${u.replace(/^\/+/, '')}`;
+  };
 
-    const answer = result.text || '';
-    const sources = (result.sources || []).map((s: any, idx: number) => ({
-      title: s.title || s.url || `Source ${idx + 1}`,
-      url: s.url || ''
-    }));
+  try {
+    const run = async (modelName: 'sonar' | 'sonar-pro') => {
+      return await generateText({
+        model: perplexity(modelName),
+        prompt: query
+      });
+    };
+
+    // `sonar` is cheaper/faster but often returns no sources. If sources are empty,
+    // retry once with `sonar-pro` so the UI can show citations.
+    let { text, sources: rawSources } = await run('sonar');
+    if (!rawSources || rawSources.length === 0) {
+      const pro = await run('sonar-pro');
+      text = pro.text;
+      rawSources = pro.sources;
+    }
+
+    const answer = text || '';
+    const sources = (rawSources || [])
+      .map((s: any, idx: number) => {
+        const url = normalizeUrl(s.url || '');
+        return {
+          title: (s.title || '').trim() || url || `Source ${idx + 1}`,
+          url
+        };
+      })
+      .filter((s: any) => Boolean(s.url));
 
     console.log('[Search] Answer length:', answer.length, 'sources:', sources.length);
 

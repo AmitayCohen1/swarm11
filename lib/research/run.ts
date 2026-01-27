@@ -50,7 +50,7 @@ function toFrontendFormat(state: ResearchState, round: number): any {
     for (const event of q.history) {
       if (event.type === 'search') {
         memory.push({ type: 'search', query: event.query });
-        memory.push({ type: 'result', answer: event.answer, sources: [] });
+        memory.push({ type: 'result', answer: event.answer, sources: event.sources || [] });
       } else if (event.type === 'reflect') {
         memory.push({ type: 'reflect', thought: event.thought });
       }

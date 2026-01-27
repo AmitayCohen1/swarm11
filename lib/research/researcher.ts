@@ -20,13 +20,17 @@ const model = openai('gpt-5.2');
 // ============================================================
 
 const EvaluateSchema = z.object({
-  reasoning: z.string(),
+  reasoning: z.string().describe('1–2 sentence rationale for continue vs done'),
   decision: z.enum(['continue', 'done']),
-  query: z.string(),
+  query: z
+    .string()
+    .describe('Next web query to run: short, specific, human-readable (no quotes/keyword soup)'),
 });
 
 const FinishSchema = z.object({
-  answer: z.string(),
+  answer: z
+    .string()
+    .describe('Markdown summary. Prefer bullets/headings.'),
   confidence: z.enum(['low', 'medium', 'high']),
 });
 
@@ -44,7 +48,10 @@ function buildMessages(history: ResearchQuestionEvent[]): Array<{ role: 'user' |
   const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
   for (const e of history) {
     if (e.type === 'search') {
-      messages.push({ role: 'user', content: `Search for "${e.query}":\n${e.answer}` });
+      const sourcesText = e.sources && e.sources.length > 0
+        ? `\n\nSources:\n${e.sources.slice(0, 5).map(s => `- ${s.title || s.url} (${s.url})`).join('\n')}`
+        : '';
+      messages.push({ role: 'user', content: `Search for "${e.query}":\n${e.answer}${sourcesText}` });
     } else {
       messages.push({ role: 'assistant', content: e.thought });
     }
@@ -98,17 +105,14 @@ export async function finish(
 
   const result = await generateText({
     model,
-    system: `You are summarizing research findings.
-
-Main objective: ${objective}
-Sub-question researched: ${question}
+    system: `Role: Researcher.finish
+Objective: ${objective}
+Question: ${question}
 Goal: ${goal || '(not provided)'}
 
-Based on the search results in this conversation, write a clear summary of what was found.
-Include key facts, data points, and explicitly note any gaps or uncertainties.
-
-Do NOT include any JSON, decision fields, or structured output format in your answer.
-Just write a plain text summary.`,
+Task: summarize what was found + key gaps, using ONLY the provided search results.
+Be concrete (names/dates/numbers when present). Avoid generic filler.
+Return JSON: { answer: string, confidence: "low"|"medium"|"high" }`,
     messages,
     output: Output.object({ schema: FinishSchema }),
   });
@@ -152,7 +156,12 @@ export async function runQuestion(
     const searchResult = await searchWeb(nextQuery);
     searchCount++;
 
-    const searchEvent: ResearchQuestionEvent = { type: 'search', query: nextQuery, answer: searchResult.answer };
+    const searchEvent: ResearchQuestionEvent = {
+      type: 'search',
+      query: nextQuery,
+      answer: searchResult.answer,
+      sources: searchResult.sources
+    };
     q.history.push(searchEvent);
 
     log(`Search ${searchCount}: "${nextQuery.substring(0, 40)}..." → ${searchResult.answer.length} chars`);

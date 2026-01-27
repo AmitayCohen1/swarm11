@@ -20,16 +20,16 @@ const model = openai('gpt-5.2');
 // ============================================================
 
 const QuestionSchema = z.object({
-  question: z.string(),
-  description: z.string(),
-  goal: z.string(),
+  question: z.string().describe('One focused research question/task (short, scoped)'),
+  description: z.string().describe('One sentence: what we learn + how it helps the main objective'),
+  goal: z.string().describe('Concrete success condition for this question'),
 });
 
 const EvaluateSchema = z.object({
   reasoning: z.string(),
   reason: z.string(),
   decision: z.enum(['continue', 'done']),
-  questions: z.array(QuestionSchema).max(5),
+  questions: z.array(QuestionSchema).max(3),
 });
 
 const FinishSchema = z.object({
