@@ -111,3 +111,70 @@ export const searchQueries = pgTable("search_queries", {
 
 export type SearchQuery = typeof searchQueries.$inferSelect;
 export type NewSearchQuery = typeof searchQueries.$inferInsert;
+
+// LLM Calls - tracks every LLM call for evaluation
+export const llmCalls = pgTable("llm_calls", {
+  id: uuid("id").defaultRandom().primaryKey(),
+
+  // Context
+  chatSessionId: uuid("chat_session_id").references(() => chatSessions.id, { onDelete: 'cascade' }),
+  agentName: text("agent_name").notNull(),
+  // Values: 'intake' | 'brain_evaluate' | 'brain_finish' | 'researcher_evaluate' | 'researcher_finish' | 'web_search'
+
+  // The call itself
+  model: text("model").notNull(),
+  systemPrompt: text("system_prompt"),
+  input: jsonb("input").notNull(), // messages or prompt sent
+  output: jsonb("output").notNull(), // response received
+
+  // Metadata
+  durationMs: integer("duration_ms"),
+  tokenCount: integer("token_count"),
+
+  // Evaluation (filled in later by eval function)
+  evaluated: boolean("evaluated").default(false),
+  evaluationBatchId: uuid("evaluation_batch_id").references(() => llmEvaluations.id),
+
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type LlmCall = typeof llmCalls.$inferSelect;
+export type NewLlmCall = typeof llmCalls.$inferInsert;
+
+// LLM Evaluations - batch evaluations of LLM calls
+export const llmEvaluations = pgTable("llm_evaluations", {
+  id: uuid("id").defaultRandom().primaryKey(),
+
+  // What was evaluated
+  agentName: text("agent_name").notNull(),
+  callCount: integer("call_count").notNull(),
+
+  // Evaluation results
+  scores: jsonb("scores").notNull(),
+  // { specificity: number, relevance: number, atomicity: number, overall: number }
+
+  insights: text("insights"), // LLM-generated observations
+  recommendations: text("recommendations"), // What to improve
+  reasoning: jsonb("reasoning"), // Per-metric reasoning { metricName: "why this score" }
+
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type LlmEvaluation = typeof llmEvaluations.$inferSelect;
+export type NewLlmEvaluation = typeof llmEvaluations.$inferInsert;
+
+// Agents - registered agents for evaluation
+export const agents = pgTable("agents", {
+  id: text("id").primaryKey(), // User-defined ID like 'my_custom_agent'
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  model: text("model"),
+  criteria: jsonb("criteria").default([]),
+  // Array of { name: string, description: string }
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type Agent = typeof agents.$inferSelect;
+export type NewAgent = typeof agents.$inferInsert;

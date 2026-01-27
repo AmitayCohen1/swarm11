@@ -2,6 +2,10 @@
 
 This repo is a **research chat app**: a user sends a message, we clarify intent, then we run a bounded research loop and stream progress to the UI.
 
+## Contract docs (start here for “what good looks like”)
+
+- `docs/QUALITY_CONTRACTS.md`: role boundaries, scorecards, gates, and observability for Intake/Brain/Researcher/Search.
+
 ## High-level flow
 
 ```

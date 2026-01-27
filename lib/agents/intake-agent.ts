@@ -3,6 +3,7 @@ import { anthropic } from '@ai-sdk/anthropic';
 import { z } from 'zod';
 import { searchWeb } from '../research/search';
 import { intakePrompt } from '@/lib/prompts/research';
+import { trackLlmCall } from '@/lib/eval';
 
 export interface ResearchBrief {
   objective: string;
@@ -122,6 +123,15 @@ export async function analyzeUserMessage(
 
   const toolCall = result1.toolCalls?.[0];
   console.log('[Intake] Tool called:', toolCall?.toolName);
+
+  // Track for evaluation
+  trackLlmCall({
+    agentId: 'yuaWX5V_M-U4', // Intake Agent
+    model: 'claude-sonnet-4',
+    systemPrompt: INTAKE_INSTRUCTIONS,
+    input: { messagesCount: messages.length, lastMessage: userMessage },
+    output: { toolName: toolCall?.toolName, args: (toolCall as any)?.args || (toolCall as any)?.input },
+  }).catch(() => {});
   console.log('[Intake] Tool call full:', JSON.stringify(toolCall, null, 2));
 
   // If NOT a search, we're done - extract the action
@@ -173,6 +183,15 @@ export async function analyzeUserMessage(
 
   const finalToolCall = result2.toolCalls?.[0];
   console.log('[Intake] Final tool called:', finalToolCall?.toolName);
+
+  // Track for evaluation
+  trackLlmCall({
+    agentId: 'yuaWX5V_M-U4', // Intake Agent
+    model: 'claude-sonnet-4',
+    systemPrompt: INTAKE_INSTRUCTIONS,
+    input: { messagesCount: messagesWithSearch.length, searchQuery: query },
+    output: { toolName: finalToolCall?.toolName, args: (finalToolCall as any)?.args || (finalToolCall as any)?.input },
+  }).catch(() => {});
 
   const decision = extractAction(finalToolCall);
   decision.searchPerformed = { query, answer };

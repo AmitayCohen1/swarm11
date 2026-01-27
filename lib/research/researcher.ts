@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { searchWeb } from './search';
 import type { ResearchQuestionMemory, ResearchQuestionEvent } from './types';
 import { researchQuestionEvalPrompt } from '@/lib/prompts/research';
+import { trackLlmCall } from '@/lib/eval';
 
 const model = openai('gpt-5.2');
 
@@ -66,18 +67,28 @@ export async function evaluate(
   goal?: string
 ): Promise<EvaluateResult> {
   const messages = buildMessages(history);
+  const systemPrompt = researchQuestionEvalPrompt({ objective, question, goal });
 
   const result = await generateText({
     model,
     // PROMPT GOAL (Researcher.evaluate): Given a single question + its search/reflection history,
     // decide whether to keep searching and propose the next web query.
     // Output = { decision: 'continue'|'done', query, reasoning }.
-    system: researchQuestionEvalPrompt({ objective, question, goal }),
+    system: systemPrompt,
     messages,
     output: Output.object({ schema: EvaluateSchema }),
   });
 
   const data = result.output as z.infer<typeof EvaluateSchema>;
+
+  // Track for evaluation
+  trackLlmCall({
+    agentId: 'vveyd_AC0xrt', // Researcher Evaluate
+    model: 'gpt-5.2',
+    systemPrompt,
+    input: { question, objective, goal, messagesCount: messages.length },
+    output: data,
+  }).catch(() => {}); // Fire and forget
 
   return {
     reasoning: data.reasoning,
@@ -102,22 +113,32 @@ export async function finish(
   goal?: string
 ): Promise<FinishResult> {
   const messages = buildMessages(history);
-
-  const result = await generateText({
-    model,
-    system: `Role: Researcher.finish
+  const systemPrompt = `Role: Researcher.finish
 Objective: ${objective}
 Question: ${question}
 Goal: ${goal || '(not provided)'}
 
 Task: summarize what was found + key gaps, using ONLY the provided search results.
 Be concrete (names/dates/numbers when present). Avoid generic filler.
-Return JSON: { answer: string, confidence: "low"|"medium"|"high" }`,
+Return JSON: { answer: string, confidence: "low"|"medium"|"high" }`;
+
+  const result = await generateText({
+    model,
+    system: systemPrompt,
     messages,
     output: Output.object({ schema: FinishSchema }),
   });
 
   const data = result.output as z.infer<typeof FinishSchema>;
+
+  // Track for evaluation
+  trackLlmCall({
+    agentId: 's98-GcuqAXIl', // Researcher Finish
+    model: 'gpt-5.2',
+    systemPrompt,
+    input: { question, objective, goal, messagesCount: messages.length },
+    output: data,
+  }).catch(() => {}); // Fire and forget
 
   return {
     answer: data.answer,

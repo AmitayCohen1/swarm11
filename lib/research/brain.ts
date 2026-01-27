@@ -12,6 +12,7 @@ import { z } from 'zod';
 import type { ResearchQuestionMemory } from './types';
 import { createQuestion } from './types';
 import { brainEvalPrompt, brainFinishPrompt } from '@/lib/prompts/research';
+import { trackLlmCall } from '@/lib/eval';
 
 const model = openai('gpt-5.2');
 
@@ -59,22 +60,33 @@ export async function evaluate(
       ).join('\n\n')
     : '(No research completed yet)';
 
+  const prompt = brainEvalPrompt({
+    objective,
+    successCriteria,
+    completedQuestionsCount: completedQuestions.length,
+    questionsContext,
+    isFirstBatch,
+  });
+
   const result = await generateText({
     model,
     // PROMPT GOAL (Brain.evaluate): Decide whether to continue researching, and if so, which questions to run next.
     // Input = objective + completed question summaries. Output = { decision, reasoning, questions[] }.
     // Important: Brain does NOT search the web. It only plans/decides.
-    prompt: brainEvalPrompt({
-      objective,
-      successCriteria,
-      completedQuestionsCount: completedQuestions.length,
-      questionsContext,
-      isFirstBatch,
-    }),
+    prompt,
     output: Output.object({ schema: EvaluateSchema }),
   });
 
   const data = result.output as z.infer<typeof EvaluateSchema>;
+
+  // Track for evaluation
+  trackLlmCall({
+    agentId: 'cSZaU3rjiQxw', // Brain Evaluate
+    model: 'gpt-5.2',
+    systemPrompt: prompt,
+    input: { objective, successCriteria, completedQuestionsCount: completedQuestions.length },
+    output: data,
+  }).catch(() => {}); // Fire and forget
 
   return {
     reasoning: data.reasoning,
@@ -103,13 +115,26 @@ export async function finish(
     `### ${q.question}\n**Confidence:** ${q.confidence || 'unknown'}\n${q.answer || 'No answer'}`
   ).join('\n\n---\n\n');
 
+  const prompt = brainFinishPrompt({ objective, successCriteria, questionsContext });
+
   const result = await generateText({
     model,
     // PROMPT GOAL (Brain.finish): Write the final user-facing answer from completed question summaries.
     // Output = { answer } only (no citations/sources are plumbed through today).
-    prompt: brainFinishPrompt({ objective, successCriteria, questionsContext }),
+    prompt,
     output: Output.object({ schema: FinishSchema }),
   });
 
-  return { answer: (result.output as z.infer<typeof FinishSchema>).answer };
+  const data = result.output as z.infer<typeof FinishSchema>;
+
+  // Track for evaluation
+  trackLlmCall({
+    agentId: 'Uy4dSnQuHdzi', // Brain Finish
+    model: 'gpt-5.2',
+    systemPrompt: prompt,
+    input: { objective, successCriteria, completedQuestionsCount: completedQuestions.length },
+    output: data,
+  }).catch(() => {}); // Fire and forget
+
+  return { answer: data.answer };
 }

@@ -3,6 +3,8 @@
 This document describes **what each LLM role is responsible for**, what’s important to communicate in its prompt, and **common failure modes** to watch for.  
 It intentionally **does not** include the literal prompt strings.
 
+For the **explicit behavioral contracts** (scorecards + gates + observability), see `docs/QUALITY_CONTRACTS.md`.
+
 ---
 
 ### Cross-cutting principles (apply to all roles)
