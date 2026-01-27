@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { db } from '@/lib/db';
 import { chatSessions } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
+import { stopResearch } from '@/lib/research/run';
 
 /**
  * POST /api/sessions/[id]/stop
@@ -32,7 +33,10 @@ export async function POST(
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
-    // Stop research by clearing current research state
+    // Actually stop the running research process
+    const wasStopped = stopResearch(sessionId);
+
+    // Update DB state
     await db
       .update(chatSessions)
       .set({
@@ -44,7 +48,9 @@ export async function POST(
 
     return NextResponse.json({
       status: 'stopped',
-      message: 'Research stopped successfully'
+      message: wasStopped
+        ? 'Research stopped successfully'
+        : 'No active research found (may have already completed)'
     });
 
   } catch (error: any) {

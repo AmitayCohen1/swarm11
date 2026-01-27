@@ -47,7 +47,12 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'id is required' }, { status: 400 });
     }
 
+    // Delete agent record (if exists)
     await deleteAgent(id);
+
+    // Also clean up orphaned calls and evaluations for this agentId
+    await db.delete(llmCalls).where(eq(llmCalls.agentName, id));
+    await db.delete(llmEvaluations).where(eq(llmEvaluations.agentName, id));
 
     return NextResponse.json({ success: true, message: `Agent ${id} deleted` });
   } catch (error) {

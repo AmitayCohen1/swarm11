@@ -853,8 +853,12 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
                 );
               })}
 
-              {/* Research Progress - Inline */}
-              {/* Research progress is rendered inline via a special 'research_progress' message */}
+              {/* Research Progress - Show when researching (only if no anchor message exists) */}
+              {showResearchProgress && researchDoc && !messages.some(m => m.metadata?.type === 'research_progress') && (
+                <div className="animate-in fade-in duration-500">
+                  <ResearchProgress doc={researchDoc} />
+                </div>
+              )}
 
               {/* Final Answer - Always below research progress */}
               {messages.filter(m => m.metadata?.kind === 'final').map((msg, idx) => (

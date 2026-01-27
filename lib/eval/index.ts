@@ -34,7 +34,14 @@ export interface TrackLlmCallParams {
   chatSessionId?: string;
 }
 
-export async function trackLlmCall(params: TrackLlmCallParams): Promise<string> {
+export async function trackLlmCall(params: TrackLlmCallParams): Promise<string | null> {
+  // Only track if agent was manually created
+  const agent = await getAgent(params.agentId);
+  if (!agent) {
+    console.log(`[Track] Skipping unregistered agent: ${params.agentId}`);
+    return null;
+  }
+
   // Save the call
   const [inserted] = await db.insert(llmCalls).values({
     agentName: params.agentId,

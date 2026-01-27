@@ -625,8 +625,8 @@ export function useSession(options: UseSessionOptions = {}) {
           if (update.brain) {
             try {
               const parsed = JSON.parse(update.brain);
-              // BrainDoc (version 1)
-              if (parsed.version === 1) {
+              // BrainDoc (version 1 or 2)
+              if (parsed.version === 1 || parsed.version === 2) {
                 console.log('[brain_update] Setting researchDoc from brain:', parsed);
                 setResearchDoc(parsed as BrainDoc);
                 // Insert a single "anchor" message so ResearchProgress appears inline in the chat flow.

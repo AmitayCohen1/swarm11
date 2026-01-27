@@ -78,29 +78,8 @@ export async function GET(req: NextRequest) {
       },
     }));
 
-    // Also include any unregistered agents that have calls
-    const allAgentIds = new Set([
-      ...totalCounts.map(t => t.agentId),
-      ...agents.map(a => a.id),
-    ]);
-
-    const unregisteredAgents = Array.from(allAgentIds)
-      .filter(id => !agents.find(a => a.id === id))
-      .map(id => ({
-        id,
-        name: id,
-        description: 'Unregistered agent',
-        model: undefined,
-        criteria: undefined,
-        stats: {
-          totalCalls: totalCounts.find(t => t.agentId === id)?.count ?? 0,
-          pendingEval: pendingCounts.find(p => p.agentId === id)?.count ?? 0,
-          avgScore: scoresByAgent[id]?.avg ?? null,
-        },
-      }));
-
     return NextResponse.json({
-      agents: [...agentStats, ...unregisteredAgents],
+      agents: agentStats,
       recentEvaluations: evaluations,
     });
   } catch (error) {
