@@ -13,7 +13,7 @@ import { openai } from '@ai-sdk/openai';
 import { getAgent, updateAgentMetrics, Metric } from './agents';
 
 const EVAL_BATCH_SIZE = 5;
-const EVAL_MODEL = openai('gpt-5-mini');
+const EVAL_MODEL = openai('gpt-5.1');
 
 // Re-export for convenience
 export { createAgent, getAgent, getAllAgents, deleteAgent, updateAgentMetrics, addAgentMetric } from './agents';
@@ -89,7 +89,7 @@ async function runEvaluation(agentId: string): Promise<void> {
     return;
   }
 
-  // Get unevaluated calls for this agent
+  // Get the most recent unevaluated call for this agent
   const calls = await db
     .select()
     .from(llmCalls)
@@ -98,15 +98,17 @@ async function runEvaluation(agentId: string): Promise<void> {
       eq(llmCalls.evaluated, false)
     ))
     .orderBy(desc(llmCalls.createdAt))
-    .limit(EVAL_BATCH_SIZE);
+    .limit(1);
 
   if (calls.length === 0) {
     console.log(`[Eval] No calls to evaluate for ${agentId}`);
     return;
   }
 
+  const call = calls[0];
+
   // Build evaluation prompt
-  const evalPrompt = buildEvalPrompt(agent, calls);
+  const evalPrompt = buildEvalPrompt(agent, call);
 
   // Run evaluation
   const result = await generateText({
@@ -129,20 +131,17 @@ async function runEvaluation(agentId: string): Promise<void> {
   // Save evaluation
   const [evaluation] = await db.insert(llmEvaluations).values({
     agentName: agentId,
-    callCount: calls.length,
+    callCount: 1,
     scores: evalResult.scores,
     reasoning: evalResult.reasoning || null,
     insights: evalResult.insights,
     recommendations: evalResult.suggestedMetrics ? JSON.stringify(evalResult.suggestedMetrics) : null,
   }).returning({ id: llmEvaluations.id });
 
-  // Mark calls as evaluated
+  // Mark this specific call as evaluated
   await db.update(llmCalls)
     .set({ evaluated: true, evaluationBatchId: evaluation.id })
-    .where(and(
-      eq(llmCalls.agentName, agentId),
-      eq(llmCalls.evaluated, false)
-    ));
+    .where(eq(llmCalls.id, call.id));
 
   console.log(`[Eval] Completed evaluation for ${agentId}: ${JSON.stringify(evalResult.scores)}`);
 }
@@ -153,23 +152,22 @@ async function runEvaluation(agentId: string): Promise<void> {
 
 function buildEvalPrompt(
   agent: { id: string; name: string; description: string; metrics?: Metric[] },
-  calls: typeof llmCalls.$inferSelect[]
+  call: typeof llmCalls.$inferSelect
 ): string {
   const hasMetrics = agent.metrics && agent.metrics.length > 0;
 
-  const callsText = calls.map((c, i) => `
---- Call ${i + 1} ---
-System Prompt: ${c.systemPrompt ? c.systemPrompt.substring(0, 500) + '...' : '(none)'}
-Input: ${JSON.stringify(c.input, null, 2).substring(0, 800)}
-Output: ${JSON.stringify(c.output, null, 2).substring(0, 800)}
-`).join('\n');
+  const callText = `
+System Prompt: ${call.systemPrompt ? call.systemPrompt.substring(0, 500) + '...' : '(none)'}
+Input: ${JSON.stringify(call.input, null, 2).substring(0, 800)}
+Output: ${JSON.stringify(call.output, null, 2).substring(0, 800)}
+`;
 
   if (hasMetrics) {
     // Evaluate on existing metrics
-    return `Evaluate ${calls.length} LLM calls from "${agent.name}" agent.
+    return `Evaluate this LLM call from "${agent.name}" agent.
 Agent: ${agent.description}
 
-${callsText}
+${callText}
 
 Score each metric 1-10:
 ${agent.metrics!.map(m => `- ${m.name}: ${m.description}`).join('\n')}
@@ -188,10 +186,10 @@ Return JSON only:
 }`;
   } else {
     // No metrics yet - suggest key metrics
-    return `Evaluate ${calls.length} LLM calls from "${agent.name}" agent.
+    return `Evaluate this LLM call from "${agent.name}" agent.
 Agent: ${agent.description}
 
-${callsText}
+${callText}
 
 Suggest exactly 2-3 KEY metrics for this agent. Requirements:
 - Metric names: 1-2 words, clear (e.g., "Accuracy", "Relevance", "Completeness")
