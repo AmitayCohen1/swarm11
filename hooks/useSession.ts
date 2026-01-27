@@ -10,63 +10,8 @@ interface Message {
   metadata?: any;
 }
 
-// BrainDoc types - ResearchQuestion-based research
-interface Finding {
-  id: string;
-  content: string;
-  sources: { url: string; title: string }[];
-  status?: 'active' | 'disqualified';
-  disqualifyReason?: string;
-}
-
-interface Search {
-  query: string;
-  answer: string;
-  learned?: string;
-  nextAction?: string;
-  sources: { url: string; title?: string }[];
-}
-
-interface CycleReflection {
-  cycle: number;
-  learned: string;
-  nextStep: string;
-  status: 'continue' | 'done';
-}
-
-interface ResearchQuestion {
-  id: string;
-  name: string;
-  question: string;
-  goal: string;
-  status: 'pending' | 'running' | 'done';
-  cycles: number;
-  maxCycles: number;
-  findings: Finding[];
-  searches?: Search[];
-  reflections?: CycleReflection[];
-  confidence: 'low' | 'medium' | 'high' | null;
-  recommendation: 'promising' | 'dead_end' | 'needs_more' | null;
-  summary?: string;
-}
-
-interface BrainDecision {
-  id: string;
-  timestamp: string;
-  action: 'spawn' | 'drill_down' | 'kill' | 'synthesize';
-  questionId?: string;
-  reasoning: string;
-}
-
-interface BrainDoc {
-  version: 1;
-  objective: string;
-  successCriteria: string[];
-  questions: ResearchQuestion[];
-  brainLog: BrainDecision[];
-  status: 'running' | 'synthesizing' | 'complete';
-  finalAnswer?: string;
-}
+// ResearchState - imported from research types
+import type { ResearchState } from '@/lib/research/types';
 
 interface ProgressUpdate {
   type: string;
@@ -99,7 +44,7 @@ interface ProgressUpdate {
   purpose?: string;
   results?: any[];
   failed?: any[];
-  doc?: BrainDoc;
+  doc?: ResearchState;
   version?: number;
   shouldContinue?: boolean;
   task?: string;
@@ -136,7 +81,7 @@ export function useSession(options: UseSessionOptions = {}) {
   }>({});
   const [brain, setBrain] = useState<string>('');
   const [stage, setStage] = useState<'searching' | 'reflecting' | 'synthesizing' | null>(null);
-  const [researchDoc, setResearchDoc] = useState<BrainDoc | null>(null);
+  const [researchDoc, setResearchDoc] = useState<ResearchState | null>(null);
   const [eventLog, setEventLog] = useState<EventLogEntry[]>([]);
   const [intakeSearch, setIntakeSearch] = useState<{ query: string; answer?: string; status: 'searching' | 'complete' } | null>(null);
 
@@ -186,18 +131,15 @@ export function useSession(options: UseSessionOptions = {}) {
       setIsResearching(session.status === 'researching');
       setStatus('ready');
 
-      // Parse brain to extract document
+      // Parse brain to extract ResearchState
       if (session.brain) {
         try {
           const parsed = JSON.parse(session.brain);
-          // BrainDoc (version 1)
-          if (parsed.version === 1) {
-            setResearchDoc(parsed as BrainDoc);
-            setResearchProgress({
-              objective: parsed.objective
-            });
+          // ResearchState (has nodes object)
+          if (parsed.nodes && typeof parsed.nodes === 'object') {
+            setResearchDoc(parsed as ResearchState);
+            setResearchProgress({ objective: parsed.objective });
             // Add anchor message for ResearchProgress if not already present
-            // Always add anchor for valid brain doc - ResearchProgress handles empty states
             const loadedMessages = session.messages || [];
             const hasAnchor = loadedMessages.some((m: Message) => m.metadata?.type === 'research_progress');
             if (!hasAnchor) {
@@ -300,18 +242,14 @@ export function useSession(options: UseSessionOptions = {}) {
       const processUpdate = (update: ProgressUpdate) => {
         console.log('[SSE Event]', update.type, update);
 
-        // Document updates
+        // Document updates (legacy event, kept for compatibility)
         if (update.type === 'doc_updated') {
-          if (update.doc) {
-            console.log('[doc_updated] Setting researchDoc:', update.doc);
-            setResearchDoc(update.doc);
-            setResearchProgress({
-              objective: update.doc.objective
-            });
+          if (update.doc?.nodes) {
+            setResearchDoc(update.doc as ResearchState);
+            setResearchProgress({ objective: update.doc.objective });
           }
-          const initCount = update.doc?.questions?.length || 0;
-          const searchCount = update.doc?.questions?.reduce((sum, i) => sum + (i.searches?.length || 0), 0) || 0;
-          addEvent('doc_updated', 'Document updated', `${initCount} questions, ${searchCount} searches`, 'info');
+          const nodeCount = update.doc?.nodes ? Object.keys(update.doc.nodes).length : 0;
+          addEvent('doc_updated', 'Document updated', `${nodeCount} nodes`, 'info');
         }
 
         if (update.type === 'phase_added') {
@@ -625,10 +563,10 @@ export function useSession(options: UseSessionOptions = {}) {
           if (update.brain) {
             try {
               const parsed = JSON.parse(update.brain);
-              // BrainDoc (version 1 or 2)
-              if (parsed.version === 1 || parsed.version === 2) {
+              // ResearchState format (has nodes object)
+              if (parsed.nodes && typeof parsed.nodes === 'object') {
                 console.log('[brain_update] Setting researchDoc from brain:', parsed);
-                setResearchDoc(parsed as BrainDoc);
+                setResearchDoc(parsed as ResearchState);
                 // Insert a single "anchor" message so ResearchProgress appears inline in the chat flow.
                 // This prevents other messages (e.g., reviewer) from visually stacking "above" the research UI.
                 setMessages(prev => {

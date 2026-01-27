@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
-import { runTreeResearch } from '@/lib/research/tree-runner';
-import { TreeResearchState } from '@/lib/research/tree-types';
+import { runResearch } from '@/lib/research/runner';
+import { ResearchState } from '@/lib/research/types';
 
 /**
  * POST /api/tree-research
@@ -39,21 +39,21 @@ export async function POST(req: NextRequest) {
         try {
           sendEvent('started', { objective, successCriteria });
 
-          const result = await runTreeResearch(objective, successCriteria, {
+          const result = await runResearch(objective, successCriteria, {
             maxNodes: 15,
             maxTimeMs: 5 * 60 * 1000, // 5 min for testing
             maxDepth: 4,
 
-            onStateChange: (state: TreeResearchState) => {
+            onStateChange: (state: ResearchState) => {
               sendEvent('state_update', {
                 nodeCount: Object.keys(state.nodes).length,
-                status: state.cortex.status,
+                status: state.status,
                 nodes: Object.values(state.nodes).map(n => ({
                   id: n.id,
                   parentId: n.parentId,
                   question: n.question,
                   status: n.status,
-                  hasResult: !!n.finalDoc,
+                  hasResult: !!n.answer,
                 })),
               });
             },
@@ -72,15 +72,15 @@ export async function POST(req: NextRequest) {
                 nodeId: node.id,
                 question: node.question,
                 confidence: node.confidence,
-                finalDocLength: node.finalDoc?.length || 0,
-                finalDocPreview: node.finalDoc?.substring(0, 200) + '...',
+                answerLength: node.answer?.length || 0,
+                answerPreview: node.answer?.substring(0, 200) + '...',
               });
             },
           });
 
           // Send final result
           sendEvent('complete', {
-            finalAnswer: result.cortex.finalAnswer,
+            finalAnswer: result.finalAnswer,
             totalNodes: Object.keys(result.nodes).length,
             tree: Object.values(result.nodes).map(n => ({
               id: n.id,
@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
               reason: n.reason,
               status: n.status,
               confidence: n.confidence,
-              finalDoc: n.finalDoc,
+              answer: n.answer,
             })),
           });
 

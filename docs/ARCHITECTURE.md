@@ -1,10 +1,6 @@
-# Swarm11 Architecture (Simple)
+# Swarm11 Architecture
 
-This repo is a **research chat app**: a user sends a message, we clarify intent, then we run a bounded research loop and stream progress to the UI.
-
-## Contract docs (start here for “what good looks like”)
-
-- `docs/QUALITY_CONTRACTS.md`: role boundaries, scorecards, gates, and observability for Intake/Brain/Researcher/Search.
+A **research chat app**: user sends a message, we clarify intent, then run a tree-based research system and stream progress to the UI.
 
 ## High-level flow
 
@@ -12,76 +8,72 @@ This repo is a **research chat app**: a user sends a message, we clarify intent,
 UI (SessionView)
   → POST /api/sessions/[id]/message  (SSE stream)
     → Intake Agent (clarify / options / start)
-    → Research loop (brain decides questions; per-question researcher searches)
-    → Persist BrainDoc to DB + stream updates
+    → Research (cortex orchestrates tree of researcher nodes)
+    → Persist ResearchState to DB + stream updates
 ```
 
 ## What each piece does
 
 - **UI**
   - `components/sessions/SessionView.tsx`: main chat UI.
-  - `hooks/useSession.ts`: sends messages, parses SSE events, keeps `researchDoc` up to date.
-  - `components/sessions/ResearchProgress.tsx`: renders the “BrainDoc” progress view (questions + memory).
+  - `hooks/useSession.ts`: sends messages, parses SSE events, keeps `researchDoc` state.
+  - `components/sessions/ResearchProgress.tsx`: renders the research tree (ReactFlow visualization).
 
-- **API (the runtime “orchestrator”)**
-  - `app/api/sessions/create/route.ts`: creates a `chat_sessions` row.
-  - `app/api/sessions/[id]/message/route.ts`: the main “front door”:
-    - validates auth (Clerk)
-    - appends the user message to `chat_sessions.messages`
-    - runs intake
-    - if research starts: runs the research loop and streams SSE progress
+- **API**
+  - `app/api/sessions/[id]/message/route.ts`: main endpoint - validates auth, runs intake, starts research.
+  - `app/api/tree-research/route.ts`: test endpoint for research system.
 
-- **Agents / loops (server-side)**
-  - `lib/agents/intake-agent.ts` (**Intake**): returns exactly one of:
-    - `text_input`: ask a clarifying question
-    - `multi_choice_select`: offer 2–4 options
-    - `start_research`: returns a `ResearchBrief { objective, successCriteria[] }`
-    - Any decision may include `searchPerformed: { query, answer }` if intake looked something up
-  - `lib/research/run.ts` (**Research loop**): manages rounds and persistence.
-  - `lib/research/brain.ts` (**Brain**): decides “continue vs done” and proposes new questions; writes the final answer.
-  - `lib/research/researcher.ts` (**Researcher**): runs a single question:
-    - search → evaluate → reflect (repeat)
-    - then summarize the question
-  - `lib/research/search.ts` (**Search tool**): Perplexity Sonar wrapper.
+- **Research System** (`lib/research/`)
+  - `types.ts`: **Single source of truth** for all types (ResearchState, ResearchNode, etc.)
+  - `run.ts`: Entry point - connects research to DB and SSE streaming.
+  - `runner.ts`: Event-driven orchestration loop.
+  - `cortex.ts`: The "brain" - evaluates progress, decides what nodes to spawn.
+  - `researcher.ts`: Executes a single node (search → reflect → answer).
+  - `search.ts`: Perplexity Sonar wrapper.
 
-## Data model (what’s stored)
+## Data model
 
 - **`chat_sessions`** (`lib/db/schema.ts`)
-  - `messages` (JSON): the chat transcript (user + assistant + metadata).
-  - `brain` (text): serialized **BrainDoc JSON** used by `ResearchProgress`.
+  - `messages` (JSON): chat transcript.
+  - `brain` (text): serialized **ResearchState** JSON.
   - `status`: `active` | `researching` | `completed`.
 
-- **`research_sessions`**
-  - a per-run record: objective, status, finalAnswer, timestamps.
+## ResearchState (the core data structure)
 
-## BrainDoc (the one UI-facing document)
+```typescript
+interface ResearchState {
+  objective: string;
+  successCriteria?: string[];
+  status: 'running' | 'complete' | 'stopped';
+  nodes: Record<string, ResearchNode>;  // Tree of research nodes
+  finalAnswer?: string;
+  decisions?: Decision[];  // Cortex decision history
+}
 
-The UI reads `chat_sessions.brain` as JSON (“BrainDoc v1”). Conceptually it contains:
+interface ResearchNode {
+  id: string;
+  parentId: string | null;  // null = root node
+  question: string;
+  reason: string;  // Why this helps answer the objective
+  status: 'pending' | 'running' | 'done';
+  answer?: string;
+  confidence?: 'low' | 'medium' | 'high';
+  searches?: SearchEntry[];  // Search history for this node
+  suggestedFollowups?: Followup[];
+}
+```
 
-- **objective**: what we’re trying to answer.
-- **questions[]**: each question’s status + “memory” (search/result/reflect entries).
-- **brainLog[]**: the brain’s round-level decisions (“spawn” vs “synthesize”).
-- **finalAnswer**: the final response after research completes.
+## Key design decisions
 
-## What’s important to know (current realities)
+- **Tree structure**: Research forms a tree, not a flat list. Child nodes drill deeper into parent findings.
+- **Event-driven**: Cortex reacts when ANY node completes (no batch waiting).
+- **Single type system**: Same `ResearchState` used in backend, DB, and frontend.
+- **Configurable limits**: `RESEARCH_LIMITS` in types.ts controls max nodes, depth, time.
 
-- **Bounded execution**
-  - Research loop: max rounds + max wall time (in `lib/research/run.ts`).
-  - Per question: min searches + max searches (in `lib/research/researcher.ts`).
-
-- **Success criteria is collected, but not yet wired into BrainDoc**
-  - Intake returns `successCriteria[]`.
-  - The current BrainDoc adapter in `lib/research/run.ts` saves `successCriteria: []`.
-
-- **Sources aren’t wired through to the progress UI yet**
-  - `searchWeb()` returns `sources`, but the adapter currently stores `sources: []` in the BrainDoc memory.
-
-## Tech stack (what actually runs)
+## Tech stack
 
 - **Framework**: Next.js (App Router)
 - **Auth**: Clerk
 - **DB**: Postgres (Neon) + Drizzle
-- **LLMs**:
-  - Intake: Anthropic (`claude-sonnet-4-20250514`) via AI SDK
-  - Brain + Researcher: OpenAI (`gpt-5.2`) via AI SDK
-- **Search**: Perplexity (`sonar`) via `@ai-sdk/perplexity`
+- **LLMs**: OpenAI (configurable via `RESEARCH_MODEL` env var)
+- **Search**: Perplexity (`sonar`)

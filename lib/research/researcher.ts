@@ -1,19 +1,27 @@
 /**
- * Tree Researcher - Runs a single node in the research tree
+ * Researcher - Runs a single research node
  *
- * Key difference from old researcher:
- * - Receives NodeContext (objective + lineage + task) instead of flat state
- * - Has full context of why it exists (lineage from root)
+ * Executes a search loop:
+ * 1. Search the web
+ * 2. Reflect on what we learned
+ * 3. Decide: continue searching or done?
+ * 4. When done, synthesize findings
  */
 
 import { generateText, Output } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { searchWeb } from './search';
-import { NodeContext, SearchEvent } from './tree-types';
+import {
+  NodeContext,
+  SearchEntry,
+  Followup,
+  RESEARCH_MODEL,
+  RESEARCH_LIMITS,
+} from './types';
 import { trackLlmCall } from '@/lib/eval';
 
-const model = openai('gpt-5.2');
+const model = openai(RESEARCH_MODEL);
 
 // ============================================================
 // Schemas
@@ -26,132 +34,112 @@ const EvaluateSchema = z.object({
 });
 
 const FinishSchema = z.object({
-  finalDoc: z.string().describe('Comprehensive findings document'),
+  answer: z.string().describe('Comprehensive findings document'),
   confidence: z.enum(['low', 'medium', 'high']),
   suggestedFollowups: z.array(z.object({
     question: z.string(),
     reason: z.string(),
-  })).max(2).describe('Potential follow-up questions for cortex to consider'),
+  })).max(RESEARCH_LIMITS.maxFollowupsPerNode).describe('Potential follow-up questions for cortex to consider'),
 });
 
 // ============================================================
 // Types
 // ============================================================
 
-export interface NodeRunResult {
-  finalDoc: string;
+export interface NodeResult {
+  answer: string;
   confidence: 'low' | 'medium' | 'high';
-  suggestedFollowups: Array<{ question: string; reason: string }>;
-  searchHistory: SearchEvent[];
+  suggestedFollowups: Followup[];
+  searches: SearchEntry[];
+  tokens: number;
 }
 
-// ============================================================
-// Run Node
-// ============================================================
-
-const MIN_SEARCHES = 3;
-const MAX_SEARCHES = 10;
-
 export interface NodeRunOptions {
-  onProgress?: (searchHistory: SearchEvent[]) => void;
+  onProgress?: (searches: SearchEntry[]) => void;
   signal?: AbortSignal;
 }
 
-export async function runTreeNode(
+// ============================================================
+// Main: Run Node
+// ============================================================
+
+export async function runNode(
   context: NodeContext,
   options: NodeRunOptions = {}
-): Promise<NodeRunResult> {
+): Promise<NodeResult> {
   const { onProgress, signal } = options;
-  const searchHistory: SearchEvent[] = [];
+  const searches: SearchEntry[] = [];
   let nextQuery = context.task.question;
+  let totalTokens = 0;
 
   // Search loop
   let searchCount = 0;
-  while (searchCount < MAX_SEARCHES) {
-    // Check abort before each operation
+  while (searchCount < RESEARCH_LIMITS.maxSearchesPerNode) {
     if (signal?.aborted) {
-      console.log(`[TreeResearcher] Aborted during search loop`);
+      console.log(`[Researcher] Aborted during search loop`);
       break;
     }
 
-    // Search
+    // Execute search
     const searchResult = await searchWeb(nextQuery);
     searchCount++;
 
-    // Check abort after search
-    if (signal?.aborted) {
-      console.log(`[TreeResearcher] Aborted after search`);
-      break;
-    }
+    if (signal?.aborted) break;
 
-    searchHistory.push({
-      type: 'search',
+    // Record search
+    const entry: SearchEntry = {
       query: nextQuery,
-      answer: searchResult.answer,
+      result: searchResult.answer,
       sources: searchResult.sources,
       timestamp: Date.now(),
-    });
+    };
+    searches.push(entry);
+    onProgress?.(searches);
 
-    // Emit progress after search
-    onProgress?.(searchHistory);
+    if (signal?.aborted) break;
 
-    // Check abort before evaluate
-    if (signal?.aborted) {
-      console.log(`[TreeResearcher] Aborted before evaluate`);
-      break;
-    }
+    // Evaluate: should we continue?
+    const evalResult = await evaluate(context, searches);
+    totalTokens += evalResult.tokens;
 
-    // Evaluate (reflect on what we learned)
-    const evalResult = await evaluate(context, searchHistory);
+    if (signal?.aborted) break;
 
-    // Check abort after evaluate
-    if (signal?.aborted) {
-      console.log(`[TreeResearcher] Aborted after evaluate`);
-      break;
-    }
+    // Add reflection to the entry
+    entry.reflection = evalResult.reasoning;
+    onProgress?.(searches);
 
-    // Add reflection to history
-    searchHistory.push({
-      type: 'reflect',
-      thought: evalResult.reasoning,
-      timestamp: Date.now(),
-    });
-
-    // Emit progress after reflect
-    onProgress?.(searchHistory);
-
-    // Prevent early done
+    // Enforce minimum searches
     let decision = evalResult.decision;
-    if (decision === 'done' && searchCount < MIN_SEARCHES) {
+    if (decision === 'done' && searchCount < RESEARCH_LIMITS.minSearchesPerNode) {
       decision = 'continue';
     }
 
-    if (decision === 'done') {
-      break;
-    }
+    if (decision === 'done') break;
 
     nextQuery = evalResult.query || `more about ${context.task.question}`;
   }
 
-  // If aborted, return early with what we have
+  // If aborted, return early
   if (signal?.aborted) {
-    console.log(`[TreeResearcher] Returning early due to abort`);
     return {
-      finalDoc: 'Research stopped by user.',
+      answer: 'Research stopped by user.',
       confidence: 'low',
       suggestedFollowups: [],
-      searchHistory,
+      searches,
+      tokens: totalTokens,
     };
   }
 
-  // Finish
-  const result = await finish(context, searchHistory);
+  // Synthesize final answer
+  const result = await finish(context, searches);
+  totalTokens += result.tokens;
 
   return {
-    finalDoc: result.finalDoc,
+    answer: result.answer,
     confidence: result.confidence,
     suggestedFollowups: result.suggestedFollowups,
-    searchHistory,
+    searches,
+    tokens: totalTokens,
   };
 }
 
@@ -161,10 +149,10 @@ export async function runTreeNode(
 
 async function evaluate(
   context: NodeContext,
-  searchHistory: SearchEvent[]
-): Promise<{ reasoning: string; decision: 'continue' | 'done'; query: string }> {
+  searches: SearchEntry[]
+): Promise<{ reasoning: string; decision: 'continue' | 'done'; query: string; tokens: number }> {
   const systemPrompt = buildEvaluatePrompt(context);
-  const messages = buildMessages(searchHistory);
+  const messages = buildMessages(searches);
 
   const result = await generateText({
     model,
@@ -174,16 +162,18 @@ async function evaluate(
   });
 
   const data = result.output as z.infer<typeof EvaluateSchema>;
+  const tokens = result.usage?.totalTokens || 0;
 
   trackLlmCall({
-    agentId: 'tree_researcher_evaluate',
-    model: 'gpt-5.2',
+    agentId: 'researcher_evaluate',
+    model: RESEARCH_MODEL,
     systemPrompt,
-    input: { question: context.task.question, searchCount: searchHistory.length },
+    input: { question: context.task.question, searchCount: searches.length },
     output: data,
+    tokenCount: tokens,
   }).catch(() => {});
 
-  return data;
+  return { ...data, tokens };
 }
 
 // ============================================================
@@ -192,14 +182,15 @@ async function evaluate(
 
 async function finish(
   context: NodeContext,
-  searchHistory: SearchEvent[]
+  searches: SearchEntry[]
 ): Promise<{
-  finalDoc: string;
+  answer: string;
   confidence: 'low' | 'medium' | 'high';
-  suggestedFollowups: Array<{ question: string; reason: string }>;
+  suggestedFollowups: Followup[];
+  tokens: number;
 }> {
   const systemPrompt = buildFinishPrompt(context);
-  const messages = buildMessages(searchHistory);
+  const messages = buildMessages(searches);
 
   const result = await generateText({
     model,
@@ -209,16 +200,18 @@ async function finish(
   });
 
   const data = result.output as z.infer<typeof FinishSchema>;
+  const tokens = result.usage?.totalTokens || 0;
 
   trackLlmCall({
-    agentId: 'tree_researcher_finish',
-    model: 'gpt-5.2',
+    agentId: 'researcher_finish',
+    model: RESEARCH_MODEL,
     systemPrompt,
-    input: { question: context.task.question, searchCount: searchHistory.length },
+    input: { question: context.task.question, searchCount: searches.length },
     output: data,
+    tokenCount: tokens,
   }).catch(() => {});
 
-  return data;
+  return { ...data, tokens };
 }
 
 // ============================================================
@@ -229,7 +222,7 @@ function buildEvaluatePrompt(context: NodeContext): string {
   const lineageContext = context.lineage.length > 0
     ? context.lineage.map((l, i) => {
         const indent = '  '.repeat(i);
-        const doc = l.finalDoc ? `\n${indent}  Result: ${l.finalDoc.substring(0, 200)}...` : '';
+        const doc = l.answer ? `\n${indent}  Result: ${l.answer.substring(0, 200)}...` : '';
         return `${indent}→ ${l.question} (${l.reason})${doc}`;
       }).join('\n')
     : '(Root level - no parent research)';
@@ -256,7 +249,7 @@ function buildFinishPrompt(context: NodeContext): string {
   const lineageContext = context.lineage.length > 0
     ? context.lineage.map((l, i) => {
         const indent = '  '.repeat(i);
-        return `${indent}→ ${l.question}: ${l.finalDoc?.substring(0, 150) || '(in progress)'}...`;
+        return `${indent}→ ${l.question}: ${l.answer?.substring(0, 150) || '(in progress)'}...`;
       }).join('\n')
     : '(Root level)';
 
@@ -278,7 +271,7 @@ Write a comprehensive findings document that:
 4. Considers how this connects to the root objective
 
 FOLLOW-UP SUGGESTIONS:
-Suggest up to 3 follow-up questions based on gaps you found during research.
+Suggest up to ${RESEARCH_LIMITS.maxFollowupsPerNode} follow-up questions based on gaps you found during research.
 Each suggestion needs:
 - question: SHORT (under 12 words), specific, searchable
 - reason: Causal chain - "By learning X, we can Y → helps answer Z in objective"
@@ -287,17 +280,14 @@ Only suggest followups that would GENUINELY help the root objective.
 If your answer is complete and no gaps remain, suggest 0 followups.`;
 }
 
-function buildMessages(history: SearchEvent[]): Array<{ role: 'user' | 'assistant'; content: string }> {
-  // Only include search events in messages (reflect events are internal reasoning)
-  return history
-    .filter((e): e is Extract<SearchEvent, { type: 'search' }> => e.type === 'search')
-    .map((e) => {
-      const sourcesText = e.sources && e.sources.length > 0
-        ? `\n\nSources:\n${e.sources.slice(0, 5).map(s => `- ${s.title || s.url} (${s.url})`).join('\n')}`
-        : '';
-      return {
-        role: 'user' as const,
-        content: `Search: "${e.query}"\n\n${e.answer}${sourcesText}`,
-      };
-    });
+function buildMessages(searches: SearchEntry[]): Array<{ role: 'user' | 'assistant'; content: string }> {
+  return searches.map((s) => {
+    const sourcesText = s.sources && s.sources.length > 0
+      ? `\n\nSources:\n${s.sources.slice(0, 5).map(src => `- ${src.title || src.url} (${src.url})`).join('\n')}`
+      : '';
+    return {
+      role: 'user' as const,
+      content: `Search: "${s.query}"\n\n${s.result}${sourcesText}`,
+    };
+  });
 }

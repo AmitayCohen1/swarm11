@@ -1,21 +1,25 @@
 /**
- * Tree Research Runner - Event-driven orchestration
+ * Research Runner - Event-driven tree orchestration
  *
- * Key difference from old runner:
+ * Key design:
  * - No batch waiting - cortex reacts when ANY node completes
  * - Nodes can be attached anywhere in the tree
  * - Queue-based processing prevents race conditions
  */
 
 import {
-  TreeResearchState,
+  ResearchState,
   ResearchNode,
-  createTreeResearchState,
+  SearchEntry,
+  Followup,
+  createInitialState,
   buildNodeContext,
   countByStatus,
-} from './tree-types';
+  getNodeDepth,
+  RESEARCH_LIMITS,
+} from './types';
 import * as cortex from './cortex';
-import { runTreeNode } from './tree-researcher';
+import { runNode } from './researcher';
 
 // ============================================================
 // Types
@@ -23,18 +27,19 @@ import { runTreeNode } from './tree-researcher';
 
 interface CompletionEvent {
   nodeId: string;
-  finalDoc: string;
+  answer: string;
   confidence: 'low' | 'medium' | 'high';
-  searchHistory: import('./tree-types').SearchEvent[];
-  suggestedFollowups: Array<{ question: string; reason: string }>;
+  searches: SearchEntry[];
+  suggestedFollowups: Followup[];
+  tokens: number;
 }
 
-interface RunConfig {
-  maxNodes?: number;      // Max total nodes (default 20)
-  maxTimeMs?: number;     // Max runtime (default 10 min)
-  maxDepth?: number;      // Max tree depth (default 5)
-  signal?: AbortSignal;   // Abort signal to stop research
-  onStateChange?: (state: TreeResearchState) => void;
+export interface RunConfig {
+  maxNodes?: number;
+  maxTimeMs?: number;
+  maxDepth?: number;
+  signal?: AbortSignal;
+  onStateChange?: (state: ResearchState) => void;
   onNodeStart?: (node: ResearchNode) => void;
   onNodeComplete?: (node: ResearchNode) => void;
 }
@@ -43,15 +48,15 @@ interface RunConfig {
 // Main Runner
 // ============================================================
 
-export async function runTreeResearch(
+export async function runResearch(
   objective: string,
   successCriteria?: string[],
   config: RunConfig = {}
-): Promise<TreeResearchState> {
+): Promise<ResearchState> {
   const {
-    maxNodes = 20,
-    maxTimeMs = 10 * 60 * 1000,
-    maxDepth = 5,
+    maxNodes = RESEARCH_LIMITS.maxNodes,
+    maxTimeMs = RESEARCH_LIMITS.maxTimeMs,
+    maxDepth = RESEARCH_LIMITS.maxDepth,
     signal,
     onStateChange,
     onNodeStart,
@@ -59,56 +64,41 @@ export async function runTreeResearch(
   } = config;
 
   const startTime = Date.now();
-  let state = createTreeResearchState(objective, successCriteria);
+  let state = createInitialState(objective, successCriteria);
 
-  // Completion queue - nodes push here when done
+  // Completion queue
   const completionQueue: CompletionEvent[] = [];
   const runningPromises = new Map<string, Promise<void>>();
 
-  // Helper to notify state changes
-  const emitStateChange = () => onStateChange?.(state);
-
-  // Helper to check limits and abort
+  // Helpers
+  const emit = () => onStateChange?.(state);
+  const isAborted = () => signal?.aborted ?? false;
   const withinLimits = () => {
-    if (signal?.aborted) return false;
+    if (isAborted()) return false;
     const elapsed = Date.now() - startTime;
     const nodeCount = Object.keys(state.nodes).length;
     return elapsed < maxTimeMs && nodeCount < maxNodes;
   };
 
-  // Helper to check if aborted
-  const isAborted = () => signal?.aborted ?? false;
-
-  // Helper to get node depth
-  const getDepth = (nodeId: string): number => {
-    let depth = 0;
-    let current = state.nodes[nodeId];
-    while (current?.parentId) {
-      depth++;
-      current = state.nodes[current.parentId];
-    }
-    return depth;
-  };
-
-  // Helper to update node's searchHistory in-place
-  const updateNodeSearchHistory = (nodeId: string, searchHistory: import('./tree-types').SearchEvent[]) => {
+  // Update node's searches in real-time
+  const updateNodeSearches = (nodeId: string, searches: SearchEntry[]) => {
     state = {
       ...state,
       nodes: {
         ...state.nodes,
         [nodeId]: {
           ...state.nodes[nodeId],
-          searchHistory: [...searchHistory],
+          searches: [...searches],
         },
       },
     };
-    emitStateChange();
+    emit();
   };
 
-  // Start a node running
+  // Start a node
   const startNode = async (nodeId: string) => {
     state = cortex.markNodeRunning(state, nodeId);
-    emitStateChange();
+    emit();
 
     const node = state.nodes[nodeId];
     onNodeStart?.(node);
@@ -116,75 +106,77 @@ export async function runTreeResearch(
     const context = buildNodeContext(state, nodeId);
 
     try {
-      const result = await runTreeNode(context, {
+      const result = await runNode(context, {
         signal,
-        onProgress: (searchHistory) => {
-          updateNodeSearchHistory(nodeId, searchHistory);
-        },
+        onProgress: (searches) => updateNodeSearches(nodeId, searches),
       });
       completionQueue.push({
         nodeId,
-        finalDoc: result.finalDoc,
+        answer: result.answer,
         confidence: result.confidence,
-        searchHistory: result.searchHistory,
+        searches: result.searches,
         suggestedFollowups: result.suggestedFollowups,
+        tokens: result.tokens,
       });
     } catch (error) {
-      // On error, mark as done with low confidence
       completionQueue.push({
         nodeId,
-        finalDoc: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        answer: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
         confidence: 'low',
-        searchHistory: state.nodes[nodeId].searchHistory || [],
+        searches: state.nodes[nodeId].searches || [],
         suggestedFollowups: [],
+        tokens: 0,
       });
     }
   };
 
-  // Process one completion from queue
+  // Process one completion
   const processCompletion = async (): Promise<boolean> => {
     const event = completionQueue.shift();
     if (!event) return false;
 
-    // Update state with completion (including searchHistory and suggestions)
     state = cortex.markNodeDone(
       state,
       event.nodeId,
-      event.finalDoc,
+      event.answer,
       event.confidence,
-      event.searchHistory,
-      event.suggestedFollowups
+      event.searches,
+      event.suggestedFollowups,
+      event.tokens
     );
-    emitStateChange();
+    emit();
 
     const node = state.nodes[event.nodeId];
     onNodeComplete?.(node);
 
-    // Ask cortex what to do next
+    // Ask cortex what to do
     const decision = await cortex.evaluate(state, event.nodeId);
 
-    state.cortex.history = [
-      ...(state.cortex.history || []),
-      { type: 'decide' as const, reasoning: decision.reasoning, action: decision.decision },
-    ];
+    state = {
+      ...state,
+      totalTokens: (state.totalTokens || 0) + decision.tokens,
+      decisions: [
+        ...(state.decisions || []),
+        { timestamp: Date.now(), type: 'complete', reasoning: decision.reasoning, tokens: decision.tokens },
+      ],
+    };
 
     if (decision.decision === 'done') {
       return true; // Signal to finish
     }
 
-    // Spawn new nodes (filtering by depth limit)
+    // Spawn new nodes
     if (decision.nodesToSpawn.length > 0 && withinLimits()) {
       const validNodes = decision.nodesToSpawn.filter((n) => {
-        if (!n.parentId) return true; // Root nodes always ok
-        return getDepth(n.parentId) < maxDepth - 1;
+        if (!n.parentId) return true;
+        return getNodeDepth(state, n.parentId) < maxDepth - 1;
       });
 
       if (validNodes.length > 0) {
         const { state: newState, spawnedIds } = cortex.spawnNodes(state, validNodes);
         state = newState;
-        emitStateChange();
+        emit();
 
-        // Start the new nodes
         for (const id of spawnedIds) {
           const promise = startNode(id);
           runningPromises.set(id, promise);
@@ -200,13 +192,20 @@ export async function runTreeResearch(
   // Main Loop
   // ============================================================
 
-  // 1. Initial cortex decision (spawn first nodes)
+  // 1. Initial cortex decision
   const initialDecision = await cortex.evaluate(state);
+  state = {
+    ...state,
+    totalTokens: (state.totalTokens || 0) + initialDecision.tokens,
+    decisions: [
+      ...(state.decisions || []),
+      { timestamp: Date.now(), type: 'spawn', reasoning: initialDecision.reasoning, tokens: initialDecision.tokens },
+    ],
+  };
 
   if (initialDecision.decision === 'done' || initialDecision.nodesToSpawn.length === 0) {
-    // Nothing to research
-    state.cortex.status = 'done';
-    state.cortex.finalAnswer = 'No research needed.';
+    state.status = 'complete';
+    state.finalAnswer = 'No research needed.';
     return state;
   }
 
@@ -216,7 +215,7 @@ export async function runTreeResearch(
     initialDecision.nodesToSpawn
   );
   state = stateWithInitial;
-  emitStateChange();
+  emit();
 
   // Start initial nodes
   for (const id of initialIds) {
@@ -225,51 +224,67 @@ export async function runTreeResearch(
     promise.finally(() => runningPromises.delete(id));
   }
 
-  // 2. Event loop - process completions as they arrive
-  while (state.cortex.status === 'running' && withinLimits()) {
-    // Wait for something to complete
+  // 2. Event loop
+  while (state.status === 'running' && withinLimits()) {
     if (completionQueue.length === 0 && runningPromises.size > 0) {
       await Promise.race(Array.from(runningPromises.values()));
       continue;
     }
 
-    // Process completions one at a time (prevents duplicates)
     if (completionQueue.length > 0) {
       const shouldFinish = await processCompletion();
       if (shouldFinish) break;
       continue;
     }
 
-    // Nothing running and nothing in queue - we're done
-    if (runningPromises.size === 0) {
-      break;
-    }
+    if (runningPromises.size === 0) break;
   }
 
-  // 3. If aborted, don't wait for remaining nodes
+  // 3. Handle abort
   if (isAborted()) {
-    state = cortex.finishResearch(state, 'Research was stopped by user.');
-    emitStateChange();
+    state = cortex.stopResearch(state);
+    emit();
     return state;
   }
 
-  // 4. Wait for any remaining nodes to finish
+  // 4. Wait for remaining nodes (but don't spawn more - we're finishing)
   if (runningPromises.size > 0 && !isAborted()) {
     await Promise.all(Array.from(runningPromises.values()));
-    // Process remaining completions
+    // Just collect results, don't ask cortex to spawn more
     while (completionQueue.length > 0 && !isAborted()) {
-      await processCompletion();
+      const event = completionQueue.shift();
+      if (event) {
+        state = cortex.markNodeDone(
+          state,
+          event.nodeId,
+          event.answer,
+          event.confidence,
+          event.searches,
+          event.suggestedFollowups,
+          event.tokens
+        );
+        emit();
+        onNodeComplete?.(state.nodes[event.nodeId]);
+      }
     }
   }
 
-  // 5. Synthesize final answer (unless aborted)
+  // 5. Synthesize final answer
   if (isAborted()) {
-    state = cortex.finishResearch(state, 'Research was stopped by user.');
+    state = cortex.stopResearch(state);
   } else {
     const finishResult = await cortex.finish(state);
     state = cortex.finishResearch(state, finishResult.answer);
+    state = {
+      ...state,
+      totalTokens: (state.totalTokens || 0) + finishResult.tokens,
+      decisions: [
+        ...(state.decisions || []),
+        { timestamp: Date.now(), type: 'finish', reasoning: 'Synthesized final answer', tokens: finishResult.tokens },
+      ],
+    };
   }
-  emitStateChange();
+  emit();
 
   return state;
 }

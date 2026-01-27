@@ -521,13 +521,12 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
-  // When BrainDoc tabs are visible, they already show searches/questions; avoid duplicating them in the chat timeline.
-  const hasBrainTabs = Boolean(
+  // When research tree is visible, avoid duplicating in chat timeline
+  const hasResearchNodes = Boolean(
     researchDoc &&
     typeof researchDoc === 'object' &&
-    'questions' in (researchDoc as any) &&
-    Array.isArray((researchDoc as any).questions) &&
-    (researchDoc as any).questions.length > 0
+    'nodes' in researchDoc &&
+    Object.keys(researchDoc.nodes).length > 0
   );
 
   // Check if there's a pending multi-select (last assistant message is multi_choice_select)
@@ -595,8 +594,8 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
     );
   };
 
-  // Show research progress inline when researching
-  const showResearchProgress = isResearching || (researchDoc && 'questions' in researchDoc && (researchDoc as any).questions?.length > 0);
+  // Show research progress inline when researching or when we have research data
+  const showResearchProgress = isResearching || (researchDoc && 'nodes' in researchDoc && Object.keys(researchDoc.nodes).length > 0);
 
   // Helper to get icon for log entry
   const getLogIcon = (icon: string) => {
@@ -728,7 +727,7 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
 
                 // Metadata-driven messages (process steps)
                 if (msg.metadata?.type === 'search_batch') {
-                  if (hasBrainTabs) return null;
+                  if (hasResearchNodes) return null;
                   return <SearchBatch key={idx} queries={msg.metadata.queries || []} />;
                 }
                 if (msg.metadata?.type === 'extract_batch') {
@@ -743,7 +742,7 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
                   );
                 }
                 if (msg.metadata?.type === 'research_query') {
-                  if (hasBrainTabs) return null;
+                  if (hasResearchNodes) return null;
                   return <ResearchQuery key={idx} msg={msg} />;
                 }
                 if (msg.metadata?.type === 'reasoning') {
