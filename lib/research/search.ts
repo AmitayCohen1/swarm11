@@ -5,6 +5,7 @@
 import { generateText } from 'ai';
 import { perplexity } from '@ai-sdk/perplexity';
 import { trackLlmCall } from '@/lib/eval';
+import { AGENT_IDS } from '@/lib/eval/agent-ids';
 // import { buildSearchSystemPrompt } from '@/lib/prompts/research';
 
 export interface SearchResult {
@@ -52,7 +53,7 @@ export async function searchWeb(query: string): Promise<SearchResult> {
 
     // Track for evaluation
     trackLlmCall({
-      agentId: 'HUP_QEr0v0IX', // Web Search
+      agentId: AGENT_IDS.WEB_SEARCH,
       model: 'perplexity-sonar',
       input: { query },
       output: { answerLength: answer.length, sourcesCount: sources.length, answerPreview: answer.substring(0, 500) },

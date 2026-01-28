@@ -10,6 +10,7 @@
 import { generateText, Output } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
+import { AGENT_IDS } from '@/lib/eval/agent-ids';
 import {
   ResearchState,
   ResearchNode,
@@ -122,7 +123,7 @@ export async function evaluate(
   const tokens = result.usage?.totalTokens || 0;
 
   trackLlmCall({
-    agentId: 'cSZaU3rjiQxw', // Brain Evaluate (Observatory)
+    agentId: AGENT_IDS.BRAIN_EVALUATE,
     model: RESEARCH_MODEL,
     systemPrompt: prompt,
     input: { objective: view.objective, nodeCount: view.nodes.length, completedNodeId },
@@ -166,7 +167,7 @@ export async function finish(state: ResearchState): Promise<CortexFinishResult> 
   const tokens = result.usage?.totalTokens || 0;
 
   trackLlmCall({
-    agentId: 'Uy4dSnQuHdzi', // Brain Finish (Observatory)
+    agentId: AGENT_IDS.BRAIN_FINISH,
     model: RESEARCH_MODEL,
     systemPrompt: prompt,
     input: { objective: view.objective, nodeCount: view.nodes.length },
@@ -388,7 +389,9 @@ QUESTION QUALITY:
 RULES:
 - Respect user constraints exactly. Don't broaden scope.
 - Each node runs web searches - you orchestrate strategy, not queries.
-- If a question exists in the tree, don't repeat it.
+- NEVER repeat questions. Check the tree above - if a similar question exists, skip it.
+- NEVER output duplicate questions in your response - each must be unique and distinct.
+- Diversify angles: nightlife vs sports vs cultural vs food - don't cluster similar questions.
 - Go deeper on promising threads. Let cold branches die.
 - If findings are actionable, say "done". Don't over-research.
 

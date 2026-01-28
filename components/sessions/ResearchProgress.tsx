@@ -203,7 +203,7 @@ function FindingsSidebar({ findings, objective, successCriteria, isRunning, isCo
         <p className="text-[10px] text-slate-600 uppercase tracking-wider mb-2">Objective</p>
         <p className="text-sm text-slate-300 leading-snug">{objective}</p>
 
-        {successCriteria && successCriteria.length > 0 && (
+        {successCriteria && Array.isArray(successCriteria) && successCriteria.length > 0 && (
           <div className="mt-3 pt-3 border-t border-slate-800/50">
             <p className="text-[10px] text-slate-600 uppercase tracking-wider mb-2">Success Criteria</p>
             <ul className="space-y-1">

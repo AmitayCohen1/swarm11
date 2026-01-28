@@ -12,6 +12,7 @@ import { generateText, Output } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { searchWeb } from './search';
+import { AGENT_IDS } from '@/lib/eval/agent-ids';
 import {
   NodeContext,
   SearchEntry,
@@ -165,7 +166,7 @@ async function evaluate(
   const tokens = result.usage?.totalTokens || 0;
 
   trackLlmCall({
-    agentId: 'vveyd_AC0xrt', // Researcher Evaluate (Observatory)
+    agentId: AGENT_IDS.RESEARCHER_EVALUATE,
     model: RESEARCH_MODEL,
     systemPrompt,
     input: { question: context.task.question, searchCount: searches.length },
@@ -203,7 +204,7 @@ async function finish(
   const tokens = result.usage?.totalTokens || 0;
 
   trackLlmCall({
-    agentId: 's98-GcuqAXIl', // Researcher Finish (Observatory)
+    agentId: AGENT_IDS.RESEARCHER_FINISH,
     model: RESEARCH_MODEL,
     systemPrompt,
     input: { question: context.task.question, searchCount: searches.length },

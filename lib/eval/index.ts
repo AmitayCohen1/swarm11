@@ -208,44 +208,73 @@ function buildMetricDiscoveryPrompt(
   agent: { id: string; name: string; description: string; metrics?: Metric[] },
   calls: (typeof llmCalls.$inferSelect)[]
 ): string {
-  const callsText = calls.map((call, i) => formatCallForPrompt(call, i)).join('\n\n');
+  // Extract system prompts from calls - these contain the actual rules
+  const systemPrompts = calls
+    .map(c => c.systemPrompt)
+    .filter(Boolean)
+    .filter((v, i, a) => a.indexOf(v) === i); // unique
 
-  return `You are analyzing an AI agent to discover what quality metrics matter for evaluating it.
+  const systemPromptText = systemPrompts.length > 0
+    ? systemPrompts[0] // Use the first (they should all be the same for an agent)
+    : '(no system prompt found)';
+
+  // Include one example output for context
+  const exampleOutput = calls[0]?.output
+    ? JSON.stringify(calls[0].output, null, 2).substring(0, 800)
+    : '(no output)';
+
+  // Existing metrics to avoid duplicates
+  const existingMetrics = agent.metrics && agent.metrics.length > 0
+    ? agent.metrics.map(m => `- ${m.name}: ${m.description}`).join('\n')
+    : null;
+
+  return `You are extracting evaluation metrics from an agent's system prompt.
 
 AGENT: "${agent.name}"
-PURPOSE: ${agent.description}
+${existingMetrics ? `
+EXISTING METRICS (already defined - do NOT suggest these again):
+${existingMetrics}
+` : ''}
+SYSTEM PROMPT (this defines what the agent should do):
+---
+${systemPromptText}
+---
 
-HERE ARE ${calls.length} RECENT CALLS FROM THIS AGENT:
+EXAMPLE OUTPUT:
+${exampleOutput}
 
-${callsText}
+YOUR TASK: Extract the explicit quality criteria from the system prompt above that are NOT already covered by existing metrics.
 
-YOUR TASK: Figure out what makes a GOOD result vs a BAD result for this specific agent.
+The system prompt contains rules like:
+- "must be self-contained"
+- "use concise wording (4-7 words)"
+- "do NOT extract common knowledge"
+- "avoid ambiguous subjects"
 
-Analyze:
-1. What is this agent supposed to do? (look at the system prompt and purpose)
-2. Looking at these outputs - what aspects could vary in quality?
-3. What would a PERFECT response look like for this agent? What would a TERRIBLE one look like?
-4. What are the 2-3 key dimensions that separate good from bad?
+Each of these is a metric. Your job is to find them and turn them into evaluation criteria.
 
-IMPORTANT:
-- BE SPECIFIC to this agent's job. No generic metrics like "Quality" or "Helpfulness"
-- Each metric should be something you can clearly judge by looking at the output
-- Think about what the USER of this agent actually cares about
+INSTRUCTIONS:
+1. READ the system prompt carefully
+2. FIND all explicit rules, requirements, and constraints:
+   - Look for: "must", "should", "do NOT", "avoid", "never", "always"
+   - Look for: numbered lists, bullet points, examples of good/bad output
+   - Look for: format requirements, length constraints, style guidelines
+3. CONVERT each rule into a metric with:
+   - name: 2-4 word label (e.g., "Self-contained", "Concise wording", "No common knowledge")
+   - description: Quote or paraphrase the actual rule from the prompt
 
-Examples of good metrics for different agents:
-- Code generator → "Correctness" (runs without errors), "Readability" (clear variable names, structure)
-- Summarizer → "Coverage" (captures key points), "Conciseness" (no unnecessary info)
-- Q&A bot → "Accuracy" (factually correct), "Directness" (answers the question asked)
-- Data extractor → "Completeness" (finds all items), "Format" (follows expected structure)
+DO NOT invent abstract metrics. Only extract what's explicitly stated.
+DO NOT use generic metrics like "Quality", "Helpfulness", "Accuracy" unless the prompt explicitly defines what those mean.
+DO NOT suggest metrics that duplicate or overlap with existing metrics listed above.
 
 Return JSON only:
 {
   "scores": {
-    "overall": <1-10 average quality across these examples>
+    "overall": <1-10 how well the example output follows these rules>
   },
-  "insights": "<20 words: patterns you noticed - what's working well, what could improve>",
+  "insights": "<20 words: which rules are being followed, which are being violated>",
   "suggestedMetrics": [
-    { "name": "<1-2 words>", "description": "<What this measures - be specific to this agent>" }
+    { "name": "<2-4 words from the rule>", "description": "<the actual rule from the prompt>" }
   ]
 }`;
 }

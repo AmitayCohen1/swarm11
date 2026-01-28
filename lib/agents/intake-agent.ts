@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { searchWeb } from '../research/search';
 import { intakePrompt } from '@/lib/prompts/research';
 import { trackLlmCall } from '@/lib/eval';
+import { AGENT_IDS } from '@/lib/eval/agent-ids';
 
 export interface ResearchBrief {
   objective: string;
@@ -126,7 +127,7 @@ export async function analyzeUserMessage(
 
   // Track for evaluation
   trackLlmCall({
-    agentId: 'yuaWX5V_M-U4', // Intake Agent
+    agentId: AGENT_IDS.INTAKE,
     model: 'claude-sonnet-4',
     systemPrompt: INTAKE_INSTRUCTIONS,
     input: { messagesCount: messages.length, lastMessage: userMessage },
@@ -186,7 +187,7 @@ export async function analyzeUserMessage(
 
   // Track for evaluation
   trackLlmCall({
-    agentId: 'yuaWX5V_M-U4', // Intake Agent
+    agentId: AGENT_IDS.INTAKE,
     model: 'claude-sonnet-4',
     systemPrompt: INTAKE_INSTRUCTIONS,
     input: { messagesCount: messagesWithSearch.length, searchQuery: query },

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from '@/hooks/useSession';
 import ReactMarkdown from 'react-markdown';
@@ -8,11 +8,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CreditBalance } from '@/components/CreditBalance';
 import { UserButton } from '@clerk/nextjs';
-import ResearchProgress from './ResearchProgress';
 import { Badge } from '@/components/ui/badge';
+
+// New modular components
+import ResearchLayout from './ResearchLayout';
+import { toast } from 'sonner';
 import {
   Send,
-  StopCircle,
   Loader2,
   Moon,
   Sun,
@@ -24,7 +26,6 @@ import {
   Brain,
   AlertCircle,
   ArrowLeft,
-  FileText,
   CheckCircle,
   XCircle,
   Shield,
@@ -521,6 +522,72 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
+  // New state for three-column layout
+  const [showInterruptedBanner, setShowInterruptedBanner] = useState(false);
+  const lastEventIdRef = useRef<string | null>(null);
+
+  // Detect interrupted research on load
+  useEffect(() => {
+    if (
+      researchDoc &&
+      researchDoc.status === 'running' &&
+      Object.keys(researchDoc.nodes).length > 0 &&
+      !isResearching &&
+      status === 'ready'
+    ) {
+      setShowInterruptedBanner(true);
+    }
+  }, [researchDoc, isResearching, status]);
+
+  // Handle continue research
+  const handleContinueResearch = useCallback(async () => {
+    setShowInterruptedBanner(false);
+    if (researchDoc?.objective) {
+      await sendMessage(`Continue researching: ${researchDoc.objective}`);
+    }
+  }, [researchDoc?.objective, sendMessage]);
+
+  // Handle dismiss
+  const handleDismissInterrupted = useCallback(() => {
+    setShowInterruptedBanner(false);
+  }, []);
+
+  // Watch eventLog for decision-worthy events and show toasts
+  useEffect(() => {
+    if (eventLog.length === 0) return;
+    const lastEvent = eventLog[eventLog.length - 1];
+
+    // Avoid duplicate toasts for the same event
+    if (lastEvent.id === lastEventIdRef.current) return;
+    lastEventIdRef.current = lastEvent.id;
+
+    // Show toast for decision events
+    if (lastEvent.type === 'brain_decision' || lastEvent.type === 'brain_strategy') {
+      toast(lastEvent.label, {
+        description: lastEvent.detail,
+        icon: <Brain className="w-4 h-4" />,
+        duration: 4000,
+      });
+    } else if (lastEvent.type === 'spawn' || lastEvent.type === 'question_spawned') {
+      toast(lastEvent.label, {
+        description: lastEvent.detail,
+        icon: <Zap className="w-4 h-4 text-blue-400" />,
+        duration: 3000,
+      });
+    } else if (lastEvent.type === 'question_done' || lastEvent.type === 'question_completed') {
+      toast.success(lastEvent.label, {
+        description: lastEvent.detail,
+        duration: 3000,
+      });
+    } else if (lastEvent.type === 'brain_synthesizing' || lastEvent.type === 'synthesizing') {
+      toast(lastEvent.label, {
+        description: lastEvent.detail,
+        icon: <CheckCircle className="w-4 h-4 text-emerald-400" />,
+        duration: 4000,
+      });
+    }
+  }, [eventLog]);
+
   // When research tree is visible, avoid duplicating in chat timeline
   const hasResearchNodes = Boolean(
     researchDoc &&
@@ -567,15 +634,24 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
   };
 
   const getStatusBadge = () => {
-    const variants: Record<string, { bg: string; text: string; label: string; pulse?: boolean }> = {
+    // Check if research is complete
+    const isResearchComplete = researchDoc &&
+      typeof researchDoc === 'object' &&
+      'status' in researchDoc &&
+      researchDoc.status === 'complete';
+
+    const variants: Record<string, { bg: string; text: string; label: string; pulse?: boolean; icon?: 'check' }> = {
       initializing: { bg: 'bg-slate-100 dark:bg-white/10', text: 'text-slate-500', label: 'Booting' },
       ready: { bg: 'bg-emerald-100 dark:bg-emerald-500/20', text: 'text-emerald-600 dark:text-emerald-400', label: 'Online' },
       processing: { bg: 'bg-blue-100 dark:bg-blue-500/20', text: 'text-blue-600 dark:text-blue-400', label: 'Researching', pulse: true },
       researching: { bg: 'bg-indigo-100 dark:bg-indigo-500/20', text: 'text-indigo-600 dark:text-indigo-400', label: 'Researching', pulse: true },
-      error: { bg: 'bg-red-100 dark:bg-red-500/20', text: 'text-red-600 dark:text-red-400', label: 'Offline' }
+      error: { bg: 'bg-red-100 dark:bg-red-500/20', text: 'text-red-600 dark:text-red-400', label: 'Offline' },
+      complete: { bg: 'bg-green-100 dark:bg-green-500/20', text: 'text-green-600 dark:text-green-400', label: 'Complete', icon: 'check' }
     };
 
-    const config = variants[status as keyof typeof variants] || variants.ready;
+    // Use 'complete' variant if research is complete, otherwise use current status
+    const effectiveStatus = isResearchComplete ? 'complete' : status;
+    const config = variants[effectiveStatus as keyof typeof variants] || variants.ready;
 
     return (
       <div className={cn(
@@ -588,6 +664,9 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
             <span className={cn("animate-ping absolute inline-flex h-full w-full rounded-full opacity-75", config.text.replace('text-', 'bg-'))}></span>
             <span className={cn("relative inline-flex rounded-full h-2 w-2", config.text.replace('text-', 'bg-'))}></span>
           </span>
+        )}
+        {config.icon === 'check' && (
+          <CheckCircle className="w-3 h-3" />
         )}
         {config.label}
       </div>
@@ -702,53 +781,20 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
           </div>
         </header>
 
-        {/* RESEARCH MODE: Full-screen react-flow with input at bottom */}
+        {/* RESEARCH MODE */}
         {isInResearchMode ? (
-          <div className="flex-1 flex flex-col min-h-0 relative animate-in fade-in zoom-in-95 duration-500">
-            {/* Full-screen Research Progress */}
-            <div className="flex-1 min-h-0 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-150">
-              {researchDoc && <ResearchProgress doc={researchDoc} fullScreen />}
-            </div>
-
-            {/* Error Display - floating above input */}
-            {error && (
-              <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-50 max-w-xl px-4">
-                <div className="p-4 rounded-2xl bg-red-500/10 backdrop-blur-xl border border-red-500/20 flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
-                  <p className="text-sm text-red-400 font-medium">{error}</p>
-                </div>
-              </div>
-            )}
-
-            {/* Floating Input at Bottom */}
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 w-full max-w-2xl px-4 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-300">
-              <form onSubmit={handleSend} className="relative group">
-                <div className="relative flex items-center gap-3 p-2 rounded-2xl bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl transition-all duration-300">
-                  <Input
-                    type="text"
-                    value={inputMessage}
-                    onChange={(e) => setInputMessage(e.target.value)}
-                    placeholder={status === 'ready' ? "Ask a follow-up question..." : "Researching..."}
-                    disabled={status !== 'ready'}
-                    className="flex-1 bg-transparent border-none h-10 px-4 text-sm focus-visible:ring-0 placeholder:text-slate-500 text-white font-medium"
-                  />
-                  <Button
-                    type="submit"
-                    disabled={!inputMessage.trim() || status !== 'ready'}
-                    className={cn(
-                      "h-10 w-10 rounded-xl transition-all duration-300",
-                      inputMessage.trim() && status === 'ready'
-                        ? 'bg-white text-black hover:bg-slate-200 active:scale-95'
-                        : 'bg-white/5 text-slate-600 opacity-30'
-                    )}
-                    size="icon"
-                  >
-                    <Send className="w-4 h-4" />
-                  </Button>
-                </div>
-              </form>
-            </div>
-          </div>
+          <ResearchLayout
+            messages={messages}
+            status={status}
+            isResearching={isResearching}
+            researchDoc={researchDoc}
+            intakeSearch={intakeSearch}
+            error={error}
+            onSendMessage={sendMessage}
+            showInterruptedBanner={showInterruptedBanner}
+            onContinueResearch={handleContinueResearch}
+            onDismissInterrupted={handleDismissInterrupted}
+          />
         ) : (
           /* CHAT MODE: Normal chat interface */
           <>

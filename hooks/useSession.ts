@@ -584,7 +584,9 @@ export function useSession(options: UseSessionOptions = {}) {
                     if (prevNode.answer !== newNode.answer) return true;
                     return false;
                   });
-                  if (statusChanged || nodeCountChanged || anyNodeChanged || finalAnswerChanged) {
+                  // Check if findings changed
+                  const findingsChanged = JSON.stringify(prev.findings || []) !== JSON.stringify(parsed.findings || []);
+                  if (statusChanged || nodeCountChanged || anyNodeChanged || finalAnswerChanged || findingsChanged) {
                     return parsed as ResearchState;
                   }
                   return prev; // No meaningful change, keep previous state

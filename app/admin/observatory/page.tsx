@@ -85,7 +85,41 @@ export default function ObservatoryPage() {
   const copyInstructions = () => {
     if (!data?.agents || data.agents.length === 0) return;
     const agentList = data.agents.map(a => `| \`${a.id}\` | ${a.name} | ${a.description} |`).join('\n');
-    const instructions = `# Observatory Agent Integration\n\n| Agent ID | Name | Description |\n|----------|------|-------------|\n${agentList}\n\n## Usage\n\n\`\`\`typescript\ntrackLlmCall({ agentId: 'ID', model: 'model', input: {}, output: {} });\n\`\`\``;
+    const agentConsts = data.agents.map(a => {
+      const constName = a.name.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '');
+      return `  /** ${a.description} */\n  ${constName}: '${a.id}',`;
+    }).join('\n');
+    const instructions = `# Observatory Agent Integration
+
+## 1. Create \`lib/eval/agent-ids.ts\`
+
+\`\`\`typescript
+export const AGENT_IDS = {
+${agentConsts}
+} as const;
+
+export type AgentId = typeof AGENT_IDS[keyof typeof AGENT_IDS];
+\`\`\`
+
+## 2. Usage
+
+\`\`\`typescript
+import { trackLlmCall } from '@/lib/eval';
+import { AGENT_IDS } from '@/lib/eval/agent-ids';
+
+trackLlmCall({
+  agentId: AGENT_IDS.YOUR_AGENT,
+  model: 'model-name',
+  input: { ... },
+  output: { ... },
+});
+\`\`\`
+
+## Agent Registry
+
+| Agent ID | Name | Description |
+|----------|------|-------------|
+${agentList}`;
     navigator.clipboard.writeText(instructions);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -527,6 +561,7 @@ export default function ObservatoryPage() {
                     const latest = scores[scores.length - 1] || 0;
                     const prev = scores.length > 1 ? scores[scores.length - 2] : latest;
                     const trend = latest - prev;
+                    const description = agent?.criteria?.find(c => c.name === metric)?.description;
 
                     return (
                       <button
@@ -538,7 +573,7 @@ export default function ObservatoryPage() {
                             : 'bg-neutral-900/50 border-neutral-800/50 hover:border-neutral-700'
                         }`}
                       >
-                        <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-start justify-between mb-1">
                           <span className="text-sm text-neutral-300 font-medium">{metric}</span>
                           <div className="text-right">
                             <span className={`text-lg font-semibold ${getScoreColor(latest)}`}>{latest}</span>
@@ -549,6 +584,9 @@ export default function ObservatoryPage() {
                             )}
                           </div>
                         </div>
+                        {description && (
+                          <p className="text-xs text-neutral-500 mb-2 line-clamp-2">{description}</p>
+                        )}
                         <Sparkline scores={scores} color={metric === 'overall' ? '#ffffff' : METRIC_COLORS[allMetrics.indexOf(metric) % METRIC_COLORS.length]} />
                       </button>
                     );
