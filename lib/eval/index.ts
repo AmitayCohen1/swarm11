@@ -8,7 +8,7 @@
 import { db } from '@/lib/db';
 import { llmCalls, llmEvaluations } from '@/lib/db/schema';
 import { eq, and, desc, count } from 'drizzle-orm';
-import { generateText } from 'ai';
+import { generateText, Output } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { getAgent, updateAgentMetrics, Metric } from './agents';
@@ -94,11 +94,17 @@ const MetricSchema = z.object({
   description: z.string(),
 });
 
+// Use arrays instead of z.record() - OpenAI doesn't support dynamic keys
+const ScoreEntrySchema = z.object({
+  metric: z.string().describe('Metric name'),
+  score: z.number().describe('Score 1-10'),
+  reasoning: z.string().optional().describe('Brief reasoning for the score'),
+});
+
 const EvalResultSchema = z.object({
-  scores: z.record(z.string(), z.number()),
-  reasoning: z.record(z.string(), z.string()).optional(),
-  insights: z.string(),
-  suggestedMetrics: z.array(MetricSchema).optional(),
+  scores: z.array(ScoreEntrySchema).describe('Array of metric scores'),
+  insights: z.string().describe('Key insights about the evaluation'),
+  suggestedMetrics: z.array(MetricSchema).optional().describe('New metrics to add'),
 });
 
 function normalizeMetricName(name: string): string {
@@ -148,12 +154,13 @@ async function runEvaluation(agentId: string): Promise<void> {
     ? buildEvalPrompt(agent, calls[0])
     : buildMetricDiscoveryPrompt(agent, calls);
 
-  // Run evaluation - use text parsing since OpenAI doesn't support z.record() in structured output
+  // Run evaluation with structured output
   let evalResult: EvalResult = { scores: { overall: 0 }, insights: 'Evaluation failed to parse.' };
   try {
     const result = await generateText({
       model: EVAL_MODEL,
-      prompt: evalPrompt + '\n\nRespond with valid JSON only, no markdown.',
+      prompt: evalPrompt,
+      experimental_output: Output.object({ schema: EvalResultSchema }),
       providerOptions: {
         openai: {
           reasoningEffort: 'low',
@@ -161,20 +168,27 @@ async function runEvaluation(agentId: string): Promise<void> {
       },
     });
 
-    const jsonMatch = result.text.match(/\{[\s\S]*\}/);
-    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
-    if (parsed && typeof parsed === 'object') {
-      evalResult = {
-        scores: (parsed.scores as Record<string, number>) || {},
-        reasoning: (parsed.reasoning as Record<string, string>) || undefined,
-        insights: (parsed.insights as string) || result.text,
-        suggestedMetrics: (parsed.suggestedMetrics as Metric[]) || undefined,
-      };
-    } else {
-      evalResult = { scores: { overall: 0 }, insights: result.text };
+    const parsed = result.experimental_output as z.infer<typeof EvalResultSchema>;
+
+    // Convert array format to record format
+    const scores: Record<string, number> = {};
+    const reasoning: Record<string, string> = {};
+
+    for (const entry of parsed.scores || []) {
+      scores[entry.metric] = entry.score;
+      if (entry.reasoning) {
+        reasoning[entry.metric] = entry.reasoning;
+      }
     }
+
+    evalResult = {
+      scores,
+      reasoning: Object.keys(reasoning).length > 0 ? reasoning : undefined,
+      insights: parsed.insights || '',
+      suggestedMetrics: parsed.suggestedMetrics || undefined,
+    };
   } catch (err) {
-    console.error('[Eval] Evaluation failed:', err);
+    console.error('[Eval] Structured evaluation failed:', err);
     evalResult = { scores: { overall: 0 }, insights: 'Evaluation failed.' };
   }
 
@@ -273,15 +287,12 @@ ${callText}
 Score each metric 1-10:
 ${agent.metrics!.map(m => `- ${m.name}: ${m.description}`).join('\n')}
 
-Return JSON only:
+Return JSON matching this schema:
 {
-  "scores": {
-    ${agent.metrics!.map(m => `"${m.name}": <1-10>`).join(',\n    ')},
-    "overall": <1-10>
-  },
-  "reasoning": {
-    ${agent.metrics!.map(m => `"${m.name}": "<10 words: why this score>"`).join(',\n    ')}
-  },
+  "scores": [
+    ${agent.metrics!.map(m => `{ "metric": "${m.name}", "score": <1-10>, "reasoning": "<10 words: why>" }`).join(',\n    ')},
+    { "metric": "overall", "score": <1-10>, "reasoning": "<overall assessment>" }
+  ],
   "insights": "<MAX 20 words: key strength + key weakness>",
   "suggestedMetrics": []
 }`;
@@ -343,7 +354,9 @@ INSTRUCTIONS:
    - Look for: numbered lists, bullet points, examples of good/bad output
    - Look for: format requirements, length constraints, style guidelines
 3. CONVERT each rule into a metric with:
-   - name: 2-4 word label (e.g., "Self-contained", "Concise wording", "No common knowledge")
+   - name: Human-readable characteristic (2-4 words). NOT technical jargon. Should read like a trait.
+     GOOD: "Self-contained", "Short and punchy", "No fluff", "Cites sources"
+     BAD: "OutputValidation", "FormatCompliance", "ContextualRelevance"
    - description: Format as "Prompt says '...' so here we measure ..." (quote the rule, then explain what we check)
 4. Prefer rules that are stable across calls (not objective-specific content)
 

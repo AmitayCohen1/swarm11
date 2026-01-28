@@ -10,10 +10,10 @@ export const AGENT_IDS = {
   INTAKE: 'yuaWX5V_M-U4',
 
   /** Decides what research actions to take next */
-  BRAIN_EVALUATE: 'cSZaU3rjiQxw',
+  BRAIN_EVALUATE: 'US2h5TtId0ua',
 
   /** Synthesizes final research report from all findings */
-  BRAIN_FINISH: 'Uy4dSnQuHdzi',
+  BRAIN_FINISH: '29G2I0Y22Oy8',
 
   /** Runs individual research questions, extracts insights */
   RESEARCHER_EVALUATE: 'vveyd_AC0xrt',
