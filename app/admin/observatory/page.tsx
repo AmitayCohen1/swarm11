@@ -494,7 +494,7 @@ ${agentList}`;
                           <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                           </svg>
-                          Reset Data
+                          Reset Agent
                         </DropdownMenuItem>
                         <DropdownMenuSeparator className="bg-neutral-800" />
                         <DropdownMenuItem
@@ -697,7 +697,7 @@ ${agentList}`;
           <AlertDialogHeader>
             <AlertDialogTitle className="text-white">
               {dialogAction?.type === 'deleteAgent' && 'Delete Agent'}
-              {dialogAction?.type === 'resetAgent' && 'Reset Agent Data'}
+              {dialogAction?.type === 'resetAgent' && 'Reset Agent'}
               {dialogAction?.type === 'deleteMetric' && 'Delete Metric'}
             </AlertDialogTitle>
             <AlertDialogDescription className="text-neutral-400">
@@ -705,7 +705,7 @@ ${agentList}`;
                 <>Are you sure you want to delete this agent? This will remove the agent and all its data permanently.</>
               )}
               {dialogAction?.type === 'resetAgent' && (
-                <>Are you sure you want to reset all data for this agent? This will delete all calls and evaluations but keep the agent configuration.</>
+                <>Are you sure you want to reset this agent? This will delete all calls, evaluations, and metrics. The agent will start fresh.</>
               )}
               {dialogAction?.type === 'deleteMetric' && (
                 <>Are you sure you want to delete the metric &quot;{dialogAction.metricName}&quot;? Historical scores for this metric will be preserved but it will no longer be tracked.</>

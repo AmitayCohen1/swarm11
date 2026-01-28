@@ -3,6 +3,7 @@
 import { cn } from '@/lib/utils';
 import { Loader2, CheckCircle, FileText } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import { useResearchStatus } from './ResearchStatusContext';
 
 interface FindingSource {
   url: string;
@@ -24,8 +25,6 @@ interface FindingsPanelProps {
   findings: Finding[];
   objective: string;
   successCriteria?: string[];
-  isRunning: boolean;
-  isComplete: boolean;
   finalAnswer?: string;
   className?: string;
 }
@@ -34,11 +33,10 @@ export default function FindingsPanel({
   findings,
   objective,
   successCriteria,
-  isRunning,
-  isComplete,
   finalAnswer,
   className
 }: FindingsPanelProps) {
+  const { isRunning, isComplete } = useResearchStatus();
   return (
     <div className={cn("h-full flex flex-col bg-[#0a0a0a] border-l border-slate-800/50", className)}>
       {/* Header */}

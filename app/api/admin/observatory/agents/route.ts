@@ -77,10 +77,11 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (resetData) {
-      // Delete calls first (they reference evaluations via evaluation_batch_id)
+      // Full reset: delete calls, evaluations, AND metrics
       await db.delete(llmCalls).where(eq(llmCalls.agentName, id));
       await db.delete(llmEvaluations).where(eq(llmEvaluations.agentName, id));
-      return NextResponse.json({ success: true, message: `Data reset for agent ${id}` });
+      await updateAgentMetrics(id, []); // Clear all metrics
+      return NextResponse.json({ success: true, message: `Agent ${id} fully reset` });
     }
 
     if (addMetric) {

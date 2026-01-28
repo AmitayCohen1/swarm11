@@ -16,6 +16,7 @@ import {
   Telescope,
   CheckCircle,
 } from 'lucide-react';
+import { useResearchStatus } from './ResearchStatusContext';
 
 interface Message {
   role: 'user' | 'assistant' | 'system';
@@ -27,7 +28,6 @@ interface Message {
 interface ChatPanelProps {
   messages: Message[];
   status: 'idle' | 'initializing' | 'ready' | 'processing' | 'researching' | 'error';
-  isResearching: boolean;
   onSendMessage: (message: string) => void;
   intakeSearch?: { query: string; answer?: string; status: 'searching' | 'complete' } | null;
   className?: string;
@@ -145,13 +145,13 @@ function AskUserOptions({
 export default function ChatPanel({
   messages,
   status,
-  isResearching,
   onSendMessage,
   intakeSearch,
   className
 }: ChatPanelProps) {
   const [inputMessage, setInputMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { isRunning: isResearching } = useResearchStatus();
 
   // Filter out research_progress anchor messages and final messages
   const chatMessages = messages.filter(m =>

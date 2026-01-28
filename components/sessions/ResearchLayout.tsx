@@ -7,6 +7,7 @@ import SwarmVisualization from './SwarmVisualization';
 import FindingsPanel from './FindingsPanel';
 import ChatPanel from './ChatPanel';
 import { NodeDetailSheet, ObjectiveDetailSheet } from './NodeDetailSheet';
+import { ResearchStatusProvider } from './ResearchStatusContext';
 
 // Types
 interface Message {
@@ -63,13 +64,11 @@ const MemoizedSwarm = memo(function MemoizedSwarm({
 const MemoizedChat = memo(function MemoizedChat({
   messages,
   status,
-  isResearching,
   onSendMessage,
   intakeSearch
 }: {
   messages: Message[];
   status: string;
-  isResearching: boolean;
   onSendMessage: (msg: string) => void;
   intakeSearch?: { query: string; answer?: string; status: 'searching' | 'complete' } | null;
 }) {
@@ -77,7 +76,6 @@ const MemoizedChat = memo(function MemoizedChat({
     <ChatPanel
       messages={messages}
       status={status as any}
-      isResearching={isResearching}
       onSendMessage={onSendMessage}
       intakeSearch={intakeSearch}
     />
@@ -89,15 +87,11 @@ const MemoizedFindings = memo(function MemoizedFindings({
   findings,
   objective,
   successCriteria,
-  isRunning,
-  isComplete,
   finalAnswer
 }: {
   findings: any[];
   objective: string;
   successCriteria?: string[];
-  isRunning: boolean;
-  isComplete: boolean;
   finalAnswer?: string;
 }) {
   return (
@@ -105,8 +99,6 @@ const MemoizedFindings = memo(function MemoizedFindings({
       findings={findings}
       objective={objective}
       successCriteria={successCriteria}
-      isRunning={isRunning}
-      isComplete={isComplete}
       finalAnswer={finalAnswer}
     />
   );
@@ -204,6 +196,7 @@ export default function ResearchLayout({
   const selectedNode = selectedNodeId && researchDoc?.nodes ? researchDoc.nodes[selectedNodeId] : null;
 
   return (
+    <ResearchStatusProvider researchDoc={researchDoc}>
     <div className="flex-1 flex min-h-0">
       {/* LEFT: Chat */}
       {leftCollapsed ? (
@@ -213,7 +206,6 @@ export default function ResearchLayout({
           <MemoizedChat
             messages={messages}
             status={status}
-            isResearching={isResearching}
             onSendMessage={onSendMessage}
             intakeSearch={intakeSearch}
           />
@@ -287,8 +279,6 @@ export default function ResearchLayout({
               findings={researchDoc.findings || []}
               objective={researchDoc.objective}
               successCriteria={researchDoc.successCriteria}
-              isRunning={researchDoc.status === 'running'}
-              isComplete={researchDoc.status === 'complete'}
               finalAnswer={researchDoc.finalAnswer}
             />
           ) : isResearching ? (
@@ -309,5 +299,6 @@ export default function ResearchLayout({
         <ObjectiveDetailSheet state={researchDoc} isOpen={showObjectiveSheet} onClose={handleCloseObjectiveSheet} />
       )}
     </div>
+    </ResearchStatusProvider>
   );
 }

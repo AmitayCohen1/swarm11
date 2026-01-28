@@ -10,6 +10,7 @@ import { llmCalls, llmEvaluations } from '@/lib/db/schema';
 import { eq, and, desc, count } from 'drizzle-orm';
 import { generateText } from 'ai';
 import { openai } from '@ai-sdk/openai';
+import { z } from 'zod';
 import { getAgent, updateAgentMetrics, Metric } from './agents';
 
 const DEFAULT_EVAL_BATCH_SIZE = 3;
@@ -88,6 +89,28 @@ interface EvalResult {
   suggestedMetrics?: Metric[];
 }
 
+const MetricSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+});
+
+const EvalResultSchema = z.object({
+  scores: z.record(z.string(), z.number()),
+  reasoning: z.record(z.string(), z.string()).optional(),
+  insights: z.string(),
+  suggestedMetrics: z.array(MetricSchema).optional(),
+});
+
+function normalizeMetricName(name: string): string {
+  return (name || '').trim().replace(/\s+/g, ' ');
+}
+
+function clampScore(x: unknown): number {
+  const n = typeof x === 'number' ? x : Number(x);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(10, Math.round(n * 10) / 10));
+}
+
 async function runEvaluation(agentId: string): Promise<void> {
   console.log(`[Eval] Running evaluation for ${agentId}`);
 
@@ -125,22 +148,82 @@ async function runEvaluation(agentId: string): Promise<void> {
     ? buildEvalPrompt(agent, calls[0])
     : buildMetricDiscoveryPrompt(agent, calls);
 
-  // Run evaluation
-  const result = await generateText({
-    model: EVAL_MODEL,
-    prompt: evalPrompt,
-  });
-
-  // Parse evaluation (expecting JSON in response)
-  let evalResult: EvalResult;
+  // Run evaluation - use text parsing since OpenAI doesn't support z.record() in structured output
+  let evalResult: EvalResult = { scores: { overall: 0 }, insights: 'Evaluation failed to parse.' };
   try {
+    const result = await generateText({
+      model: EVAL_MODEL,
+      prompt: evalPrompt + '\n\nRespond with valid JSON only, no markdown.',
+      providerOptions: {
+        openai: {
+          reasoningEffort: 'low',
+        },
+      },
+    });
+
     const jsonMatch = result.text.match(/\{[\s\S]*\}/);
-    evalResult = jsonMatch ? JSON.parse(jsonMatch[0]) : { scores: {}, insights: result.text };
-  } catch {
-    evalResult = {
-      scores: { overall: 0 },
-      insights: result.text,
-    };
+    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+    if (parsed && typeof parsed === 'object') {
+      evalResult = {
+        scores: (parsed.scores as Record<string, number>) || {},
+        reasoning: (parsed.reasoning as Record<string, string>) || undefined,
+        insights: (parsed.insights as string) || result.text,
+        suggestedMetrics: (parsed.suggestedMetrics as Metric[]) || undefined,
+      };
+    } else {
+      evalResult = { scores: { overall: 0 }, insights: result.text };
+    }
+  } catch (err) {
+    console.error('[Eval] Evaluation failed:', err);
+    evalResult = { scores: { overall: 0 }, insights: 'Evaluation failed.' };
+  }
+
+  // Normalize / clamp scores and ensure required keys exist
+  const normalizedScores: Record<string, number> = {};
+  for (const [k, v] of Object.entries(evalResult.scores || {})) {
+    normalizedScores[normalizeMetricName(k)] = clampScore(v);
+  }
+
+  // Ensure metric keys exist for scoring mode
+  if (hasMetrics && agent.metrics) {
+    for (const m of agent.metrics) {
+      const key = normalizeMetricName(m.name);
+      if (!(key in normalizedScores)) normalizedScores[key] = 0;
+    }
+  }
+
+  // Fill / compute overall if missing
+  if (!('overall' in normalizedScores)) {
+    const metricKeys = Object.keys(normalizedScores).filter((k) => k !== 'overall');
+    const avg = metricKeys.length
+      ? metricKeys.reduce((sum, k) => sum + (normalizedScores[k] || 0), 0) / metricKeys.length
+      : 0;
+    normalizedScores.overall = clampScore(avg);
+  }
+
+  evalResult.scores = normalizedScores;
+  evalResult.insights = (evalResult.insights || '').trim().slice(0, 2000);
+
+  // If we're in discovery mode and got suggestions, optionally auto-apply them so scoring can start
+  if (!hasMetrics && Array.isArray(evalResult.suggestedMetrics) && evalResult.suggestedMetrics.length > 0) {
+    const existing = agent.metrics || [];
+    const existingNames = new Set(existing.map((m) => normalizeMetricName(m.name).toLowerCase()));
+
+    const merged: Metric[] = [...existing];
+    for (const s of evalResult.suggestedMetrics) {
+      const name = normalizeMetricName(s?.name || '');
+      const description = String(s?.description || '').trim();
+      if (!name || !description) continue;
+      const key = name.toLowerCase();
+      if (existingNames.has(key)) continue;
+      merged.push({ name, description });
+      existingNames.add(key);
+    }
+
+    // Only write if we actually added something
+    if (merged.length !== existing.length) {
+      await updateAgentMetrics(agentId, merged);
+    }
   }
 
   // Save evaluation
@@ -170,9 +253,9 @@ async function runEvaluation(agentId: string): Promise<void> {
 function formatCallForPrompt(call: typeof llmCalls.$inferSelect, index?: number): string {
   const header = index !== undefined ? `--- CALL ${index + 1} ---` : '';
   return `${header}
-System Prompt: ${call.systemPrompt ? call.systemPrompt.substring(0, 500) + (call.systemPrompt.length > 500 ? '...' : '') : '(none)'}
-Input: ${JSON.stringify(call.input, null, 2).substring(0, 600)}
-Output: ${JSON.stringify(call.output, null, 2).substring(0, 600)}
+System Prompt: ${call.systemPrompt ? call.systemPrompt.substring(0, 2000) + (call.systemPrompt.length > 2000 ? '...' : '') : '(none)'}
+Input: ${JSON.stringify(call.input, null, 2).substring(0, 2000)}
+Output: ${JSON.stringify(call.output, null, 2).substring(0, 3000)}
 `.trim();
 }
 
@@ -218,10 +301,10 @@ function buildMetricDiscoveryPrompt(
     ? systemPrompts[0] // Use the first (they should all be the same for an agent)
     : '(no system prompt found)';
 
-  // Include one example output for context
-  const exampleOutput = calls[0]?.output
-    ? JSON.stringify(calls[0].output, null, 2).substring(0, 800)
-    : '(no output)';
+  const callExamples = calls
+    .slice(0, 3)
+    .map((c, i) => formatCallForPrompt(c, i))
+    .join('\n\n');
 
   // Existing metrics to avoid duplicates
   const existingMetrics = agent.metrics && agent.metrics.length > 0
@@ -240,8 +323,8 @@ SYSTEM PROMPT (this defines what the agent should do):
 ${systemPromptText}
 ---
 
-EXAMPLE OUTPUT:
-${exampleOutput}
+RECENT CALLS (for context; use these only to see how the rules show up in practice):
+${callExamples || '(none)'}
 
 YOUR TASK: Extract the explicit quality criteria from the system prompt above that are NOT already covered by existing metrics.
 
@@ -261,11 +344,13 @@ INSTRUCTIONS:
    - Look for: format requirements, length constraints, style guidelines
 3. CONVERT each rule into a metric with:
    - name: 2-4 word label (e.g., "Self-contained", "Concise wording", "No common knowledge")
-   - description: Quote or paraphrase the actual rule from the prompt
+   - description: Format as "Prompt says '...' so here we measure ..." (quote the rule, then explain what we check)
+4. Prefer rules that are stable across calls (not objective-specific content)
 
 DO NOT invent abstract metrics. Only extract what's explicitly stated.
 DO NOT use generic metrics like "Quality", "Helpfulness", "Accuracy" unless the prompt explicitly defines what those mean.
 DO NOT suggest metrics that duplicate or overlap with existing metrics listed above.
+DO NOT extract non-rules (e.g., the user's objective, examples, or background context) unless it's phrased as an instruction.
 
 Return JSON only:
 {
@@ -274,7 +359,7 @@ Return JSON only:
   },
   "insights": "<20 words: which rules are being followed, which are being violated>",
   "suggestedMetrics": [
-    { "name": "<2-4 words from the rule>", "description": "<the actual rule from the prompt>" }
+    { "name": "<2-4 words>", "description": "Prompt says '<quote rule>' so here we measure <what we check>" }
   ]
 }`;
 }
