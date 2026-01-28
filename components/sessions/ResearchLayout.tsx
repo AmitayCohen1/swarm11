@@ -8,6 +8,7 @@ import FindingsPanel from './FindingsPanel';
 import ChatPanel from './ChatPanel';
 import { NodeDetailSheet, ObjectiveDetailSheet } from './NodeDetailSheet';
 import { ResearchStatusProvider } from './ResearchStatusContext';
+import DecisionToast, { DecisionEvent } from './DecisionToast';
 
 // Types
 interface Message {
@@ -297,6 +298,18 @@ export default function ResearchLayout({
       <NodeDetailSheet node={selectedNode} isOpen={!!selectedNodeId} onClose={handleCloseNodeSheet} />
       {researchDoc && (
         <ObjectiveDetailSheet state={researchDoc} isOpen={showObjectiveSheet} onClose={handleCloseObjectiveSheet} />
+      )}
+
+      {/* Decision Toast */}
+      {researchDoc?.decisions && (
+        <DecisionToast
+          events={researchDoc.decisions.map((d, i) => ({
+            id: `decision-${d.timestamp}-${i}`,
+            type: d.type as DecisionEvent['type'],
+            reasoning: d.reasoning,
+            timestamp: d.timestamp,
+          }))}
+        />
       )}
     </div>
     </ResearchStatusProvider>

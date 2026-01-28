@@ -40,11 +40,7 @@ export async function POST(req: NextRequest) {
           sendEvent('started', { objective, successCriteria });
 
           const result = await runResearch(objective, successCriteria, {
-            maxNodes: 15,
-            maxTimeMs: 5 * 60 * 1000, // 5 min for testing
-            maxDepth: 4,
-
-            onStateChange: (state: ResearchState) => {
+            onStateChange: async (state: ResearchState) => {
               sendEvent('state_update', {
                 nodeCount: Object.keys(state.nodes).length,
                 status: state.status,
@@ -75,6 +71,10 @@ export async function POST(req: NextRequest) {
                 answerLength: node.answer?.length || 0,
                 answerPreview: node.answer?.substring(0, 200) + '...',
               });
+            },
+
+            onDecision: (decision, reasoning) => {
+              sendEvent('brain_decision', { decision, reasoning });
             },
           });
 

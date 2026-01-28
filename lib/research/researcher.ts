@@ -56,7 +56,7 @@ export interface NodeResult {
 }
 
 export interface NodeRunOptions {
-  onProgress?: (searches: SearchEntry[]) => void;
+  onSearch?: (search: SearchEntry) => void | Promise<void>;
   signal?: AbortSignal;
 }
 
@@ -68,7 +68,7 @@ export async function runNode(
   context: NodeContext,
   options: NodeRunOptions = {}
 ): Promise<NodeResult> {
-  const { onProgress, signal } = options;
+  const { onSearch, signal } = options;
   const searches: SearchEntry[] = [];
   let nextQuery = context.task.question;
   let totalTokens = 0;
@@ -95,7 +95,7 @@ export async function runNode(
       timestamp: Date.now(),
     };
     searches.push(entry);
-    onProgress?.(searches);
+    await onSearch?.(entry);
 
     if (signal?.aborted) break;
 
@@ -107,7 +107,6 @@ export async function runNode(
 
     // Add reflection to the entry
     entry.reflection = evalResult.reasoning;
-    onProgress?.(searches);
 
     // Enforce minimum searches
     let decision = evalResult.decision;
@@ -250,57 +249,35 @@ function buildFinishPrompt(context: NodeContext): string {
   const lineageContext = context.lineage.length > 0
     ? context.lineage.map((l, i) => {
         const indent = '  '.repeat(i);
-        return `${indent}→ ${l.question}: ${l.answer?.substring(0, 150) || '(in progress)'}...`;
+        return `${indent}→ ${l.question}: ${l.answer?.substring(0, 120) || '(in progress)'}`;
       }).join('\n')
-    : '(Root level)';
+    : '(root)';
 
-  return `You are synthesizing your research findings.
+  return `We're trying to answer a bigger question:
+${context.objective}
 
-ROOT OBJECTIVE: ${context.objective}
+To get there, we break it into smaller research questions.
+You just explored one of those.
 
-RESEARCH LINEAGE:
+Path so far:
 ${lineageContext}
 
-YOUR TASK:
-Question: ${context.task.question}
-Why: ${context.task.reason}
+Your question:
+${context.task.question}
 
-Write a comprehensive findings document that:
-1. Directly answers the question
-2. Includes specific facts, numbers, names when available
-3. Notes any important gaps or uncertainties
-4. Considers how this connects to the root objective
+Why we asked it:
+${context.task.reason}
 
-OUTPUT SHAPE (keep it tight and decision-ready):
-- Start with a 3–6 bullet summary of the answer (high signal).
-- Then include evidence as short bullets with source hints (who/what/when/where).
-- If applicable, include a small shortlist/table (up to 5 items) with:
-  name/item | why it matters | evidence/source
-- Include a brief "Excluded / deprioritized" section ONLY if you ruled things out:
-  list what you discarded and why (to prevent repeating dead ends).
-- End with "Remaining unknowns" (max 3) if the answer is not fully confident.
+Tell us the important things you learned.
 
-FOLLOW-UP SUGGESTIONS (0-${RESEARCH_LIMITS.maxFollowupsPerNode}):
-Only suggest a followup if you genuinely believe it will help achieve: "${context.objective}"
+Include anything that feels relevant, surprising, or decision-shaping.
+If you ruled things out, mention that too.
+If there are still big unknowns, mention those.
 
-Ask yourself: "If I had this answer, would it materially change what we recommend to the user?"
-If no → don't suggest it.
-
-When suggesting:
-- question: SHORT (under 12 words), hypothesis-driven, specific
-- reason: "I'm suggesting this because [specific gap] → [how it helps the main objective]"
-
-Examples of BAD followups (don't do these):
-- Generic background questions that won't change the answer
-- "Nice to know" tangents that are interesting but not actionable
-- Questions already answered or being researched elsewhere
-
-Examples of GOOD followups:
-- "Which of these 5 companies had layoffs recently?" → timing signal for outreach
-- "What's the typical deal size for podcast networks?" → helps prioritize targets
-
-If your findings are solid and actionable, suggest 0 followups. Don't pad.`;
+At the end, suggest follow-up questions only if you genuinely think they would help us answer the main question better.
+If not, suggest none.`;
 }
+
 
 function buildMessages(searches: SearchEntry[]): Array<{ role: 'user' | 'assistant'; content: string }> {
   return searches.map((s) => {

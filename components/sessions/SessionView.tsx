@@ -561,14 +561,8 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
     if (lastEvent.id === lastEventIdRef.current) return;
     lastEventIdRef.current = lastEvent.id;
 
-    // Show toast for decision events
-    if (lastEvent.type === 'brain_decision' || lastEvent.type === 'brain_strategy') {
-      toast(lastEvent.label, {
-        description: lastEvent.detail,
-        icon: <Brain className="w-4 h-4" />,
-        duration: 4000,
-      });
-    } else if (lastEvent.type === 'spawn' || lastEvent.type === 'question_spawned') {
+    // Show toast for events (brain_decision handled by DecisionToast in ResearchLayout)
+    if (lastEvent.type === 'spawn' || lastEvent.type === 'question_spawned') {
       toast(lastEvent.label, {
         description: lastEvent.detail,
         icon: <Zap className="w-4 h-4 text-blue-400" />,

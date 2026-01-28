@@ -453,7 +453,7 @@ export function useSession(options: UseSessionOptions = {}) {
         if (update.type === 'brain_decision') {
           const decision = (update as any).decision || '';
           const reasoning = (update as any).reasoning || '';
-          addEvent('brain_decision', `Decision: ${decision}`, reasoning.substring(0, 60), 'plan');
+          addEvent('brain_decision', `Decision: ${decision}`, reasoning, 'plan');
         }
 
         if (update.type === 'brain_synthesizing') {
@@ -586,7 +586,9 @@ export function useSession(options: UseSessionOptions = {}) {
                   });
                   // Check if findings changed
                   const findingsChanged = JSON.stringify(prev.findings || []) !== JSON.stringify(parsed.findings || []);
-                  if (statusChanged || nodeCountChanged || anyNodeChanged || finalAnswerChanged || findingsChanged) {
+                  // Check if decisions changed
+                  const decisionsChanged = (prev.decisions?.length || 0) !== (parsed.decisions?.length || 0);
+                  if (statusChanged || nodeCountChanged || anyNodeChanged || finalAnswerChanged || findingsChanged || decisionsChanged) {
                     return parsed as ResearchState;
                   }
                   return prev; // No meaningful change, keep previous state

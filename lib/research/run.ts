@@ -110,6 +110,15 @@ export async function runResearch(config: RunConfig): Promise<RunResult> {
             answerLength: node.answer?.length || 0,
           });
         },
+
+        onDecision: (decision, reasoning) => {
+          log('Cortex decision', { decision, reasoning });
+          onProgress?.({
+            type: 'brain_decision',
+            decision,
+            reasoning,
+          });
+        },
       }
     );
 
