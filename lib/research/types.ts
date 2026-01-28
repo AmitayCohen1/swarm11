@@ -12,6 +12,7 @@ export const RESEARCH_LIMITS = {
   maxNodes: 20,
   maxDepth: 4,
   maxTimeMs: 10 * 60 * 1000, // 10 minutes
+  maxConcurrentNodes: 3,
   minSearchesPerNode: 3,
   maxSearchesPerNode: 10,
   maxFollowupsPerNode: 2,
@@ -22,7 +23,7 @@ export const RESEARCH_LIMITS = {
 // Core Types
 // ============================================================
 
-export type NodeStatus = 'pending' | 'running' | 'done';
+export type NodeStatus = 'pending' | 'running' | 'done' | 'pruned';
 export type Confidence = 'low' | 'medium' | 'high';
 export type ResearchStatus = 'running' | 'complete' | 'stopped';
 
@@ -46,6 +47,10 @@ export interface ResearchNode {
   answer?: string;
   confidence?: Confidence;
   suggestedFollowups?: Followup[];
+
+  // Tree control knobs
+  priority?: number; // 1 (cold) → 5 (hot)
+  prunedReason?: string;
 
   // Search history (for UI display)
   searches?: SearchEntry[];
@@ -73,6 +78,26 @@ export interface Source {
 }
 
 // ============================================================
+// Findings Doc (incremental synthesis)
+// ============================================================
+
+export interface FindingSource {
+  url: string;
+  title?: string;
+  nodeId?: string;
+  query?: string;
+}
+
+export interface Finding {
+  key: string; // stable identifier, e.g. "top_candidates" / "pricing_evidence"
+  title: string;
+  content: string;
+  confidence: Confidence;
+  sources: FindingSource[];
+  updatedAt: number;
+}
+
+// ============================================================
 // Research State (stored in DB, used everywhere)
 // ============================================================
 
@@ -90,6 +115,9 @@ export interface ResearchState {
 
   // All nodes in the tree (flat map for easy lookup)
   nodes: Record<string, ResearchNode>;
+
+  // Incremental synthesis document (curated findings + sources)
+  findings?: Finding[];
 
   // Final synthesized answer (when complete)
   finalAnswer?: string;
@@ -137,6 +165,7 @@ export interface LineageEntry {
 export interface CortexView {
   objective: string;
   successCriteria?: string[];
+  findings: Finding[];
   nodes: Array<{
     id: string;
     parentId: string | null;
@@ -166,6 +195,7 @@ export function createInitialState(
     successCriteria,
     status: 'running',
     nodes: {},
+    findings: [],
     decisions: [],
   };
 }
@@ -173,7 +203,8 @@ export function createInitialState(
 export function createNode(
   question: string,
   reason: string,
-  parentId: string | null = null
+  parentId: string | null = null,
+  priority: number = 3
 ): ResearchNode {
   return {
     id: generateId(),
@@ -182,6 +213,7 @@ export function createNode(
     reason,
     status: 'pending',
     createdAt: Date.now(),
+    priority,
   };
 }
 
@@ -224,6 +256,7 @@ export function buildCortexView(state: ResearchState): CortexView {
   return {
     objective: state.objective,
     successCriteria: state.successCriteria,
+    findings: state.findings || [],
     nodes: Object.values(state.nodes).map((n) => ({
       id: n.id,
       parentId: n.parentId,
@@ -241,7 +274,7 @@ export function buildCortexView(state: ResearchState): CortexView {
  * Count nodes by status
  */
 export function countByStatus(state: ResearchState): Record<NodeStatus, number> {
-  const counts: Record<NodeStatus, number> = { pending: 0, running: 0, done: 0 };
+  const counts: Record<NodeStatus, number> = { pending: 0, running: 0, done: 0, pruned: 0 };
   for (const node of Object.values(state.nodes)) {
     counts[node.status]++;
   }

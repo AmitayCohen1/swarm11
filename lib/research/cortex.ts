@@ -15,6 +15,8 @@ import {
   ResearchNode,
   CortexView,
   Followup,
+  Finding,
+  FindingSource,
   buildCortexView,
   createNode,
   countByStatus,
@@ -35,10 +37,26 @@ const SpawnNodeSchema = z.object({
   parentId: z.string().nullable().describe('ID of parent node, or null for root-level'),
 });
 
+// Note: OpenAI strict JSON schema requires all fields to be required
+const FindingSourceSchema = z.object({
+  url: z.string().describe('Source URL (required)'),
+  title: z.string().describe('Source title (use empty string if unknown)'),
+});
+
+const FindingUpdateSchema = z.object({
+  action: z.enum(['add', 'update', 'remove']).describe('add = new finding, update = revise existing, remove = invalidated'),
+  key: z.string().describe('Stable identifier for this finding (e.g., "top_candidates", "pricing_data", "disqualifiers")'),
+  title: z.string().describe('Human-readable title (required for add/update, empty string for remove)'),
+  content: z.string().describe('The finding content (required for add/update, empty string for remove)'),
+  confidence: z.enum(['low', 'medium', 'high']).describe('Confidence level'),
+  sources: z.array(FindingSourceSchema).describe('Sources supporting this finding (can be empty array)'),
+});
+
 const EvaluateSchema = z.object({
   reasoning: z.string().describe('Think through: (1) What do we know? (2) Are success criteria addressed? (3) What gaps remain? (4) Is more research worth it?'),
   decision: z.enum(['spawn', 'done']).describe('spawn = critical gaps remain, done = have enough actionable info'),
   nodesToSpawn: z.array(SpawnNodeSchema).max(RESEARCH_LIMITS.maxNodesPerSpawn).describe('New nodes to create (if decision=spawn). Empty array if done.'),
+  findingUpdates: z.array(FindingUpdateSchema).max(5).describe('Updates to the findings doc based on new research. Extract key insights, lists, evidence.'),
 });
 
 const FinishSchema = z.object({
@@ -49,6 +67,15 @@ const FinishSchema = z.object({
 // Types
 // ============================================================
 
+export interface FindingUpdate {
+  action: 'add' | 'update' | 'remove';
+  key: string;
+  title?: string;
+  content?: string;
+  confidence?: 'low' | 'medium' | 'high';
+  sources?: FindingSource[];
+}
+
 export interface CortexDecision {
   reasoning: string;
   decision: 'spawn' | 'done';
@@ -57,6 +84,7 @@ export interface CortexDecision {
     reason: string;
     parentId: string | null;
   }>;
+  findingUpdates: FindingUpdate[];
   tokens: number;
 }
 
@@ -77,19 +105,24 @@ export async function evaluate(
   const counts = countByStatus(state);
   const completedNode = completedNodeId ? state.nodes[completedNodeId] : null;
 
-  const prompt = buildEvaluatePrompt(view, completedNode, counts);
+  const prompt = buildEvaluatePrompt(view, completedNode, counts, state.findings || []);
 
   const result = await generateText({
     model,
     prompt,
     output: Output.object({ schema: EvaluateSchema }),
+    providerOptions: {
+      openai: {
+        reasoningEffort: 'low',
+      },
+    },
   });
 
   const data = result.output as z.infer<typeof EvaluateSchema>;
   const tokens = result.usage?.totalTokens || 0;
 
   trackLlmCall({
-    agentId: 'cortex_evaluate',
+    agentId: 'cSZaU3rjiQxw', // Brain Evaluate (Observatory)
     model: RESEARCH_MODEL,
     systemPrompt: prompt,
     input: { objective: view.objective, nodeCount: view.nodes.length, completedNodeId },
@@ -105,6 +138,7 @@ export async function evaluate(
       reason: n.reason,
       parentId: n.parentId,
     })),
+    findingUpdates: data.findingUpdates || [],
     tokens,
   };
 }
@@ -115,19 +149,24 @@ export async function evaluate(
 
 export async function finish(state: ResearchState): Promise<CortexFinishResult> {
   const view = buildCortexView(state);
-  const prompt = buildFinishPrompt(view);
+  const prompt = buildFinishPrompt(view, state.findings || []);
 
   const result = await generateText({
     model,
     prompt,
     output: Output.object({ schema: FinishSchema }),
+    providerOptions: {
+      openai: {
+        reasoningEffort: 'low',
+      },
+    },
   });
 
   const data = result.output as z.infer<typeof FinishSchema>;
   const tokens = result.usage?.totalTokens || 0;
 
   trackLlmCall({
-    agentId: 'cortex_finish',
+    agentId: 'Uy4dSnQuHdzi', // Brain Finish (Observatory)
     model: RESEARCH_MODEL,
     systemPrompt: prompt,
     input: { objective: view.objective, nodeCount: view.nodes.length },
@@ -227,123 +266,170 @@ export function stopResearch(state: ResearchState): ResearchState {
 }
 
 // ============================================================
+// Findings doc updater (pure)
+// ============================================================
+
+export function applyFindingUpdates(state: ResearchState, updates: FindingUpdate[]): ResearchState {
+  if (!updates || updates.length === 0) return state;
+  const existing = [...(state.findings || [])];
+  const byKey = new Map(existing.map((f) => [f.key, f]));
+
+  for (const u of updates) {
+    const key = (u.key || '').trim();
+    if (!key) continue;
+
+    if (u.action === 'remove') {
+      byKey.delete(key);
+      continue;
+    }
+
+    // Filter out sources with empty URLs and map to FindingSource format
+    const validSources = (u.sources || [])
+      .filter((s) => s.url && s.url.trim())
+      .map((s) => ({
+        url: s.url,
+        title: s.title || undefined,
+      }));
+
+    const next: Finding = {
+      key,
+      title: (u.title || '').trim() || key,
+      content: u.content || '',
+      confidence: u.confidence || 'medium',
+      sources: validSources,
+      updatedAt: Date.now(),
+    };
+
+    // add/update behave similarly: replace by key
+    byKey.set(key, next);
+  }
+
+  // Preserve stable order: keep existing order, append new keys at end
+  const remainingKeys = new Set(byKey.keys());
+  const ordered: Finding[] = [];
+  for (const f of existing) {
+    const v = byKey.get(f.key);
+    if (v) {
+      ordered.push(v);
+      remainingKeys.delete(f.key);
+    }
+  }
+  for (const k of remainingKeys) {
+    const v = byKey.get(k);
+    if (v) ordered.push(v);
+  }
+
+  return { ...state, findings: ordered };
+}
+
+// ============================================================
 // Prompt Builders
 // ============================================================
 
 function buildEvaluatePrompt(
   view: CortexView,
   completedNode: ResearchNode | null,
-  counts: Record<string, number>
+  counts: Record<string, number>,
+  findings: Finding[]
 ): string {
-  const nodesContext = view.nodes.length > 0
-    ? view.nodes.map((n) => {
-        const status = n.status === 'done' ? '✓' : n.status === 'running' ? '...' : '○';
-        const parent = n.parentId ? ` (child of ${n.parentId})` : ' (root)';
-        const doc = n.answer ? `\n   Result: ${n.answer}` : '';
-        return `[${status}] ${n.id}${parent}\n   Q: ${n.question}\n   Why: ${n.reason}${doc}`;
-      }).join('\n\n')
-    : '(No nodes yet)';
+  const tree = view.nodes.length
+    ? view.nodes
+        .map((n) => {
+          const s = n.status === 'done' ? '✓' : n.status === 'running' ? '⟳' : '○';
+          const p = n.parentId ? `→${n.parentId}` : '';
+          return `${s} ${n.id}${p ? ` (${p})` : ''}: ${n.question}`;
+        })
+        .join('\n')
+    : '(no nodes)';
 
-  const suggestionsText = completedNode?.suggestedFollowups?.length
-    ? `\n\nSUGGESTED FOLLOW-UPS (from the researcher - consider these but decide yourself):\n${completedNode.suggestedFollowups.map((s, i) => `  ${i + 1}. "${s.question}" - ${s.reason}`).join('\n')}`
+  const findingsDoc = findings.length
+    ? findings
+        .slice(0, 20)
+        .map((f) => `- [${f.key}] ${f.title} (${f.confidence}) — ${f.content}`)
+        .join('\n')
+    : '(empty)';
+
+  const completedBlock = completedNode
+    ? `\nLATEST RESULT:\n- nodeId: ${completedNode.id}\n- question: ${completedNode.question}\n- confidence: ${completedNode.confidence}\n- answer: ${completedNode.answer}`
     : '';
 
-  const justCompleted = completedNode
-    ? `\n\nJUST COMPLETED:\n- Node: ${completedNode.id}\n- Question: ${completedNode.question}\n- Result: ${completedNode.answer}\n- Confidence: ${completedNode.confidence}${suggestionsText}`
-    : '';
+  const constraints = Array.isArray(view.successCriteria) && view.successCriteria.length > 0
+    ? view.successCriteria.map((c) => `- ${c}`).join('\n')
+    : '(none)';
 
-  return `You are the Cortex - the brain orchestrating a research tree.
+  return `You're orchestrating research like a resourceful investigator, not a search engine.
 
 OBJECTIVE: ${view.objective}
-${Array.isArray(view.successCriteria) && view.successCriteria.length > 0 ? `SUCCESS CRITERIA:\n${view.successCriteria.map((c) => `- ${c}`).join('\n')}` : ''}
 
-CURRENT TREE (${counts.done} done, ${counts.running} running, ${counts.pending} pending):
-${nodesContext}
-${justCompleted}
+SUCCESS CRITERIA:
+${constraints}
 
-YOUR TASK:
-1. Analyze what we know and what gaps remain
-2. Decide: do we need more research (spawn) or have enough (done)?
-3. If spawning, specify which nodes to create and where to attach them
+FINDINGS SO FAR:
+${findingsDoc}
 
-WHEN TO DECIDE "DONE" (finish research):
-${Array.isArray(view.successCriteria) && view.successCriteria.length > 0
-  ? `✓ All success criteria are addressed with confident answers:
-${view.successCriteria.map((c) => `  - "${c}"`).join('\n')}`
-  : `✓ The objective can be answered with actionable, specific information`}
-✓ We have ENOUGH info to give a useful answer (not perfect, but actionable)
-✓ Additional research would only add marginal value
-✓ Key questions have medium or high confidence answers
-${counts.running > 0 ? `\nNOTE: ${counts.running} node(s) still running - their results will be included in final synthesis. Consider if you need MORE beyond those.` : ''}
+TREE (${counts.done} done / ${counts.running} running / ${counts.pending} pending):
+${tree}${completedBlock}
 
-WHEN TO SPAWN MORE:
-✗ Critical gaps remain that would make the answer incomplete
-✗ Success criteria are not yet addressed
-✗ We only have surface-level info, need to dig deeper
-✗ Low confidence on important questions
+HOW TO THINK:
+- Form hypotheses, not queries. "Maybe industry events list key players" beats "how to find decision makers"
+- Chase signals of quality. Job titles lie. Look for where good people actually show up.
+- Cross-reference and filter. Found 50 names? Great - now find which ones are actually relevant.
+- Look for timing signals. Recent job changes, funding announcements, layoffs = opportunities.
+- Dead ends are data. If something didn't work, that tells you where to pivot.
+- Stop when actionable. One great lead beats 50 maybes. Don't "cover everything."
 
-THINK STRATEGICALLY:
-Don't just map out a market - dig into what makes the research ACTIONABLE:
-- Pain points: Who has the PROBLEM? Who's been burned?
-- Buying signals: Who's already spending money on solutions?
-- Urgency: What trends/events make this urgent NOW?
-- Decision makers: Who actually buys, not just who uses?
-- Proof points: What evidence shows the problem is real?
-
-BAD research tree (just listing): "Top podcast networks" → "Top news orgs" → "Top radio groups"
-GOOD research tree (actionable): "Recent misinformation lawsuits in media" → "Companies that settled" → "What they're spending on prevention"
-
-QUESTION FORMAT:
-- SHORT: Under 12 words. No compound questions.
-- SPECIFIC: One clear thing to find out
-- ACTIONABLE: Leads to insights you can ACT on, not just facts to know
-
-REASON FORMAT (CRITICAL - write like explaining to someone):
-Pattern: "I'm asking this because [WHY THIS MATTERS]. This will help us [CONCRETE BENEFIT] which is essential for achieving our main goal: [REFERENCE OBJECTIVE]."
-
-GOOD reasons (conversational, clear connection):
-- "I'm asking this because knowing which companies got sued reveals who's desperate for solutions. This will help us find buyers with urgent pain, which is essential for finding real market demand."
-- "I'm asking this because pricing data tells us what the market will bear. This will help us position competitively, which is essential for our go-to-market strategy."
-
-BAD reasons (robotic, vague):
-- "By learning X, we can Y → directly answers Z" ❌ (too mechanical)
-- "This covers the entertainment aspect" ❌ (vague)
-- "Useful for understanding the market" ❌ (no clear connection)
-
-The reason MUST:
-1. Start with "I'm asking this because..." (human, conversational)
-2. Explain the INSIGHT we'll gain (not just what we'll learn)
-3. Connect to HOW it helps achieve: "${view.objective}"
+QUESTION QUALITY:
+- BAD: "How to find podcast executives?" (generic, no hypothesis)
+- BAD: "Contact details for media companies?" (too broad, no signal)
+- GOOD: "Which podcast networks focus on news/journalism content?" (specific, filterable)
+- GOOD: "What media companies announced audio initiatives recently?" (timing signal)
+- GOOD: "Who spoke at Podcast Movement 2024 about fact-checking?" (signal over credentials)
 
 RULES:
-- Max ${RESEARCH_LIMITS.maxNodesPerSpawn} new nodes per decision
-- Don't duplicate existing questions
-- Attach children under a node to go deeper on that subtopic
-- If all important gaps are filled, decide "done"
+- Respect user constraints exactly. Don't broaden scope.
+- Each node runs web searches - you orchestrate strategy, not queries.
+- If a question exists in the tree, don't repeat it.
+- Go deeper on promising threads. Let cold branches die.
+- If findings are actionable, say "done". Don't over-research.
 
-Think carefully, then respond.`;
+FINDING UPDATES:
+- Output 0–5 findingUpdates with stable snake_case keys.
+- For action="remove", use empty strings for title/content and [] for sources.
+
+Respond with JSON matching the schema.`;
 }
 
-function buildFinishPrompt(view: CortexView): string {
-  const nodesContext = view.nodes
+function buildFinishPrompt(view: CortexView, findings: Finding[]): string {
+  const findingsText = findings.length > 0
+    ? findings
+        .map((f) => {
+          const src = (f.sources || []).slice(0, 5).map((s) => `- ${s.title || s.url} (${s.url})`).join('\n');
+          const srcBlock = src ? `\n\nSources:\n${src}` : '';
+          return `### ${f.title}\n**Key:** ${f.key}\n**Confidence:** ${f.confidence}\n${f.content}${srcBlock}`;
+        })
+        .join('\n\n---\n\n')
+    : '(No findings doc yet. If needed, use completed research below.)';
+
+  const fallbackNodesContext = view.nodes
     .filter((n) => n.status === 'done' && n.answer)
-    .map((n) => {
-      const parent = n.parentId ? ` (under ${n.parentId})` : '';
-      return `### ${n.question}${parent}\n**Confidence:** ${n.confidence || 'unknown'}\n${n.answer}`;
-    })
-    .join('\n\n---\n\n');
+    .slice(0, 10)
+    .map((n) => `- ${n.question} (${n.confidence || 'unknown'}): ${String(n.answer).substring(0, 240)}${String(n.answer).length > 240 ? '…' : ''}`)
+    .join('\n');
 
   return `You are synthesizing research findings into a final answer.
 
 OBJECTIVE: ${view.objective}
 ${Array.isArray(view.successCriteria) && view.successCriteria.length > 0 ? `SUCCESS CRITERIA:\n${view.successCriteria.map((c) => `- ${c}`).join('\n')}` : ''}
 
-COMPLETED RESEARCH:
-${nodesContext}
+FINDINGS DOC (PRIMARY SOURCE OF TRUTH):
+${findingsText}
+
+COMPLETED RESEARCH (fallback summaries):
+${fallbackNodesContext || '(none)'}
 
 Write a comprehensive, well-structured answer that:
 1. Directly addresses the objective
-2. Synthesizes findings from all research branches
+2. Synthesizes from the Findings Doc (and uses fallback only if needed)
 3. Notes confidence levels where relevant
 4. Is clear and actionable
 

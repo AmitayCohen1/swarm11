@@ -23,7 +23,7 @@ export async function searchWeb(query: string): Promise<SearchResult> {
   };
 
   try {
-    const run = async (modelName: 'sonar' | 'sonar-pro') => {
+    const run = async (modelName: 'sonar-pro') => {
       return await generateText({
         model: perplexity(modelName),
         prompt: query
@@ -32,11 +32,9 @@ export async function searchWeb(query: string): Promise<SearchResult> {
 
     // `sonar` is cheaper/faster but often returns no sources. If sources are empty,
     // retry once with `sonar-pro` so the UI can show citations.
-    let { text, sources: rawSources } = await run('sonar');
+    let { text, sources: rawSources } = await run('sonar-pro');
     if (!rawSources || rawSources.length === 0) {
-      const pro = await run('sonar-pro');
-      text = pro.text;
-      rawSources = pro.sources;
+      throw new Error('No sources found for query: ' + query);
     }
 
     const answer = text || '';

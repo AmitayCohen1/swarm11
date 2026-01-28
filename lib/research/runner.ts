@@ -152,6 +152,11 @@ export async function runResearch(
     // Ask cortex what to do
     const decision = await cortex.evaluate(state, event.nodeId);
 
+    // Apply finding updates first
+    if (decision.findingUpdates && decision.findingUpdates.length > 0) {
+      state = cortex.applyFindingUpdates(state, decision.findingUpdates);
+    }
+
     state = {
       ...state,
       totalTokens: (state.totalTokens || 0) + decision.tokens,
@@ -160,6 +165,7 @@ export async function runResearch(
         { timestamp: Date.now(), type: 'complete', reasoning: decision.reasoning, tokens: decision.tokens },
       ],
     };
+    emit();
 
     if (decision.decision === 'done') {
       return true; // Signal to finish
@@ -194,6 +200,12 @@ export async function runResearch(
 
   // 1. Initial cortex decision
   const initialDecision = await cortex.evaluate(state);
+
+  // Apply any initial finding updates
+  if (initialDecision.findingUpdates && initialDecision.findingUpdates.length > 0) {
+    state = cortex.applyFindingUpdates(state, initialDecision.findingUpdates);
+  }
+
   state = {
     ...state,
     totalTokens: (state.totalTokens || 0) + initialDecision.tokens,
@@ -202,6 +214,7 @@ export async function runResearch(
       { timestamp: Date.now(), type: 'spawn', reasoning: initialDecision.reasoning, tokens: initialDecision.tokens },
     ],
   };
+  emit();
 
   if (initialDecision.decision === 'done' || initialDecision.nodesToSpawn.length === 0) {
     state.status = 'complete';
@@ -269,20 +282,17 @@ export async function runResearch(
     }
   }
 
-  // 5. Synthesize final answer
+  // 5. Mark complete (findings doc is the output - no synthesis needed)
   if (isAborted()) {
     state = cortex.stopResearch(state);
   } else {
-    const finishResult = await cortex.finish(state);
-    state = cortex.finishResearch(state, finishResult.answer);
-    state = {
-      ...state,
-      totalTokens: (state.totalTokens || 0) + finishResult.tokens,
-      decisions: [
-        ...(state.decisions || []),
-        { timestamp: Date.now(), type: 'finish', reasoning: 'Synthesized final answer', tokens: finishResult.tokens },
-      ],
-    };
+    // Format findings as final answer
+    const findings = state.findings || [];
+    const finalAnswer = findings.length > 0
+      ? findings.map(f => `**${f.title}**\n${f.content}`).join('\n\n')
+      : 'No findings were extracted during research.';
+
+    state = cortex.finishResearch(state, finalAnswer);
   }
   emit();
 

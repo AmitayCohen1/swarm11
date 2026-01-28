@@ -165,7 +165,7 @@ async function evaluate(
   const tokens = result.usage?.totalTokens || 0;
 
   trackLlmCall({
-    agentId: 'researcher_evaluate',
+    agentId: 'vveyd_AC0xrt', // Researcher Evaluate (Observatory)
     model: RESEARCH_MODEL,
     systemPrompt,
     input: { question: context.task.question, searchCount: searches.length },
@@ -203,7 +203,7 @@ async function finish(
   const tokens = result.usage?.totalTokens || 0;
 
   trackLlmCall({
-    agentId: 'researcher_finish',
+    agentId: 's98-GcuqAXIl', // Researcher Finish (Observatory)
     model: RESEARCH_MODEL,
     systemPrompt,
     input: { question: context.task.question, searchCount: searches.length },
@@ -270,14 +270,35 @@ Write a comprehensive findings document that:
 3. Notes any important gaps or uncertainties
 4. Considers how this connects to the root objective
 
-FOLLOW-UP SUGGESTIONS:
-Suggest up to ${RESEARCH_LIMITS.maxFollowupsPerNode} follow-up questions based on gaps you found during research.
-Each suggestion needs:
-- question: SHORT (under 12 words), specific, searchable
-- reason: Causal chain - "By learning X, we can Y → helps answer Z in objective"
+OUTPUT SHAPE (keep it tight and decision-ready):
+- Start with a 3–6 bullet summary of the answer (high signal).
+- Then include evidence as short bullets with source hints (who/what/when/where).
+- If applicable, include a small shortlist/table (up to 5 items) with:
+  name/item | why it matters | evidence/source
+- Include a brief "Excluded / deprioritized" section ONLY if you ruled things out:
+  list what you discarded and why (to prevent repeating dead ends).
+- End with "Remaining unknowns" (max 3) if the answer is not fully confident.
 
-Only suggest followups that would GENUINELY help the root objective.
-If your answer is complete and no gaps remain, suggest 0 followups.`;
+FOLLOW-UP SUGGESTIONS (0-${RESEARCH_LIMITS.maxFollowupsPerNode}):
+Only suggest a followup if you genuinely believe it will help achieve: "${context.objective}"
+
+Ask yourself: "If I had this answer, would it materially change what we recommend to the user?"
+If no → don't suggest it.
+
+When suggesting:
+- question: SHORT (under 12 words), hypothesis-driven, specific
+- reason: "I'm suggesting this because [specific gap] → [how it helps the main objective]"
+
+Examples of BAD followups (don't do these):
+- Generic background questions that won't change the answer
+- "Nice to know" tangents that are interesting but not actionable
+- Questions already answered or being researched elsewhere
+
+Examples of GOOD followups:
+- "Which of these 5 companies had layoffs recently?" → timing signal for outreach
+- "What's the typical deal size for podcast networks?" → helps prioritize targets
+
+If your findings are solid and actionable, suggest 0 followups. Don't pad.`;
 }
 
 function buildMessages(searches: SearchEntry[]): Array<{ role: 'user' | 'assistant'; content: string }> {

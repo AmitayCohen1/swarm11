@@ -30,6 +30,11 @@ Critical rule: represent what the user SAID, not what you infer.
 - Do not “helpfully” reframe the objective into a different task (e.g., "find customers" -> "identify segments") unless the user explicitly asked for that reframing.
 - If the user's wording is ambiguous, ask ONE clarifying question rather than changing the intent.
 
+User-intent fidelity (non-negotiable):
+- Treat user-stated constraints as HARD constraints (timeframe, location, audience, exclusions).
+- Do NOT silently broaden scope (e.g., a specific timeframe does NOT become "nearby" or "upcoming").
+- If a constraint is missing/unclear and would change the answer, ask ONE clarifying question instead of guessing.
+
 Tools you can use:
 - textInput: ask ONE short question that requires a text response.
 - multiChoiceSelect: ask ONE short question with 2–4 options.
@@ -45,7 +50,8 @@ Interaction rules:
 
 What “enough info” means:
 - We know what to research and what “done” looks like.
-- Any critical constraints are clarified (scope, timeframe, audience, output format).`;
+- Any critical constraints are clarified (scope, timeframe, audience, output format).
+Today is ${new Date().toISOString().split('T')[0]}`;
 }
 
 
@@ -68,41 +74,72 @@ export function brainEvalPrompt(args: {
     ? 'No completed research yet.'
     : `Completed research (${args.completedQuestionsCount}):\n${args.questionsContext}`;
 
-  return `Role: Brain.evaluate (planner)
-Objective: ${args.objective}
-Success criteria:\n${criteria}
+  return `Role: Brain.evaluate (investigative planner)
+
+Objective:
+${args.objective}
+
+Success criteria:
+${criteria}
+
 ${completed}
 
-Think of your job like this: you're choosing the next 1–3 research moves that will most increase our confidence in the main objective.
-If we're already confident enough to answer, say "done". If not, say "continue" and propose the next best questions.
+You are deciding whether we can STOP or must CONTINUE.
 
-What we want from questions: tight, answerable, and comparable.
-- Tight: one unknown at a time (so the researcher doesn't drift)
-- Answerable: something we can actually verify with web evidence
-- Comparable: scoped enough that results from different sources don't conflict (e.g. pick a segment/timeframe when needed)
+We stop when the user can reasonably ACT on the output
+(e.g., specific people, companies, leads, opportunities, or decisions),
+not when we have “learned a lot.”
 
-And most important: each question must clearly push us toward the main objective.
-If you can't explain "how does answering this help?", it's not the right question yet.
-Each research question should be only asking a single question. We need to be ultra specific so we won't drift. (Don't include "how.. and.. how..") 
-Each research question should be asking for ONE thing.
+If YES:
+- decision = "done"
+- Explain why the objective is now actionable.
 
-Write questions so they stand alone (no assumed context) and keep them short (<= 15 words).
+If NO:
+- decision = "continue"
+- Propose the next 1–3 investigative moves that most increase actionability.
 
-Prioritize questions that directly produce the deliverables implied by the objective.
-Avoid detours (e.g., “prove the pain with examples”) unless the objective explicitly requires that deliverable.
+Think in hypotheses and probes, not scripts.
 
-Return JSON:
+Good moves:
+- Test a concrete hypothesis
+- Seek real-world signals of quality or intent
+- Cross-reference sources to filter
+- Narrow toward specific, nameable entities
+
+Bad moves:
+- Broad market education
+- Trend summaries
+- Questions that only produce general knowledge
+
+Each proposed move should be expressible as a single, tight research question.
+
+Question rules:
+- Standalone
+- <= 15 words
+- One unknown only
+- Answerable with web evidence
+- Directly pushes toward actionable entities
+
+Return JSON ONLY:
+
 {
   decision: "continue" | "done",
   reason: string,
   reasoning: string,
-  questions: Array<{ question: string, description: string, goal: string }>
+  questions: Array<{
+    question: string,
+    description: string,
+    goal: string
+  }>
 }
 
-For each question:
-- description: 1 sentence: "We need this because <what we'll learn>, which helps the objective by <how>."
-- goal: what a good answer should contain (concrete).`;
+Field definitions:
+- reason: Short justification of stop/continue.
+- reasoning: Brief explanation of what we still lack or now possess.
+- description: "We need this because <what it reveals>, which helps by <how it narrows toward action>."
+- goal: What a good answer must concretely include.`;
 }
+
 
 
 // ------------------------------------------------------------------
@@ -149,6 +186,12 @@ Goal: ${args.goal || '(not provided)'}
 Think like a detective: after each search result, ask "what is the ONE missing piece that blocks answering the sub-question?"
 If you already have enough evidence to answer clearly, decide "done".
 If not, decide "continue" and propose the NEXT query that targets that missing piece.
+
+Scope rule (critical):
+- Stay laser-focused on answering the sub-question as written.
+- Do NOT expand the scope to adjacent topics, background context, or "nice to know" facts.
+- Your next query must target ONE missing piece, not a broad survey.
+- Respect constraints from the objective/sub-question (timeframe/geo/exclusions). Do NOT broaden them.
 
 Efficiency rule: if searches are no longer adding new information (diminishing returns),
 decide "done" and answer with what you have + explicitly list what’s missing.

@@ -54,7 +54,7 @@ const startResearch = tool({
 
 // Search tool - NO execute, we handle it manually
 const quick_web_search = tool({
-  description: 'Search the web to look up unfamiliar companies, products, or terms',
+  description: 'Search the web to look up unfamiliar companies, products, or terms or today\'s date',
   inputSchema: z.object({
     query: z.string().describe('The search query')
   })

@@ -171,6 +171,8 @@ export const agents = pgTable("agents", {
   name: text("name").notNull(),
   description: text("description").notNull(),
   model: text("model"),
+  // Evaluation settings
+  evalBatchSize: integer("eval_batch_size").notNull().default(3),
   criteria: jsonb("criteria").default([]),
   // Array of { name: string, description: string }
   createdAt: timestamp("created_at").defaultNow().notNull(),

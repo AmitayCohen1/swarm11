@@ -70,6 +70,7 @@ export async function GET(req: NextRequest) {
       name: agent.name,
       description: agent.description,
       model: agent.model,
+      evalBatchSize: agent.evalBatchSize,
       criteria: agent.metrics,
       stats: {
         totalCalls: totalCounts.find(t => t.agentId === agent.id)?.count ?? 0,

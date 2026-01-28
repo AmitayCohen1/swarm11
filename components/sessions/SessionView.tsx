@@ -594,8 +594,8 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
     );
   };
 
-  // Show research progress inline when researching or when we have research data
-  const showResearchProgress = isResearching || (researchDoc && 'nodes' in researchDoc && Object.keys(researchDoc.nodes).length > 0);
+  // Full-screen research mode: when researching or have research data with nodes
+  const isInResearchMode = isResearching || (researchDoc && 'nodes' in researchDoc && Object.keys(researchDoc.nodes).length > 0);
 
   // Helper to get icon for log entry
   const getLogIcon = (icon: string) => {
@@ -702,270 +702,310 @@ export default function SessionView({ sessionId: existingSessionId }: SessionVie
           </div>
         </header>
 
-        {/* Chat Content */}
-        <main className="flex-1 overflow-y-auto custom-scrollbar">
-          <div className="py-10 px-6 space-y-8 max-w-4xl mx-auto">
-              {messages.filter(m => m.metadata?.kind !== 'final').map((msg, idx) => {
-                if (msg.metadata?.type === 'research_iteration') return null;
+        {/* RESEARCH MODE: Full-screen react-flow with input at bottom */}
+        {isInResearchMode ? (
+          <div className="flex-1 flex flex-col min-h-0 relative animate-in fade-in zoom-in-95 duration-500">
+            {/* Full-screen Research Progress */}
+            <div className="flex-1 min-h-0 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-150">
+              {researchDoc && <ResearchProgress doc={researchDoc} fullScreen />}
+            </div>
 
-                const isUser = msg.role === 'user';
+            {/* Error Display - floating above input */}
+            {error && (
+              <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-50 max-w-xl px-4">
+                <div className="p-4 rounded-2xl bg-red-500/10 backdrop-blur-xl border border-red-500/20 flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
+                  <p className="text-sm text-red-400 font-medium">{error}</p>
+                </div>
+              </div>
+            )}
 
-                if (isUser) {
-                  return (
-                    <div key={idx} className="flex flex-col items-end gap-2 animate-in fade-in slide-in-from-right-4 duration-500">
-                      <div className="flex items-start gap-3 max-w-[85%]">
-                        <div className="px-5 py-3 rounded-[2rem] rounded-tr-lg bg-white text-black shadow-xl">
-                          <p className="text-base md:text-lg leading-relaxed font-semibold">{msg.content}</p>
+            {/* Floating Input at Bottom */}
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 w-full max-w-2xl px-4 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-300">
+              <form onSubmit={handleSend} className="relative group">
+                <div className="relative flex items-center gap-3 p-2 rounded-2xl bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl transition-all duration-300">
+                  <Input
+                    type="text"
+                    value={inputMessage}
+                    onChange={(e) => setInputMessage(e.target.value)}
+                    placeholder={status === 'ready' ? "Ask a follow-up question..." : "Researching..."}
+                    disabled={status !== 'ready'}
+                    className="flex-1 bg-transparent border-none h-10 px-4 text-sm focus-visible:ring-0 placeholder:text-slate-500 text-white font-medium"
+                  />
+                  <Button
+                    type="submit"
+                    disabled={!inputMessage.trim() || status !== 'ready'}
+                    className={cn(
+                      "h-10 w-10 rounded-xl transition-all duration-300",
+                      inputMessage.trim() && status === 'ready'
+                        ? 'bg-white text-black hover:bg-slate-200 active:scale-95'
+                        : 'bg-white/5 text-slate-600 opacity-30'
+                    )}
+                    size="icon"
+                  >
+                    <Send className="w-4 h-4" />
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        ) : (
+          /* CHAT MODE: Normal chat interface */
+          <>
+            <main className="flex-1 overflow-y-auto custom-scrollbar animate-in fade-in duration-500">
+              <div className="py-10 px-6 space-y-8 max-w-4xl mx-auto">
+                  {messages.filter(m => m.metadata?.kind !== 'final').map((msg, idx) => {
+                    if (msg.metadata?.type === 'research_iteration') return null;
+
+                    const isUser = msg.role === 'user';
+
+                    if (isUser) {
+                      return (
+                        <div key={idx} className="flex flex-col items-end gap-2 animate-in fade-in slide-in-from-right-4 duration-500">
+                          <div className="flex items-start gap-3 max-w-[85%]">
+                            <div className="px-5 py-3 rounded-[2rem] rounded-tr-lg bg-white text-black shadow-xl">
+                              <p className="text-base md:text-lg leading-relaxed font-semibold">{msg.content}</p>
+                            </div>
+                            <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center shrink-0 border border-white/5">
+                              <User className="w-4 h-4 text-slate-400" />
+                            </div>
+                          </div>
                         </div>
-                        <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center shrink-0 border border-white/5">
-                          <User className="w-4 h-4 text-slate-400" />
+                      );
+                    }
+
+                    // Metadata-driven messages (process steps)
+                    if (msg.metadata?.type === 'search_batch') {
+                      if (hasResearchNodes) return null;
+                      return <SearchBatch key={idx} queries={msg.metadata.queries || []} />;
+                    }
+                    if (msg.metadata?.type === 'extract_batch') {
+                      return (
+                        <ExtractBatch
+                          key={idx}
+                          purpose={msg.metadata.purpose}
+                          status={msg.metadata.status}
+                          results={msg.metadata.results || []}
+                          failed={msg.metadata.failed || []}
+                        />
+                      );
+                    }
+                    if (msg.metadata?.type === 'research_query') {
+                      if (hasResearchNodes) return null;
+                      return <ResearchQuery key={idx} msg={msg} />;
+                    }
+                    if (msg.metadata?.type === 'reasoning') {
+                      return <ReasoningContent key={idx} reflection={msg.metadata.reflection || ''} />;
+                    }
+                    if (msg.metadata?.type === 'research_progress') {
+                      return null; // Don't show in chat mode - we'll switch to research mode
+                    }
+                    if (msg.metadata?.type === 'review_result') {
+                      return (
+                        <ReviewResult
+                          key={idx}
+                          verdict={msg.metadata.verdict || 'unknown'}
+                          critique={msg.metadata.critique || ''}
+                          missing={msg.metadata.missing || []}
+                        />
+                      );
+                    }
+                    if (msg.metadata?.type === 'intake_search') {
+                      return (
+                        <div key={idx} className="flex items-start gap-5 animate-in fade-in slide-in-from-left-2 duration-500">
+                          <div className="w-10 h-10 rounded-2xl bg-amber-500/10 flex items-center justify-center shrink-0 border border-amber-500/20">
+                            <Search className="w-5 h-5 text-amber-400" />
+                          </div>
+                          <div className="flex-1 pt-2 space-y-2">
+                            <div className="flex items-center gap-2">
+                              <p className="text-xs font-bold text-amber-400 uppercase tracking-widest">Looked up</p>
+                              <Check className="w-3 h-3 text-emerald-400" />
+                            </div>
+                            <p className="text-sm text-slate-300 font-medium">{msg.metadata.query}</p>
+                            {msg.metadata.answer && (
+                              <div className="p-4 rounded-2xl bg-white/2 border border-white/5 mt-2">
+                                <div className="text-[13px] text-slate-400 leading-relaxed prose prose-invert prose-sm max-w-none">
+                                  <ReactMarkdown
+                                    components={{
+                                      p: ({ node, ...props }) => <p {...props} className="mb-2 last:mb-0" />,
+                                      a: ({ node, ...props }) => (
+                                        <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline font-medium" />
+                                      ),
+                                    }}
+                                  >
+                                    {msg.metadata.answer}
+                                  </ReactMarkdown>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+                    if (msg.metadata?.type === 'ask_user' || msg.metadata?.type === 'multi_choice_select') {
+                      return (
+                        <div key={idx} className="animate-in fade-in duration-500">
+                          <AskUserOptions
+                            question={msg.metadata.question || msg.content}
+                            options={msg.metadata.options || []}
+                            reason={msg.metadata.reason}
+                            status={status}
+                            onSelect={(value) => sendMessage(value)}
+                          />
+                        </div>
+                      );
+                    }
+                    // Default Agent Message
+                    return (
+                      <div key={idx} className="flex items-start gap-5 animate-in fade-in slide-in-from-left-4 duration-700">
+                        <div className="w-10 h-10 rounded-2xl bg-blue-600 flex items-center justify-center shrink-0 shadow-lg shadow-blue-500/20">
+                          <Zap className="w-5 h-5 text-white" />
+                        </div>
+                        <div className="flex-1 pt-2 space-y-3">
+                          {msg.metadata?.reason && (
+                            <p className="text-sm text-slate-500 italic font-medium">{msg.metadata.reason}</p>
+                          )}
+                          <div className="prose prose-invert max-w-none text-slate-200">
+                            <ReactMarkdown
+                              components={{
+                                p: ({ node, ...props }) => <p {...props} className="text-base md:text-lg leading-relaxed mb-4 last:mb-0 font-medium" />,
+                                ul: ({ node, ...props }) => <ul {...props} className="mb-4 space-y-3 list-none" />,
+                                ol: ({ node, ...props }) => <ol {...props} className="mb-4 space-y-3 list-decimal list-inside" />,
+                                li: ({ node, ...props }) => (
+                                  <li className="flex items-start gap-3 text-base md:text-lg font-medium">
+                                    <span className="mt-2.5 w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                                    <span {...props} />
+                                  </li>
+                                ),
+                                h1: ({ node, ...props }) => <h1 {...props} className="text-3xl font-black mb-6 tracking-tighter text-white" />,
+                                h2: ({ node, ...props }) => <h2 {...props} className="text-2xl font-bold mb-4 tracking-tight text-white" />,
+                                h3: ({ node, ...props }) => <h3 {...props} className="text-xl font-bold mb-3 tracking-tight text-white" />,
+                                strong: ({ node, ...props }) => <strong {...props} className="font-black text-white" />,
+                                code: (rawProps: any) => {
+                                  const { inline, ...props } = rawProps || {};
+                                  return inline
+                                    ? <code {...props} className="px-1.5 py-0.5 bg-white/10 rounded-md text-sm font-mono text-blue-300" />
+                                    : <pre className="p-5 bg-white/2 rounded-2xl text-sm overflow-x-auto my-8 border border-white/5 shadow-inner"><code {...props} className="font-mono text-slate-300" /></pre>;
+                                },
+                              }}
+                            >
+                              {msg.content}
+                            </ReactMarkdown>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* Final Answer - Always below research progress */}
+                  {messages.filter(m => m.metadata?.kind === 'final').map((msg, idx) => (
+                    <div key={`final-${idx}`} className="flex items-start gap-5 animate-in fade-in slide-in-from-left-4 duration-1000 mt-12 pt-12 border-t border-white/5">
+                      <div className="w-12 h-12 rounded-2xl bg-emerald-500 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-500/20">
+                        <CheckCircle className="w-6 h-6 text-white" />
+                      </div>
+                      <div className="flex-1 pt-2 space-y-4">
+                        <p className="text-[10px] font-black text-emerald-500 uppercase tracking-[0.3em]">Final Insight Matrix</p>
+                        <div className="prose prose-invert max-w-none text-white">
+                          <ReactMarkdown
+                            components={{
+                              p: ({ node, ...props }) => <p {...props} className="text-lg md:text-xl leading-relaxed mb-6 last:mb-0 font-semibold" />,
+                              ul: ({ node, ...props }) => <ul {...props} className="mb-6 space-y-4 list-none" />,
+                              ol: ({ node, ...props }) => <ol {...props} className="mb-6 space-y-4 list-decimal list-inside" />,
+                              li: ({ node, ...props }) => (
+                                <li className="flex items-start gap-3 text-lg md:text-xl font-semibold">
+                                  <span className="mt-3 w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                                  <span {...props} />
+                                </li>
+                              ),
+                              h1: ({ node, ...props }) => <h1 {...props} className="text-4xl font-black mb-8 tracking-tighter" />,
+                              h2: ({ node, ...props }) => <h2 {...props} className="text-3xl font-bold mb-6 tracking-tight" />,
+                              h3: ({ node, ...props }) => <h3 {...props} className="text-2xl font-bold mb-4 tracking-tight" />,
+                              strong: ({ node, ...props }) => <strong {...props} className="font-black text-emerald-400" />,
+                            }}
+                          >
+                            {msg.content}
+                          </ReactMarkdown>
                         </div>
                       </div>
                     </div>
-                  );
-                }
+                  ))}
 
-                // Metadata-driven messages (process steps)
-                if (msg.metadata?.type === 'search_batch') {
-                  if (hasResearchNodes) return null;
-                  return <SearchBatch key={idx} queries={msg.metadata.queries || []} />;
-                }
-                if (msg.metadata?.type === 'extract_batch') {
-                  return (
-                    <ExtractBatch
-                      key={idx}
-                      purpose={msg.metadata.purpose}
-                      status={msg.metadata.status}
-                      results={msg.metadata.results || []}
-                      failed={msg.metadata.failed || []}
-                    />
-                  );
-                }
-                if (msg.metadata?.type === 'research_query') {
-                  if (hasResearchNodes) return null;
-                  return <ResearchQuery key={idx} msg={msg} />;
-                }
-                if (msg.metadata?.type === 'reasoning') {
-                  return <ReasoningContent key={idx} reflection={msg.metadata.reflection || ''} />;
-                }
-                if (msg.metadata?.type === 'research_progress') {
-                  return (
-                    <div key={idx} className="animate-in fade-in duration-700">
-                      {researchDoc && <ResearchProgress doc={researchDoc} />}
-                    </div>
-                  );
-                }
-                if (msg.metadata?.type === 'review_result') {
-                  return (
-                    <ReviewResult
-                      key={idx}
-                      verdict={msg.metadata.verdict || 'unknown'}
-                      critique={msg.metadata.critique || ''}
-                      missing={msg.metadata.missing || []}
-                    />
-                  );
-                }
-                if (msg.metadata?.type === 'intake_search') {
-                  return (
-                    <div key={idx} className="flex items-start gap-5 animate-in fade-in slide-in-from-left-2 duration-500">
+                  {/* Intake Search Indicator */}
+                  {intakeSearch && (
+                    <div className="flex items-start gap-5 animate-in fade-in slide-in-from-left-2 duration-300">
                       <div className="w-10 h-10 rounded-2xl bg-amber-500/10 flex items-center justify-center shrink-0 border border-amber-500/20">
-                        <Search className="w-5 h-5 text-amber-400" />
+                        <Search className={`w-5 h-5 text-amber-400 ${intakeSearch.status === 'searching' ? 'animate-pulse' : ''}`} />
                       </div>
                       <div className="flex-1 pt-2 space-y-2">
                         <div className="flex items-center gap-2">
-                          <p className="text-xs font-bold text-amber-400 uppercase tracking-widest">Looked up</p>
-                          <Check className="w-3 h-3 text-emerald-400" />
+                          <p className="text-xs font-bold text-amber-400 uppercase tracking-widest">
+                            {intakeSearch.status === 'searching' ? 'Looking up' : 'Looked up'}
+                          </p>
+                          {intakeSearch.status === 'searching' && (
+                            <Loader2 className="w-3 h-3 text-amber-400 animate-spin" />
+                          )}
+                          {intakeSearch.status === 'complete' && (
+                            <Check className="w-3 h-3 text-emerald-400" />
+                          )}
                         </div>
-                        <p className="text-sm text-slate-300 font-medium">{msg.metadata.query}</p>
-                        {msg.metadata.answer && (
-                          <div className="p-4 rounded-2xl bg-white/2 border border-white/5 mt-2">
-                            <div className="text-[13px] text-slate-400 leading-relaxed prose prose-invert prose-sm max-w-none">
-                              <ReactMarkdown
-                                components={{
-                                  p: ({ node, ...props }) => <p {...props} className="mb-2 last:mb-0" />,
-                                  a: ({ node, ...props }) => (
-                                    <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline font-medium" />
-                                  ),
-                                }}
-                              >
-                                {msg.metadata.answer}
-                              </ReactMarkdown>
-                            </div>
+                        <p className="text-sm text-slate-300 font-medium">{intakeSearch.query}</p>
+                        {intakeSearch.status === 'complete' && intakeSearch.answer && (
+                          <div className="mt-2 p-3 rounded-lg bg-white/[0.02] border border-white/5 max-h-48 overflow-y-auto">
+                            <p className="text-xs text-slate-400 leading-relaxed whitespace-pre-wrap">
+                              {intakeSearch.answer}
+                                                      </p>
                           </div>
                         )}
                       </div>
                     </div>
-                  );
-                }
-                if (msg.metadata?.type === 'ask_user' || msg.metadata?.type === 'multi_choice_select') {
-                  return (
-                    <div key={idx} className="animate-in fade-in duration-500">
-                      <AskUserOptions
-                        question={msg.metadata.question || msg.content}
-                        options={msg.metadata.options || []}
-                        reason={msg.metadata.reason}
-                        status={status}
-                        onSelect={(value) => sendMessage(value)}
-                      />
-                    </div>
-                  );
-                }
-                // Default Agent Message
-                return (
-                  <div key={idx} className="flex items-start gap-5 animate-in fade-in slide-in-from-left-4 duration-700">
-                    <div className="w-10 h-10 rounded-2xl bg-blue-600 flex items-center justify-center shrink-0 shadow-lg shadow-blue-500/20">
-                      <Zap className="w-5 h-5 text-white" />
-                    </div>
-                    <div className="flex-1 pt-2 space-y-3">
-                      {msg.metadata?.reason && (
-                        <p className="text-sm text-slate-500 italic font-medium">{msg.metadata.reason}</p>
-                      )}
-                      <div className="prose prose-invert max-w-none text-slate-200">
-                        <ReactMarkdown
-                          components={{
-                            p: ({ node, ...props }) => <p {...props} className="text-base md:text-lg leading-relaxed mb-4 last:mb-0 font-medium" />,
-                            ul: ({ node, ...props }) => <ul {...props} className="mb-4 space-y-3 list-none" />,
-                            ol: ({ node, ...props }) => <ol {...props} className="mb-4 space-y-3 list-decimal list-inside" />,
-                            li: ({ node, ...props }) => (
-                              <li className="flex items-start gap-3 text-base md:text-lg font-medium">
-                                <span className="mt-2.5 w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
-                                <span {...props} />
-                              </li>
-                            ),
-                            h1: ({ node, ...props }) => <h1 {...props} className="text-3xl font-black mb-6 tracking-tighter text-white" />,
-                            h2: ({ node, ...props }) => <h2 {...props} className="text-2xl font-bold mb-4 tracking-tight text-white" />,
-                            h3: ({ node, ...props }) => <h3 {...props} className="text-xl font-bold mb-3 tracking-tight text-white" />,
-                            strong: ({ node, ...props }) => <strong {...props} className="font-black text-white" />,
-                            code: (rawProps: any) => {
-                              const { inline, ...props } = rawProps || {};
-                              return inline
-                                ? <code {...props} className="px-1.5 py-0.5 bg-white/10 rounded-md text-sm font-mono text-blue-300" />
-                                : <pre className="p-5 bg-white/2 rounded-2xl text-sm overflow-x-auto my-8 border border-white/5 shadow-inner"><code {...props} className="font-mono text-slate-300" /></pre>;
-                            },
-                          }}
-                        >
-                          {msg.content}
-                        </ReactMarkdown>
+                  )}
+
+
+                  {/* Error Display */}
+                  {error && (
+                    <div className="mx-auto max-w-2xl p-6 rounded-3xl bg-red-500/5 border border-red-500/10 flex items-start gap-4 animate-in shake-1">
+                      <AlertCircle className="w-6 h-6 text-red-500 shrink-0 mt-0.5" />
+                      <div className="space-y-1">
+                        <p className="text-xs font-black text-red-500 uppercase tracking-widest">Neural Fault</p>
+                        <p className="text-base text-red-400/80 leading-relaxed font-medium">{error}</p>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  )}
 
-              {/* Research Progress - Show when researching (only if no anchor message exists) */}
-              {showResearchProgress && researchDoc && !messages.some(m => m.metadata?.type === 'research_progress') && (
-                <div className="animate-in fade-in duration-500">
-                  <ResearchProgress doc={researchDoc} />
+                  <div ref={messagesEndRef} className="h-10" />
                 </div>
-              )}
+            </main>
 
-              {/* Final Answer - Always below research progress */}
-              {messages.filter(m => m.metadata?.kind === 'final').map((msg, idx) => (
-                <div key={`final-${idx}`} className="flex items-start gap-5 animate-in fade-in slide-in-from-left-4 duration-1000 mt-12 pt-12 border-t border-white/5">
-                  <div className="w-12 h-12 rounded-2xl bg-emerald-500 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-500/20">
-                    <CheckCircle className="w-6 h-6 text-white" />
-                  </div>
-                  <div className="flex-1 pt-2 space-y-4">
-                    <p className="text-[10px] font-black text-emerald-500 uppercase tracking-[0.3em]">Final Insight Matrix</p>
-                    <div className="prose prose-invert max-w-none text-white">
-                      <ReactMarkdown
-                        components={{
-                          p: ({ node, ...props }) => <p {...props} className="text-lg md:text-xl leading-relaxed mb-6 last:mb-0 font-semibold" />,
-                          ul: ({ node, ...props }) => <ul {...props} className="mb-6 space-y-4 list-none" />,
-                          ol: ({ node, ...props }) => <ol {...props} className="mb-6 space-y-4 list-decimal list-inside" />,
-                          li: ({ node, ...props }) => (
-                            <li className="flex items-start gap-3 text-lg md:text-xl font-semibold">
-                              <span className="mt-3 w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                              <span {...props} />
-                            </li>
-                          ),
-                          h1: ({ node, ...props }) => <h1 {...props} className="text-4xl font-black mb-8 tracking-tighter" />,
-                          h2: ({ node, ...props }) => <h2 {...props} className="text-3xl font-bold mb-6 tracking-tight" />,
-                          h3: ({ node, ...props }) => <h3 {...props} className="text-2xl font-bold mb-4 tracking-tight" />,
-                          strong: ({ node, ...props }) => <strong {...props} className="font-black text-emerald-400" />,
-                        }}
-                      >
-                        {msg.content}
-                      </ReactMarkdown>
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              {/* Intake Search Indicator */}
-              {intakeSearch && (
-                <div className="flex items-start gap-5 animate-in fade-in slide-in-from-left-2 duration-300">
-                  <div className="w-10 h-10 rounded-2xl bg-amber-500/10 flex items-center justify-center shrink-0 border border-amber-500/20">
-                    <Search className={`w-5 h-5 text-amber-400 ${intakeSearch.status === 'searching' ? 'animate-pulse' : ''}`} />
-                  </div>
-                  <div className="flex-1 pt-2 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <p className="text-xs font-bold text-amber-400 uppercase tracking-widest">
-                        {intakeSearch.status === 'searching' ? 'Looking up' : 'Looked up'}
-                      </p>
-                      {intakeSearch.status === 'searching' && (
-                        <Loader2 className="w-3 h-3 text-amber-400 animate-spin" />
-                      )}
-                      {intakeSearch.status === 'complete' && (
-                        <Check className="w-3 h-3 text-emerald-400" />
-                      )}
-                    </div>
-                    <p className="text-sm text-slate-300 font-medium">{intakeSearch.query}</p>
-                    {intakeSearch.status === 'complete' && intakeSearch.answer && (
-                      <div className="mt-2 p-3 rounded-lg bg-white/[0.02] border border-white/5 max-h-48 overflow-y-auto">
-                        <p className="text-xs text-slate-400 leading-relaxed whitespace-pre-wrap">
-                          {intakeSearch.answer}
-                                                  </p>
-                      </div>
+            {/* Input Area */}
+            <footer className="p-6 bg-[#0a0a0a] border-t border-white/5 z-40">
+              <form onSubmit={handleSend} className="relative group max-w-4xl mx-auto">
+                <div className="relative flex items-center gap-3 p-2 rounded-3xl bg-white/2 border border-white/5 focus-within:border-white/10 focus-within:bg-white/4 transition-all duration-500 shadow-2xl">
+                  <Input
+                    type="text"
+                    value={inputMessage}
+                    onChange={(e) => setInputMessage(e.target.value)}
+                    placeholder={hasPendingMultiSelect ? "Protocol pending selection..." : status === 'ready' ? "Initiate research query..." : "Standby..."}
+                    disabled={status !== 'ready' || hasPendingMultiSelect}
+                    className="flex-1 bg-transparent border-none h-12 px-4 text-base focus-visible:ring-0 placeholder:text-slate-600 text-white font-medium"
+                  />
+                  <Button
+                    type="submit"
+                    disabled={!inputMessage.trim() || status !== 'ready' || hasPendingMultiSelect}
+                    className={cn(
+                      "h-12 w-12 rounded-[1.25rem] transition-all duration-500 shadow-xl",
+                      inputMessage.trim() && status === 'ready'
+                        ? 'bg-white text-black hover:bg-slate-200 hover:scale-105 active:scale-95'
+                        : 'bg-white/5 text-slate-600 opacity-20'
                     )}
-                  </div>
+                    size="icon"
+                  >
+                    <Send className="w-5 h-5" />
+                  </Button>
                 </div>
-              )}
-
-
-              {/* Error Display */}
-              {error && (
-                <div className="mx-auto max-w-2xl p-6 rounded-3xl bg-red-500/5 border border-red-500/10 flex items-start gap-4 animate-in shake-1">
-                  <AlertCircle className="w-6 h-6 text-red-500 shrink-0 mt-0.5" />
-                  <div className="space-y-1">
-                    <p className="text-xs font-black text-red-500 uppercase tracking-widest">Neural Fault</p>
-                    <p className="text-base text-red-400/80 leading-relaxed font-medium">{error}</p>
-                  </div>
-                </div>
-              )}
-
-              <div ref={messagesEndRef} className="h-10" />
-            </div>
-        </main>
-
-        {/* Input Area */}
-        <footer className="p-6 bg-[#0a0a0a] border-t border-white/5 z-40">
-          <form onSubmit={handleSend} className="relative group max-w-4xl mx-auto">
-            <div className="relative flex items-center gap-3 p-2 rounded-3xl bg-white/2 border border-white/5 focus-within:border-white/10 focus-within:bg-white/4 transition-all duration-500 shadow-2xl">
-              <Input
-                type="text"
-                value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
-                placeholder={hasPendingMultiSelect ? "Protocol pending selection..." : status === 'ready' ? "Initiate research query..." : "Standby..."}
-                disabled={status !== 'ready' || hasPendingMultiSelect}
-                className="flex-1 bg-transparent border-none h-12 px-4 text-base focus-visible:ring-0 placeholder:text-slate-600 text-white font-medium"
-              />
-              <Button
-                type="submit"
-                disabled={!inputMessage.trim() || status !== 'ready' || hasPendingMultiSelect}
-                className={cn(
-                  "h-12 w-12 rounded-[1.25rem] transition-all duration-500 shadow-xl",
-                  inputMessage.trim() && status === 'ready'
-                    ? 'bg-white text-black hover:bg-slate-200 hover:scale-105 active:scale-95'
-                    : 'bg-white/5 text-slate-600 opacity-20'
-                )}
-                size="icon"
-              >
-                <Send className="w-5 h-5" />
-              </Button>
-            </div>
-          </form>
-        </footer>
+              </form>
+            </footer>
+          </>
+        )}
       </div>
 
       {/* Logs Panel */}

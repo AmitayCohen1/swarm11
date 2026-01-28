@@ -7,7 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createAgent, deleteAgent, updateAgentMetrics, addAgentMetric, getAgent } from '@/lib/eval';
+import { createAgent, deleteAgent, updateAgentMetrics, addAgentMetric, getAgent, updateAgentEvalBatchSize } from '@/lib/eval';
 import { db } from '@/lib/db';
 import { llmCalls, llmEvaluations } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -15,7 +15,7 @@ import { eq } from 'drizzle-orm';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { name, description, model } = body;
+    const { name, description, model, evalBatchSize } = body;
 
     if (!name || !description) {
       return NextResponse.json(
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Auto-generate the ID
-    const id = await createAgent({ name, description, model });
+    const id = await createAgent({ name, description, model, evalBatchSize });
 
     return NextResponse.json({
       success: true,
@@ -64,7 +64,7 @@ export async function DELETE(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
-    const { id, metrics, addMetric, resetData } = body;
+    const { id, metrics, addMetric, resetData, evalBatchSize } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'id is required' }, { status: 400 });
@@ -89,6 +89,9 @@ export async function PATCH(req: NextRequest) {
     } else if (metrics) {
       // Replace all metrics
       await updateAgentMetrics(id, metrics);
+    } else if (typeof evalBatchSize === 'number') {
+      // Update evaluation trigger threshold for this agent
+      await updateAgentEvalBatchSize(id, Math.max(1, Math.floor(evalBatchSize)));
     }
 
     const updated = await getAgent(id);

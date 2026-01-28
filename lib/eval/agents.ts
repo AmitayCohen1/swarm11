@@ -21,6 +21,7 @@ export interface AgentConfig {
   name: string;
   description: string;
   model?: string;
+  evalBatchSize?: number;
   metrics?: Metric[];
 }
 
@@ -35,6 +36,7 @@ export async function createAgent(config: AgentConfig): Promise<string> {
     name: config.name,
     description: config.description,
     model: config.model,
+    evalBatchSize: config.evalBatchSize ?? 3,
     criteria: config.metrics || [],
   });
 
@@ -47,6 +49,12 @@ export async function createAgent(config: AgentConfig): Promise<string> {
 export async function updateAgentMetrics(id: string, metrics: Metric[]): Promise<void> {
   await db.update(agents)
     .set({ criteria: metrics })
+    .where(eq(agents.id, id));
+}
+
+export async function updateAgentEvalBatchSize(id: string, evalBatchSize: number): Promise<void> {
+  await db.update(agents)
+    .set({ evalBatchSize })
     .where(eq(agents.id, id));
 }
 
@@ -80,6 +88,7 @@ export async function getAgent(id: string): Promise<(AgentConfig & { id: string 
     name: dbAgent.name,
     description: dbAgent.description,
     model: dbAgent.model || undefined,
+    evalBatchSize: dbAgent.evalBatchSize ?? 3,
     metrics: (dbAgent.criteria as Metric[]) || [],
   };
 }
@@ -94,6 +103,7 @@ export async function getAllAgents(): Promise<Array<AgentConfig & { id: string }
     name: a.name,
     description: a.description,
     model: a.model || undefined,
+    evalBatchSize: a.evalBatchSize ?? 3,
     metrics: (a.criteria as Metric[]) || [],
   }));
 }

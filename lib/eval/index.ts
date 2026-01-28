@@ -12,11 +12,11 @@ import { generateText } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { getAgent, updateAgentMetrics, Metric } from './agents';
 
-const EVAL_BATCH_SIZE = 5;
+const DEFAULT_EVAL_BATCH_SIZE = 3;
 const EVAL_MODEL = openai('gpt-5.1');
 
 // Re-export for convenience
-export { createAgent, getAgent, getAllAgents, deleteAgent, updateAgentMetrics, addAgentMetric } from './agents';
+export { createAgent, getAgent, getAllAgents, deleteAgent, updateAgentMetrics, addAgentMetric, updateAgentEvalBatchSize } from './agents';
 export type { Metric } from './agents';
 
 // ============================================================
@@ -42,6 +42,8 @@ export async function trackLlmCall(params: TrackLlmCallParams): Promise<string |
     return null;
   }
 
+  const evalBatchSize = Math.max(1, agent.evalBatchSize ?? DEFAULT_EVAL_BATCH_SIZE);
+
   // Save the call
   const [inserted] = await db.insert(llmCalls).values({
     agentName: params.agentId,
@@ -65,7 +67,7 @@ export async function trackLlmCall(params: TrackLlmCallParams): Promise<string |
 
   const pendingCount = unevaluatedCount[0]?.count ?? 0;
 
-  if (pendingCount >= EVAL_BATCH_SIZE) {
+  if (pendingCount >= evalBatchSize) {
     // Trigger evaluation in background (don't await)
     runEvaluation(params.agentId).catch(err => {
       console.error(`[Eval] Failed to run evaluation for ${params.agentId}:`, err);
@@ -96,7 +98,13 @@ async function runEvaluation(agentId: string): Promise<void> {
     return;
   }
 
-  // Get the most recent unevaluated call for this agent
+  const evalBatchSize = Math.max(1, agent.evalBatchSize ?? DEFAULT_EVAL_BATCH_SIZE);
+  const hasMetrics = agent.metrics && agent.metrics.length > 0;
+
+  // When discovering metrics, get multiple calls to see patterns
+  // When evaluating, just get the most recent one
+  const callLimit = hasMetrics ? 1 : evalBatchSize;
+
   const calls = await db
     .select()
     .from(llmCalls)
@@ -105,17 +113,17 @@ async function runEvaluation(agentId: string): Promise<void> {
       eq(llmCalls.evaluated, false)
     ))
     .orderBy(desc(llmCalls.createdAt))
-    .limit(1);
+    .limit(callLimit);
 
   if (calls.length === 0) {
     console.log(`[Eval] No calls to evaluate for ${agentId}`);
     return;
   }
 
-  const call = calls[0];
-
-  // Build evaluation prompt
-  const evalPrompt = buildEvalPrompt(agent, call);
+  // Build evaluation prompt - pass all calls for metric discovery, single call for scoring
+  const evalPrompt = hasMetrics
+    ? buildEvalPrompt(agent, calls[0])
+    : buildMetricDiscoveryPrompt(agent, calls);
 
   // Run evaluation
   const result = await generateText({
@@ -138,17 +146,19 @@ async function runEvaluation(agentId: string): Promise<void> {
   // Save evaluation
   const [evaluation] = await db.insert(llmEvaluations).values({
     agentName: agentId,
-    callCount: 1,
+    callCount: calls.length,
     scores: evalResult.scores,
     reasoning: evalResult.reasoning || null,
     insights: evalResult.insights,
     recommendations: evalResult.suggestedMetrics ? JSON.stringify(evalResult.suggestedMetrics) : null,
   }).returning({ id: llmEvaluations.id });
 
-  // Mark this specific call as evaluated
-  await db.update(llmCalls)
-    .set({ evaluated: true, evaluationBatchId: evaluation.id })
-    .where(eq(llmCalls.id, call.id));
+  // Mark all analyzed calls as evaluated
+  for (const call of calls) {
+    await db.update(llmCalls)
+      .set({ evaluated: true, evaluationBatchId: evaluation.id })
+      .where(eq(llmCalls.id, call.id));
+  }
 
   console.log(`[Eval] Completed evaluation for ${agentId}: ${JSON.stringify(evalResult.scores)}`);
 }
@@ -157,21 +167,22 @@ async function runEvaluation(agentId: string): Promise<void> {
 // Evaluation Prompt Builder
 // ============================================================
 
+function formatCallForPrompt(call: typeof llmCalls.$inferSelect, index?: number): string {
+  const header = index !== undefined ? `--- CALL ${index + 1} ---` : '';
+  return `${header}
+System Prompt: ${call.systemPrompt ? call.systemPrompt.substring(0, 500) + (call.systemPrompt.length > 500 ? '...' : '') : '(none)'}
+Input: ${JSON.stringify(call.input, null, 2).substring(0, 600)}
+Output: ${JSON.stringify(call.output, null, 2).substring(0, 600)}
+`.trim();
+}
+
 function buildEvalPrompt(
   agent: { id: string; name: string; description: string; metrics?: Metric[] },
   call: typeof llmCalls.$inferSelect
 ): string {
-  const hasMetrics = agent.metrics && agent.metrics.length > 0;
+  const callText = formatCallForPrompt(call);
 
-  const callText = `
-System Prompt: ${call.systemPrompt ? call.systemPrompt.substring(0, 500) + '...' : '(none)'}
-Input: ${JSON.stringify(call.input, null, 2).substring(0, 800)}
-Output: ${JSON.stringify(call.output, null, 2).substring(0, 800)}
-`;
-
-  if (hasMetrics) {
-    // Evaluate on existing metrics
-    return `Evaluate this LLM call from "${agent.name}" agent.
+  return `Evaluate this LLM call from "${agent.name}" agent.
 Agent: ${agent.description}
 
 ${callText}
@@ -191,29 +202,52 @@ Return JSON only:
   "insights": "<MAX 20 words: key strength + key weakness>",
   "suggestedMetrics": []
 }`;
-  } else {
-    // No metrics yet - suggest key metrics
-    return `Evaluate this LLM call from "${agent.name}" agent.
-Agent: ${agent.description}
+}
 
-${callText}
+function buildMetricDiscoveryPrompt(
+  agent: { id: string; name: string; description: string; metrics?: Metric[] },
+  calls: (typeof llmCalls.$inferSelect)[]
+): string {
+  const callsText = calls.map((call, i) => formatCallForPrompt(call, i)).join('\n\n');
 
-Suggest exactly 2-3 KEY metrics for this agent. Requirements:
-- Metric names: 1-2 words, clear (e.g., "Accuracy", "Relevance", "Completeness")
-- Descriptions: One short sentence, specific to this agent
-- Only essential metrics that matter most
+  return `You are analyzing an AI agent to discover what quality metrics matter for evaluating it.
+
+AGENT: "${agent.name}"
+PURPOSE: ${agent.description}
+
+HERE ARE ${calls.length} RECENT CALLS FROM THIS AGENT:
+
+${callsText}
+
+YOUR TASK: Figure out what makes a GOOD result vs a BAD result for this specific agent.
+
+Analyze:
+1. What is this agent supposed to do? (look at the system prompt and purpose)
+2. Looking at these outputs - what aspects could vary in quality?
+3. What would a PERFECT response look like for this agent? What would a TERRIBLE one look like?
+4. What are the 2-3 key dimensions that separate good from bad?
+
+IMPORTANT:
+- BE SPECIFIC to this agent's job. No generic metrics like "Quality" or "Helpfulness"
+- Each metric should be something you can clearly judge by looking at the output
+- Think about what the USER of this agent actually cares about
+
+Examples of good metrics for different agents:
+- Code generator → "Correctness" (runs without errors), "Readability" (clear variable names, structure)
+- Summarizer → "Coverage" (captures key points), "Conciseness" (no unnecessary info)
+- Q&A bot → "Accuracy" (factually correct), "Directness" (answers the question asked)
+- Data extractor → "Completeness" (finds all items), "Format" (follows expected structure)
 
 Return JSON only:
 {
   "scores": {
-    "overall": <1-10>
+    "overall": <1-10 average quality across these examples>
   },
-  "insights": "<MAX 20 words: key observation>",
+  "insights": "<20 words: patterns you noticed - what's working well, what could improve>",
   "suggestedMetrics": [
-    { "name": "MetricName", "description": "One sentence description" }
+    { "name": "<1-2 words>", "description": "<What this measures - be specific to this agent>" }
   ]
 }`;
-  }
 }
 
 // ============================================================

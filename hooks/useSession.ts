@@ -565,8 +565,30 @@ export function useSession(options: UseSessionOptions = {}) {
               const parsed = JSON.parse(update.brain);
               // ResearchState format (has nodes object)
               if (parsed.nodes && typeof parsed.nodes === 'object') {
-                console.log('[brain_update] Setting researchDoc from brain:', parsed);
-                setResearchDoc(parsed as ResearchState);
+                // Only update if data actually changed to prevent unnecessary re-renders
+                setResearchDoc(prev => {
+                  if (!prev) return parsed as ResearchState;
+                  // Quick check: compare meaningful changes
+                  const prevNodeCount = Object.keys(prev.nodes).length;
+                  const newNodeCount = Object.keys(parsed.nodes).length;
+                  const statusChanged = prev.status !== parsed.status;
+                  const nodeCountChanged = prevNodeCount !== newNodeCount;
+                  const finalAnswerChanged = prev.finalAnswer !== parsed.finalAnswer;
+                  // Check if any node status or search count changed
+                  const anyNodeChanged = Object.keys(parsed.nodes).some(id => {
+                    const prevNode = prev.nodes[id];
+                    const newNode = parsed.nodes[id];
+                    if (!prevNode) return true;
+                    if (prevNode.status !== newNode.status) return true;
+                    if ((prevNode.searches?.length || 0) !== (newNode.searches?.length || 0)) return true;
+                    if (prevNode.answer !== newNode.answer) return true;
+                    return false;
+                  });
+                  if (statusChanged || nodeCountChanged || anyNodeChanged || finalAnswerChanged) {
+                    return parsed as ResearchState;
+                  }
+                  return prev; // No meaningful change, keep previous state
+                });
                 // Insert a single "anchor" message so ResearchProgress appears inline in the chat flow.
                 // This prevents other messages (e.g., reviewer) from visually stacking "above" the research UI.
                 setMessages(prev => {

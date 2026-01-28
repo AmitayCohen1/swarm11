@@ -30,6 +30,7 @@ interface AgentStats {
   id: string;
   name: string;
   description: string;
+  evalBatchSize?: number;
   criteria?: Array<{ name: string; description: string }>;
   stats: {
     totalCalls: number;
@@ -78,6 +79,8 @@ export default function ObservatoryPage() {
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [dialogAction, setDialogAction] = useState<{ type: 'deleteAgent' | 'resetAgent' | 'deleteMetric'; id: string; metricName?: string } | null>(null);
+  const [evalBatchDraft, setEvalBatchDraft] = useState<number>(3);
+  const [savingEvalBatch, setSavingEvalBatch] = useState(false);
 
   const copyInstructions = () => {
     if (!data?.agents || data.agents.length === 0) return;
@@ -109,6 +112,29 @@ export default function ObservatoryPage() {
       setSelectedAgent(data.agents[0].id);
     }
   }, [data, selectedAgent]);
+
+  // Keep draft in sync with selected agent
+  useEffect(() => {
+    if (!selectedAgent || !data?.agents) return;
+    const a = data.agents.find(x => x.id === selectedAgent);
+    if (!a) return;
+    setEvalBatchDraft(a.evalBatchSize ?? 3);
+  }, [selectedAgent, data?.agents]);
+
+  const saveEvalBatchSize = async (agentId: string) => {
+    const value = Math.max(1, Math.floor(evalBatchDraft));
+    setSavingEvalBatch(true);
+    try {
+      await fetch('/api/admin/observatory/agents', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: agentId, evalBatchSize: value }),
+      });
+      await fetchData();
+    } finally {
+      setSavingEvalBatch(false);
+    }
+  };
 
   const triggerEval = async (agentId: string) => {
     setTriggeringEval(agentId);
@@ -329,6 +355,30 @@ export default function ObservatoryPage() {
                 <p className="text-xs text-neutral-500 mt-1">{agent.description}</p>
               </div>
               <div className="flex items-start gap-4">
+                {/* Eval threshold */}
+                <div className="text-right">
+                  <div className="text-[10px] text-neutral-600 uppercase tracking-widest mb-1">
+                    Eval threshold
+                  </div>
+                  <div className="flex items-center justify-end gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      value={evalBatchDraft}
+                      onChange={e => setEvalBatchDraft(parseInt(e.target.value || '1', 10))}
+                      className="w-16 bg-transparent border border-neutral-800 rounded px-2 py-1 text-xs text-neutral-200 focus:outline-none focus:border-neutral-600"
+                    />
+                    <button
+                      onClick={() => saveEvalBatchSize(agent.id)}
+                      disabled={savingEvalBatch}
+                      className="text-xs px-2 py-1 rounded bg-neutral-800 text-neutral-200 hover:bg-neutral-700 disabled:opacity-40"
+                      title="Save threshold"
+                    >
+                      {savingEvalBatch ? '...' : 'save'}
+                    </button>
+                  </div>
+                </div>
+
                 {/* Suggestions Alert */}
                 {(() => {
                   const latestWithSuggestions = [...(agentEvals || [])].reverse().find(ev => {
