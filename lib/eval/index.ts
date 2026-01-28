@@ -95,16 +95,18 @@ const MetricSchema = z.object({
 });
 
 // Use arrays instead of z.record() - OpenAI doesn't support dynamic keys
+// Note: OpenAI requires ALL fields to be required, no .optional()
+// Note: Removed .describe() as it can interfere with JSON Schema conversion
 const ScoreEntrySchema = z.object({
-  metric: z.string().describe('Metric name'),
-  score: z.number().describe('Score 1-10'),
-  reasoning: z.string().optional().describe('Brief reasoning for the score'),
+  metric: z.string(),
+  score: z.number(),
+  reasoning: z.string(),
 });
 
 const EvalResultSchema = z.object({
-  scores: z.array(ScoreEntrySchema).describe('Array of metric scores'),
-  insights: z.string().describe('Key insights about the evaluation'),
-  suggestedMetrics: z.array(MetricSchema).optional().describe('New metrics to add'),
+  scores: z.array(ScoreEntrySchema),
+  insights: z.string(),
+  suggestedMetrics: z.array(MetricSchema),
 });
 
 function normalizeMetricName(name: string): string {
@@ -160,7 +162,7 @@ async function runEvaluation(agentId: string): Promise<void> {
     const result = await generateText({
       model: EVAL_MODEL,
       prompt: evalPrompt,
-      experimental_output: Output.object({ schema: EvalResultSchema }),
+      output: Output.object({ schema: EvalResultSchema }),
       providerOptions: {
         openai: {
           reasoningEffort: 'low',
@@ -168,7 +170,7 @@ async function runEvaluation(agentId: string): Promise<void> {
       },
     });
 
-    const parsed = result.experimental_output as z.infer<typeof EvalResultSchema>;
+    const parsed = result.output as z.infer<typeof EvalResultSchema>;
 
     // Convert array format to record format
     const scores: Record<string, number> = {};
@@ -365,11 +367,11 @@ DO NOT use generic metrics like "Quality", "Helpfulness", "Accuracy" unless the 
 DO NOT suggest metrics that duplicate or overlap with existing metrics listed above.
 DO NOT extract non-rules (e.g., the user's objective, examples, or background context) unless it's phrased as an instruction.
 
-Return JSON only:
+Return JSON matching this schema:
 {
-  "scores": {
-    "overall": <1-10 how well the example output follows these rules>
-  },
+  "scores": [
+    { "metric": "overall", "score": <1-10>, "reasoning": "<how well the output follows the rules>" }
+  ],
   "insights": "<20 words: which rules are being followed, which are being violated>",
   "suggestedMetrics": [
     { "name": "<2-4 words>", "description": "Prompt says '<quote rule>' so here we measure <what we check>" }
